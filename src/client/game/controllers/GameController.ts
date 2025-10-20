@@ -5,6 +5,7 @@ import { Piece } from '../models/Piece.js';
 import { Grid } from '../models/Grid.js';
 import { GameMode } from '../../../shared/types/game.js';
 import { AudioEvents } from '../audio/AudioEvents.js';
+import { GAME_MODES } from '../../../shared/config/game-modes.js';
 
 /**
  * Game controller state
@@ -416,8 +417,16 @@ export class GameController {
         this.handleGameOver();
       }
     } else {
-      // Failed to add piece - game over
-      this.handleGameOver();
+      // Failed to add piece - check if this should trigger game over
+      const modeConfig = GAME_MODES[this.state.gameMode];
+      
+      if (modeConfig.hasGameOver) {
+        // Normal game over for modes that support it
+        this.handleGameOver();
+      } else {
+        // Zen mode: clear some space and try again
+        this.handleZenModeGridFull();
+      }
     }
   }
 
@@ -425,8 +434,48 @@ export class GameController {
    * Check if game over condition is met
    */
   private checkGameOver(): boolean {
-    // Check if grid is full at the top
+    const modeConfig = GAME_MODES[this.state.gameMode];
+    
+    // Zen mode and other modes with hasGameOver=false never have game over
+    if (!modeConfig.hasGameOver) {
+      return false;
+    }
+    
+    // For modes with game over enabled, check if grid is full at the top
     return this.state.grid.isFull();
+  }
+
+  /**
+   * Handle Zen mode grid full condition by clearing some space
+   */
+  private handleZenModeGridFull(): void {
+    console.log('Zen mode: Grid full, clearing space...');
+    
+    // Clear the top few rows to make space
+    const rowsToClear = 3;
+    for (let row = 0; row < rowsToClear; row++) {
+      this.state.grid.clearRow(row);
+    }
+    
+    // Apply gravity to settle remaining pieces
+    this.state.grid.applyGravity();
+    
+    // Try to spawn the piece again
+    if (this.state.currentPiece) {
+      // Reset piece position to top center
+      this.state.currentPiece.gridX = 4; // Center of 10-wide grid
+      this.state.currentPiece.gridY = 0; // Top of grid
+      
+      // Try to add it again
+      const success = this.state.grid.addPiece(this.state.currentPiece);
+      if (!success) {
+        // If still can't add, clear more space
+        for (let row = 0; row < 5; row++) {
+          this.state.grid.clearRow(row);
+        }
+        this.state.grid.applyGravity();
+      }
+    }
   }
 
   /**

@@ -1,17 +1,28 @@
 import { Scene, GameObjects } from 'phaser';
 import { AudioManager, AudioEvents } from '../audio/index.js';
 import { AudioSettingsUI } from '../ui/AudioSettingsUI.js';
+import { ModeSelectionUI } from '../ui/ModeSelectionUI.js';
+import { ProgressionSystem } from '../systems/ProgressionSystem.js';
+import { GameMode } from '../../../shared/types/game.js';
 
 export class MainMenu extends Scene {
   background: GameObjects.Image | null = null;
   logo: GameObjects.Image | null = null;
   title: GameObjects.Text | null = null;
   audioButton: GameObjects.Text | null = null;
+  modeButton: GameObjects.Text | null = null;
+  playButton: GameObjects.Text | null = null;
+  currentModeText: GameObjects.Text | null = null;
   
   // Audio system
   private audioManager: AudioManager;
   private audioEvents: AudioEvents;
   private audioSettingsUI: AudioSettingsUI;
+  
+  // Mode selection system
+  private modeSelectionUI: ModeSelectionUI;
+  private progressionSystem: ProgressionSystem;
+  private currentMode: GameMode = 'easy';
 
   constructor() {
     super('MainMenu');
@@ -27,11 +38,25 @@ export class MainMenu extends Scene {
     this.logo = null;
     this.title = null;
     this.audioButton = null;
+    this.modeButton = null;
+    this.playButton = null;
+    this.currentModeText = null;
     
     // Initialize audio system
     this.audioManager = new AudioManager(this);
     this.audioEvents = new AudioEvents(this.audioManager);
     this.audioSettingsUI = new AudioSettingsUI(this, this.audioManager);
+    
+    // Initialize progression system
+    this.progressionSystem = ProgressionSystem.getInstance();
+    this.currentMode = this.progressionSystem.getCurrentMode();
+    
+    // Initialize mode selection UI
+    this.modeSelectionUI = new ModeSelectionUI(this, {
+      onModeSelect: (mode: GameMode) => this.selectMode(mode),
+      currentMode: this.currentMode,
+      unlockedModes: this.progressionSystem.getUnlockedModes()
+    });
   }
 
   create() {
@@ -41,15 +66,14 @@ export class MainMenu extends Scene {
     // Start menu music
     this.audioEvents.onMenuEnter();
     
+    // Create mode selection UI
+    this.modeSelectionUI.create();
+    this.modeSelectionUI.setAudioEvents(this.audioEvents);
+    
     this.refreshLayout();
 
     // Re-calculate positions whenever the game canvas is resized (e.g. orientation change).
     this.scale.on('resize', () => this.refreshLayout());
-
-    this.input.once('pointerdown', () => {
-      this.audioEvents.onMenuSelect();
-      this.scene.start('Game');
-    });
   }
 
   /**
@@ -80,7 +104,7 @@ export class MainMenu extends Scene {
     const baseFontSize = 38;
     if (!this.title) {
       this.title = this.add
-        .text(0, 0, 'DICETRIX\nTap to Play', {
+        .text(0, 0, 'DICETRIX', {
           fontFamily: 'Arial Black',
           fontSize: `${baseFontSize}px`,
           color: '#00ff88',
@@ -90,8 +114,74 @@ export class MainMenu extends Scene {
         })
         .setOrigin(0.5);
     }
-    this.title!.setPosition(width / 2, height * 0.6);
+    this.title!.setPosition(width / 2, height * 0.5);
     this.title!.setScale(scaleFactor);
+
+    // Current mode display
+    if (!this.currentModeText) {
+      this.currentModeText = this.add.text(0, 0, `Mode: ${this.currentMode.toUpperCase()}`, {
+        fontFamily: 'Arial Black',
+        fontSize: '20px',
+        color: '#ffd700',
+        stroke: '#000000',
+        strokeThickness: 2,
+      }).setOrigin(0.5);
+    }
+    this.currentModeText!.setPosition(width / 2, height * 0.58);
+    this.currentModeText!.setScale(scaleFactor);
+    this.currentModeText!.setText(`Mode: ${this.currentMode.toUpperCase()}`);
+
+    // Play button
+    if (!this.playButton) {
+      this.playButton = this.add.text(0, 0, 'PLAY', {
+        fontFamily: 'Arial Black',
+        fontSize: '32px',
+        color: '#ffffff',
+        backgroundColor: '#00ff88',
+        padding: { x: 30, y: 15 } as Phaser.Types.GameObjects.Text.TextPadding
+      })
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerover', () => {
+        this.audioEvents.onMenuHover();
+        this.playButton!.setStyle({ backgroundColor: '#00cc66' });
+      })
+      .on('pointerout', () => {
+        this.playButton!.setStyle({ backgroundColor: '#00ff88' });
+      })
+      .on('pointerdown', () => {
+        this.audioEvents.onMenuSelect();
+        this.startGame();
+      });
+    }
+    this.playButton!.setPosition(width / 2, height * 0.68);
+    this.playButton!.setScale(scaleFactor);
+
+    // Mode selection button
+    if (!this.modeButton) {
+      this.modeButton = this.add.text(0, 0, 'SELECT MODE', {
+        fontFamily: 'Arial Black',
+        fontSize: '20px',
+        color: '#ffffff',
+        backgroundColor: '#444444',
+        padding: { x: 20, y: 10 } as Phaser.Types.GameObjects.Text.TextPadding
+      })
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerover', () => {
+        this.audioEvents.onMenuHover();
+        this.modeButton!.setStyle({ backgroundColor: '#555555' });
+      })
+      .on('pointerout', () => {
+        this.modeButton!.setStyle({ backgroundColor: '#444444' });
+      })
+      .on('pointerdown', () => {
+        this.audioEvents.onMenuSelect();
+        this.modeSelectionUI.show();
+      });
+    }
+    this.modeButton!.setPosition(width / 2, height * 0.78);
+    this.modeButton!.setScale(scaleFactor);
 
     // Audio settings button
     if (!this.audioButton) {
@@ -121,5 +211,37 @@ export class MainMenu extends Scene {
 
     // Update audio settings UI layout
     this.audioSettingsUI.updateLayout(width, height);
+    
+    // Update mode selection UI layout
+    this.modeSelectionUI.updateLayout(width, height);
+  }
+
+  /**
+   * Select a game mode
+   */
+  private selectMode(mode: GameMode): void {
+    this.currentMode = mode;
+    this.progressionSystem.setCurrentMode(mode);
+    
+    // Update UI to reflect new mode
+    if (this.currentModeText) {
+      this.currentModeText.setText(`Mode: ${mode.toUpperCase()}`);
+    }
+    
+    // Update mode selection UI
+    this.modeSelectionUI.updateCurrentMode(mode);
+    
+    console.log(`Selected mode: ${mode}`);
+  }
+
+  /**
+   * Start the game with current mode
+   */
+  private startGame(): void {
+    // Pass current mode to game scene
+    this.scene.start('Game', { 
+      gameMode: this.currentMode,
+      progressionData: this.progressionSystem.getProgressionData()
+    });
   }
 }

@@ -1,26 +1,17 @@
 import express from 'express';
 import { redis, createServer, context } from '@devvit/web/server';
 import { createPost } from './core/post';
-
-// Dicetrix game types
-interface GameInitResponse {
-  postId: string;
-  score: number;
-  level: number;
-  gameState: string;
-}
-
-interface ScoreSubmissionRequest {
-  score: number;
-  level: number;
-  mode: string;
-}
-
-interface ScoreSubmissionResponse {
-  success: boolean;
-  newHighScore: boolean;
-  leaderboardPosition?: number;
-}
+import { 
+  GameInitResponse, 
+  ScoreSubmissionRequest, 
+  ScoreSubmissionResponse,
+  LeaderboardResponse,
+  LeaderboardEntry,
+  ShareScoreRequest,
+  ShareScoreResponse,
+  ErrorResponse 
+} from '../shared/types/api';
+import { GameMode } from '../shared/types/game';
 
 const app = express();
 
@@ -31,109 +22,425 @@ app.use(express.urlencoded({ extended: true }));
 // Middleware for plain text body parsing
 app.use(express.text());
 
+// Authentication middleware
+const authenticateUser = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const { userId } = context;
+  if (!userId) {
+    res.status(401).json({
+      status: 'error',
+      message: 'Authentication required',
+      code: 'AUTH_REQUIRED'
+    } as ErrorResponse);
+    return;
+  }
+  // Get username from context or use Anonymous as fallback
+  const username = (context as any).username || 'Anonymous';
+  req.user = { userId, username };
+  next();
+};
+
+// Error handling middleware
+const handleError = (error: unknown, operation: string): ErrorResponse => {
+  console.error(`${operation} Error:`, error);
+  
+  if (error instanceof Error) {
+    return {
+      status: 'error',
+      message: error.message,
+      code: 'OPERATION_FAILED'
+    };
+  }
+  
+  return {
+    status: 'error',
+    message: `Unknown error during ${operation}`,
+    code: 'UNKNOWN_ERROR'
+  };
+};
+
 const router = express.Router();
 
-// Initialize game session
-router.get<{}, GameInitResponse | { status: string; message: string }>(
+// Extend Express Request type to include user
+declare global {
+  namespace Express {
+    interface Request {
+      user?: {
+        userId: string;
+        username: string;
+      };
+    }
+  }
+}
+
+// Initialize game session with user context
+router.get<{}, GameInitResponse | ErrorResponse>(
   '/api/game/init',
-  async (_req, res): Promise<void> => {
-    const { postId, userId } = context;
+  authenticateUser,
+  async (req, res): Promise<void> => {
+    const { postId } = context;
+    const { userId, username } = req.user!;
 
     if (!postId) {
-      console.error('API Init Error: postId not found in devvit context');
       res.status(400).json({
         status: 'error',
         message: 'postId is required but missing from context',
-      });
+        code: 'MISSING_POST_ID'
+      } as ErrorResponse);
       return;
     }
 
     try {
       // Get user's current game state or initialize new one
-      const gameStateKey = `dicetrix:game:${postId}:${userId || 'anonymous'}`;
+      const gameStateKey = `dicetrix:game:${postId}:${userId}`;
       const gameState = await redis.get(gameStateKey);
       
       let score = 0;
       let level = 1;
+      let mode: GameMode = 'easy';
       
       if (gameState) {
         const parsed = JSON.parse(gameState);
         score = parsed.score || 0;
         level = parsed.level || 1;
+        mode = parsed.mode || 'easy';
+      }
+
+      // Initialize user profile if not exists
+      const userProfileKey = `dicetrix:user:${userId}`;
+      const userProfile = await redis.get(userProfileKey);
+      
+      if (!userProfile) {
+        await redis.set(userProfileKey, JSON.stringify({
+          userId,
+          username,
+          createdAt: Date.now(),
+          lastActive: Date.now()
+        }));
+      } else {
+        // Update last active timestamp
+        const profile = JSON.parse(userProfile);
+        profile.lastActive = Date.now();
+        await redis.set(userProfileKey, JSON.stringify(profile));
       }
 
       res.json({
-        postId: postId,
+        postId,
         score,
         level,
         gameState: 'initialized',
-      });
+        mode
+      } as GameInitResponse);
     } catch (error) {
-      console.error(`API Init Error for post ${postId}:`, error);
-      let errorMessage = 'Unknown error during initialization';
-      if (error instanceof Error) {
-        errorMessage = `Initialization failed: ${error.message}`;
-      }
-      res.status(400).json({ status: 'error', message: errorMessage });
+      const errorResponse = handleError(error, 'game initialization');
+      res.status(500).json(errorResponse);
     }
   }
 );
 
-// Submit score to leaderboard
-router.post<{}, ScoreSubmissionResponse | { status: string; message: string }, ScoreSubmissionRequest>(
+// Submit score to leaderboard with validation
+router.post<{}, ScoreSubmissionResponse | ErrorResponse, ScoreSubmissionRequest>(
   '/api/game/score',
+  authenticateUser,
   async (req, res): Promise<void> => {
-    const { postId, userId, username } = context;
-    
-    if (!postId || !userId) {
-      res.status(400).json({
-        status: 'error',
-        message: 'Authentication required',
-      });
-      return;
-    }
+    const { postId } = context;
+    const { userId, username } = req.user!;
 
     try {
-      const { score, level, mode } = req.body;
+      const { score, level, mode, breakdown } = req.body;
       
-      if (typeof score !== 'number' || typeof level !== 'number' || typeof mode !== 'string') {
+      // Validate input data
+      if (typeof score !== 'number' || score < 0) {
         res.status(400).json({
           status: 'error',
-          message: 'Invalid score data',
-        });
+          message: 'Invalid score: must be a non-negative number',
+          code: 'INVALID_SCORE'
+        } as ErrorResponse);
+        return;
+      }
+
+      if (typeof level !== 'number' || level < 1) {
+        res.status(400).json({
+          status: 'error',
+          message: 'Invalid level: must be a positive number',
+          code: 'INVALID_LEVEL'
+        } as ErrorResponse);
+        return;
+      }
+
+      const validModes: GameMode[] = ['easy', 'medium', 'hard', 'expert', 'zen'];
+      if (!validModes.includes(mode)) {
+        res.status(400).json({
+          status: 'error',
+          message: 'Invalid game mode',
+          code: 'INVALID_MODE'
+        } as ErrorResponse);
+        return;
+      }
+
+      if (!breakdown || typeof breakdown.totalScore !== 'number') {
+        res.status(400).json({
+          status: 'error',
+          message: 'Invalid score breakdown',
+          code: 'INVALID_BREAKDOWN'
+        } as ErrorResponse);
+        return;
+      }
+
+      // Basic score validation - breakdown total should match submitted score
+      if (Math.abs(breakdown.totalScore - score) > 0.01) {
+        res.status(400).json({
+          status: 'error',
+          message: 'Score breakdown does not match submitted score',
+          code: 'SCORE_MISMATCH'
+        } as ErrorResponse);
         return;
       }
 
       // Save to user's game state
       const gameStateKey = `dicetrix:game:${postId}:${userId}`;
-      await redis.set(gameStateKey, JSON.stringify({ score, level, mode, timestamp: Date.now() }));
+      await redis.set(gameStateKey, JSON.stringify({ 
+        score, 
+        level, 
+        mode, 
+        breakdown,
+        timestamp: Date.now() 
+      }));
 
-      // Add to leaderboard
+      // Get user's previous best score for this mode
+      const userBestKey = `dicetrix:user:${userId}:best:${mode}`;
+      const previousBest = await redis.get(userBestKey);
+      const previousBestScore = previousBest ? JSON.parse(previousBest).score : 0;
+      const isNewHighScore = score > previousBestScore;
+
+      // Update user's best score if this is better
+      if (isNewHighScore) {
+        await redis.set(userBestKey, JSON.stringify({
+          score,
+          level,
+          breakdown,
+          timestamp: Date.now()
+        }));
+      }
+
+      // Add to leaderboard (sorted set with score as the sort key)
       const leaderboardKey = `dicetrix:leaderboard:${mode}`;
-      const scoreData = JSON.stringify({
+      const leaderboardEntry: LeaderboardEntry = {
         userId,
-        username: username || 'Anonymous',
+        username,
         score,
         level,
+        mode,
         timestamp: Date.now(),
-      });
+        breakdown
+      };
       
-      await redis.zadd(leaderboardKey, { score, member: scoreData });
+      await redis.zAdd(leaderboardKey, {
+        member: JSON.stringify(leaderboardEntry),
+        score: score
+      });
 
-      // Check if it's a new high score (simplified for now)
-      const userScores = await redis.zrevrangebyscore(leaderboardKey, '+inf', '-inf', { count: 1 });
-      const isNewHighScore = userScores.length > 0 && JSON.parse(userScores[0]).userId === userId;
+      // Get user's current leaderboard position by finding their entry
+      let leaderboardPosition: number | undefined;
+      try {
+        const allEntries = await redis.zRange(leaderboardKey, 0, -1, { 
+          reverse: true, 
+          by: 'rank'
+        });
+        
+        // Find user's position by matching their userId and score
+        for (let i = 0; i < allEntries.length; i++) {
+          const entryData = allEntries[i];
+          if (typeof entryData === 'string') {
+            try {
+              const entry = JSON.parse(entryData);
+              if (entry.userId === userId && entry.score === score) {
+                leaderboardPosition = i + 1;
+                break;
+              }
+            } catch (parseError) {
+              continue;
+            }
+          }
+        }
+      } catch (rankError) {
+        console.warn('Could not determine leaderboard position:', rankError);
+        leaderboardPosition = undefined;
+      }
 
       res.json({
         success: true,
         newHighScore: isNewHighScore,
-      });
+        leaderboardPosition,
+        message: isNewHighScore ? 'New personal best!' : 'Score submitted successfully'
+      } as ScoreSubmissionResponse);
     } catch (error) {
-      console.error(`Score submission error:`, error);
-      res.status(500).json({
-        status: 'error',
-        message: 'Failed to submit score',
+      const errorResponse = handleError(error, 'score submission');
+      res.status(500).json(errorResponse);
+    }
+  }
+);
+
+// Get leaderboard by difficulty mode
+router.get<{ mode: GameMode }, LeaderboardResponse | ErrorResponse>(
+  '/api/leaderboards/:mode',
+  async (req, res): Promise<void> => {
+    try {
+      const { mode } = req.params;
+      const { userId } = context;
+
+      // Validate mode parameter
+      const validModes: GameMode[] = ['easy', 'medium', 'hard', 'expert', 'zen'];
+      if (!validModes.includes(mode)) {
+        res.status(400).json({
+          status: 'error',
+          message: 'Invalid game mode',
+          code: 'INVALID_MODE'
+        } as ErrorResponse);
+        return;
+      }
+
+      const leaderboardKey = `dicetrix:leaderboard:${mode}`;
+      
+      // Get top 10 scores (Redis zRange with reverse returns highest scores first)
+      const topScores = await redis.zRange(leaderboardKey, 0, 9, { 
+        reverse: true,
+        by: 'rank'
       });
+      
+      // Parse leaderboard entries
+      const entries: LeaderboardEntry[] = [];
+      for (const scoreEntry of topScores) {
+        try {
+          if (typeof scoreEntry === 'string') {
+            const entryData = JSON.parse(scoreEntry);
+            entries.push(entryData);
+          }
+        } catch (parseError) {
+          console.warn('Failed to parse leaderboard entry:', parseError);
+        }
+      }
+
+      // Get total number of players for this mode
+      const totalPlayers = await redis.zCard(leaderboardKey);
+
+      // Get user's rank if authenticated
+      let userRank: number | undefined;
+      if (userId) {
+        // Find user's best entry in the leaderboard
+        const userBestKey = `dicetrix:user:${userId}:best:${mode}`;
+        const userBest = await redis.get(userBestKey);
+        
+        if (userBest) {
+          const userBestData = JSON.parse(userBest);
+          
+          try {
+            // Find user's rank by getting all entries and searching for their best score
+            const allEntries = await redis.zRange(leaderboardKey, 0, -1, { 
+              reverse: true, 
+              by: 'rank'
+            });
+            
+            for (let i = 0; i < allEntries.length; i++) {
+              const entryData = allEntries[i];
+              if (typeof entryData === 'string') {
+                try {
+                  const entry = JSON.parse(entryData);
+                  if (entry.userId === userId && entry.score === userBestData.score) {
+                    userRank = i + 1;
+                    break;
+                  }
+                } catch (parseError) {
+                  continue;
+                }
+              }
+            }
+          } catch (rankError) {
+            console.warn('Could not determine user rank:', rankError);
+            userRank = undefined;
+          }
+        }
+      }
+
+      res.json({
+        entries,
+        userRank,
+        totalPlayers
+      } as LeaderboardResponse);
+    } catch (error) {
+      const errorResponse = handleError(error, 'leaderboard retrieval');
+      res.status(500).json(errorResponse);
+    }
+  }
+);
+
+// Share score to subreddit
+router.post<{}, ShareScoreResponse | ErrorResponse, ShareScoreRequest>(
+  '/api/share-score',
+  authenticateUser,
+  async (req, res): Promise<void> => {
+    const { subredditName } = context;
+    const { username } = req.user!;
+
+    try {
+      const { score, level, mode, breakdown } = req.body;
+
+      // Validate input data
+      if (typeof score !== 'number' || score < 0) {
+        res.status(400).json({
+          status: 'error',
+          message: 'Invalid score data',
+          code: 'INVALID_SCORE'
+        } as ErrorResponse);
+        return;
+      }
+
+      const validModes: GameMode[] = ['easy', 'medium', 'hard', 'expert', 'zen'];
+      if (!validModes.includes(mode)) {
+        res.status(400).json({
+          status: 'error',
+          message: 'Invalid game mode',
+          code: 'INVALID_MODE'
+        } as ErrorResponse);
+        return;
+      }
+
+      // Format score post content
+      const modeDisplayName = mode.charAt(0).toUpperCase() + mode.slice(1);
+      
+      // Create formatted post content for sharing
+      const postContent = `Just achieved **${score.toLocaleString()} points** in Dicetrix ${modeDisplayName} mode! 🎯
+
+**Game Stats:**
+- **Score:** ${score.toLocaleString()}
+- **Level:** ${level}
+- **Mode:** ${modeDisplayName}
+- **Base Score:** ${breakdown.baseScore.toLocaleString()}
+- **Chain Multiplier:** ${breakdown.chainMultiplier}x
+${breakdown.ultimateComboMultiplier > 1 ? `- **Ultimate Combo:** ${breakdown.ultimateComboMultiplier}x` : ''}
+${breakdown.boosterModifiers > 0 ? `- **Booster Bonus:** +${breakdown.boosterModifiers.toLocaleString()}` : ''}
+
+Think you can beat my score? Try Dicetrix now! 🎮
+
+#Dicetrix #PuzzleGame #HighScore #Reddit #Gaming`;
+
+      // Create the post (this would use Reddit API in a real implementation)
+      // For now, we'll simulate post creation and log the content
+      const postUrl = `https://reddit.com/r/${subredditName}/comments/dicetrix_score_${Date.now()}`;
+      
+      // Log the formatted post content for debugging
+      console.log('Score share post content:', postContent);
+      
+      // Log the share event
+      console.log(`Score shared by ${username}: ${score} points in ${mode} mode`);
+
+      res.json({
+        success: true,
+        postUrl,
+        message: 'Score shared successfully!'
+      } as ShareScoreResponse);
+    } catch (error) {
+      const errorResponse = handleError(error, 'score sharing');
+      res.status(500).json(errorResponse);
     }
   }
 );

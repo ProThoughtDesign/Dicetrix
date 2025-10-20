@@ -38,6 +38,12 @@ export interface GameModeConfig {
   blackDieChance: number;   // Probability of black dice
   fallSpeed: number;        // Base falling speed (ms)
   hasGameOver: boolean;     // Whether game can end
+  // Progression-specific properties
+  wildDieChance: number;    // Probability of wild dice spawning
+  boosterDuration: number;  // Multiplier for booster effect duration
+  scoreMultiplier: number;  // Score multiplier for this mode
+  levelUpThreshold: number; // Points needed to level up
+  maxLevel: number;         // Maximum level achievable in this mode
 }
 
 export interface GameState {

@@ -5,9 +5,13 @@ import { BoosterHUD } from '../ui/BoosterHUD.js';
 import { GameController } from '../controllers/GameController.js';
 import { Grid } from '../models/Grid.js';
 import { Piece } from '../models/Piece.js';
-import { GameMode } from '../../../shared/types/game.js';
+import { GameMode, ScoreBreakdown } from '../../../shared/types/game.js';
 import { AudioManager, AudioEvents } from '../audio/index.js';
 import { AudioSettingsUI } from '../ui/AudioSettingsUI.js';
+import { ApiService } from '../services/ApiService.js';
+import { ProgressionSystem, ProgressionData } from '../systems/ProgressionSystem.js';
+import { PerformanceOptimizer } from '../systems/PerformanceOptimizer.js';
+import { GAME_MODES } from '../../../shared/config/game-modes.js';
 
 export class Game extends Scene {
   camera: Phaser.Cameras.Scene2D.Camera;
@@ -18,6 +22,11 @@ export class Game extends Scene {
   level: number = 1;
   gameMode: GameMode = 'medium';
   previousHighScore: number = 0;
+  gameStartTime: number = 0;
+  
+  // Progression system
+  private progressionSystem: ProgressionSystem;
+  private progressionData: ProgressionData;
   
   // Core game systems
   grid: Grid;
@@ -34,18 +43,44 @@ export class Game extends Scene {
   private audioEvents: AudioEvents;
   private audioSettingsUI: AudioSettingsUI;
   
+  // Performance optimization system
+  private performanceOptimizer: PerformanceOptimizer;
+  
   // UI elements
   scoreText: Phaser.GameObjects.Text;
   levelText: Phaser.GameObjects.Text;
   gameOverButton: Phaser.GameObjects.Text;
   pauseText: Phaser.GameObjects.Text;
   audioButton: Phaser.GameObjects.Text;
+  performanceText: Phaser.GameObjects.Text;
 
   constructor() {
     super('Game');
   }
 
-  update(time: number, delta: number): void {
+  /**
+   * Initialize scene with data from MainMenu
+   */
+  init(data: { gameMode?: GameMode; progressionData?: ProgressionData }): void {
+    // Initialize progression system
+    this.progressionSystem = ProgressionSystem.getInstance();
+    this.progressionData = data.progressionData || this.progressionSystem.getProgressionData();
+    
+    // Set game mode from data or use current progression mode
+    this.gameMode = data.gameMode || this.progressionData.currentMode;
+    
+    // Record game start time for playtime tracking
+    this.gameStartTime = Date.now();
+    
+    console.log(`Starting game in ${this.gameMode} mode`);
+  }
+
+  override update(time: number, delta: number): void {
+    // Update performance optimizer (must be first for accurate tracking)
+    if (this.performanceOptimizer) {
+      this.performanceOptimizer.update(time, delta);
+    }
+    
     // Update game controller (handles input and piece movement)
     if (this.gameController) {
       this.gameController.update(delta);
@@ -63,6 +98,17 @@ export class Game extends Scene {
   }
 
   create() {
+    // Initialize performance optimization system first
+    this.performanceOptimizer = PerformanceOptimizer.getInstance(this);
+    this.performanceOptimizer.initialize({
+      targetFrameTime: 60, // 60ms target as per requirement 8.5
+      autoOptimization: true,
+      enableObjectPooling: true,
+      enableMatchOptimization: true,
+      enableMemoryManagement: true,
+      enablePerformanceMonitoring: true
+    });
+    
     // Initialize audio system
     this.audioManager = new AudioManager(this);
     this.audioEvents = new AudioEvents(this.audioManager);
@@ -103,7 +149,7 @@ export class Game extends Scene {
     });
 
     // Display game instructions
-    const instructionsText = this.add.text(this.scale.width / 2, this.scale.height / 2, 
+    this.add.text(this.scale.width / 2, this.scale.height / 2, 
       'Dicetrix Controls:\n\n' +
       'Arrow Keys / Swipe: Move & Rotate\n' +
       'Space / Double Tap: Hard Drop\n' +
@@ -144,6 +190,20 @@ export class Game extends Scene {
     .on('pointerover', () => audioTestButton.setStyle({ backgroundColor: '#555555' }))
     .on('pointerout', () => audioTestButton.setStyle({ backgroundColor: '#444444' }))
     .on('pointerdown', () => this.testAudioSystem());
+
+    // Add performance test button
+    const performanceTestButton = this.add.text(this.scale.width / 2, this.scale.height / 2 + 250, 'Test Performance System', {
+      fontFamily: 'Arial Black',
+      fontSize: 20,
+      color: '#ffffff',
+      backgroundColor: '#444444',
+      padding: { x: 15, y: 8 } as Phaser.Types.GameObjects.Text.TextPadding,
+    })
+    .setOrigin(0.5)
+    .setInteractive({ useHandCursor: true })
+    .on('pointerover', () => performanceTestButton.setStyle({ backgroundColor: '#555555' }))
+    .on('pointerout', () => performanceTestButton.setStyle({ backgroundColor: '#444444' }))
+    .on('pointerdown', () => this.testPerformanceSystem());
   }
 
   /**
@@ -186,17 +246,19 @@ export class Game extends Scene {
    * Setup callbacks for game controller events
    */
   private setupGameControllerCallbacks(): void {
-    this.gameController.onPieceLockedCallback((piece, positions) => {
+    this.gameController.onPieceLockedCallback((_, positions) => {
       console.log('Piece locked at positions:', positions);
       this.audioEvents.onPieceLock();
       // Here we would trigger match detection, cascades, etc.
       // For now, just log the event
     });
 
-    this.gameController.onGameOverCallback(() => {
+    this.gameController.onGameOverCallback(async () => {
       console.log('Game Over!');
       this.audioEvents.onGameOver();
-      this.scene.start('GameOver');
+      
+      // Submit score to server and get leaderboard data
+      await this.handleGameOver();
     });
 
     this.gameController.onPauseCallback((paused) => {
@@ -212,12 +274,19 @@ export class Game extends Scene {
     });
 
     this.gameController.onScoreUpdateCallback((points) => {
-      const oldScore = this.score;
-      this.score += points;
+      // Apply mode-specific score multiplier
+      const modeConfig = GAME_MODES[this.gameMode];
+      const adjustedPoints = Math.floor(points * modeConfig.scoreMultiplier);
+      this.score += adjustedPoints;
       
-      // Check for level up (every 10,000 points)
+      // Check for level up using mode-specific threshold
       const oldLevel = this.level;
-      this.level = Math.floor(this.score / 10000) + 1;
+      this.level = Math.floor(this.score / modeConfig.levelUpThreshold) + 1;
+      
+      // Cap level at mode maximum
+      if (this.level > modeConfig.maxLevel) {
+        this.level = modeConfig.maxLevel;
+      }
       
       if (this.level > oldLevel) {
         this.audioEvents.onLevelUp();
@@ -317,6 +386,23 @@ export class Game extends Scene {
       this.audioEvents.onMenuSelect();
       this.audioSettingsUI.toggle();
     });
+
+    // Performance display
+    this.performanceText = this.add.text(20, 100, '', {
+      fontFamily: 'Arial',
+      fontSize: 14,
+      color: '#00ff88',
+      stroke: '#000000',
+      strokeThickness: 1,
+    });
+    
+    // Update performance display every second
+    this.time.addEvent({
+      delay: 1000,
+      callback: this.updatePerformanceDisplay,
+      callbackScope: this,
+      loop: true
+    });
   }
 
   private updateLayout(width: number, height: number): void {
@@ -375,6 +461,11 @@ export class Game extends Scene {
     // Update audio settings UI layout
     if (this.audioSettingsUI) {
       this.audioSettingsUI.updateLayout(width, height);
+    }
+    
+    // Position performance text
+    if (this.performanceText) {
+      this.performanceText.setPosition(20, 100);
     }
   }
 
@@ -464,21 +555,170 @@ export class Game extends Scene {
     console.log('Audio system test sequence started!');
   }
 
-  private testBoosters(): void {
-    // Import ColorBooster for testing
-    import('../models/Booster.js').then(({ ColorBooster }) => {
-      // Activate some test boosters
-      const redBooster = ColorBooster.fromColor('red');
-      const blueBooster = ColorBooster.fromColor('blue');
-      const greenBooster = ColorBooster.fromColor('green');
-      
-      this.boosterManager.activateBooster(redBooster);
-      this.boosterManager.activateBooster(blueBooster);
-      this.boosterManager.activateBooster(greenBooster);
-      
-      console.log('Test boosters activated!');
-    }).catch(error => {
-      console.error('Failed to load booster classes:', error);
+  /**
+   * Test performance optimization system
+   */
+  private testPerformanceSystem(): void {
+    console.log('Testing performance system...');
+    
+    if (!this.performanceOptimizer) {
+      console.error('Performance optimizer not initialized');
+      return;
+    }
+    
+    // Get performance report
+    const report = this.performanceOptimizer.getPerformanceReport();
+    console.log('Performance Report:', report);
+    
+    // Test object pooling
+    const pooledSprite = this.performanceOptimizer.acquireDiceSprite();
+    if (pooledSprite) {
+      console.log('Successfully acquired pooled sprite');
+      this.time.delayedCall(1000, () => {
+        this.performanceOptimizer.releaseDiceSprite(pooledSprite);
+        console.log('Released pooled sprite');
+      });
+    }
+    
+    // Force optimization test
+    this.time.delayedCall(2000, () => {
+      this.performanceOptimizer.forceOptimization();
+      console.log('Forced performance optimization');
     });
+    
+    // Show performance report in UI
+    const reportText = this.add.text(
+      this.scale.width / 2,
+      this.scale.height / 2 - 200,
+      `FPS: ${report.performanceMetrics?.currentFPS.toFixed(1) || 'N/A'}\n` +
+      `Frame Time: ${report.performanceMetrics?.averageFrameTime.toFixed(2) || 'N/A'}ms\n` +
+      `Memory: ${report.memoryStats?.memoryUsage ? 
+        (report.memoryStats.memoryUsage.used / 1024 / 1024).toFixed(2) + 'MB' : 'N/A'}`,
+      {
+        fontFamily: 'Arial Black',
+        fontSize: 16,
+        color: '#ffff00',
+        stroke: '#000000',
+        strokeThickness: 2,
+        align: 'center'
+      }
+    ).setOrigin(0.5);
+    
+    // Remove report after 5 seconds
+    this.time.delayedCall(5000, () => {
+      reportText.destroy();
+    });
+    
+    console.log('Performance system test completed!');
+  }
+
+  /**
+   * Update performance display
+   */
+  private updatePerformanceDisplay(): void {
+    if (!this.performanceOptimizer || !this.performanceText) {
+      return;
+    }
+    
+    const report = this.performanceOptimizer.getPerformanceReport();
+    const fps = report.performanceMetrics?.currentFPS || 0;
+    const frameTime = report.performanceMetrics?.averageFrameTime || 0;
+    const memoryMB = report.memoryStats?.memoryUsage ? 
+      (report.memoryStats.memoryUsage.used / 1024 / 1024) : 0;
+    
+    // Color code based on performance
+    let color = '#00ff88'; // Green for good performance
+    if (frameTime > 50) {
+      color = '#ffaa00'; // Orange for warning
+    }
+    if (frameTime > 80) {
+      color = '#ff4444'; // Red for critical
+    }
+    
+    this.performanceText.setText(
+      `FPS: ${fps.toFixed(1)} | Frame: ${frameTime.toFixed(1)}ms | Mem: ${memoryMB.toFixed(1)}MB`
+    );
+    this.performanceText.setColor(color);
+  }
+
+
+
+  /**
+   * Handle game over: submit score and transition to GameOver scene
+   */
+  private async handleGameOver(): Promise<void> {
+    // Track playtime
+    const playTime = Date.now() - this.gameStartTime;
+    this.progressionSystem.addPlayTime(playTime);
+    
+    // Update progression with final score
+    const newlyUnlocked = this.progressionSystem.updateScore(this.gameMode, this.score);
+    
+    try {
+      const apiService = ApiService.getInstance();
+      
+      // Create a basic score breakdown since we don't have access to the detailed one
+      const scoreBreakdown: ScoreBreakdown = {
+        baseScore: Math.floor(this.score * 0.7), // Estimate base score as 70% of total
+        chainMultiplier: Math.floor(this.score * 0.2 / 100), // Estimate chain multiplier
+        ultimateComboMultiplier: 1,
+        boosterModifiers: Math.floor(this.score * 0.1), // Estimate booster bonus as 10%
+        totalScore: this.score
+      };
+
+      // Submit score to server
+      const scoreSubmission = await apiService.submitScore({
+        score: this.score,
+        level: this.level,
+        mode: this.gameMode,
+        breakdown: scoreBreakdown
+      });
+
+      // Get leaderboard data for the current mode
+      const leaderboardData = await apiService.getLeaderboard(this.gameMode);
+
+      // Pass game data to GameOver scene including progression info
+      this.scene.start('GameOver', {
+        score: this.score,
+        level: this.level,
+        mode: this.gameMode,
+        breakdown: scoreBreakdown,
+        scoreSubmission,
+        leaderboardData,
+        isNewHighScore: scoreSubmission.newHighScore,
+        leaderboardPosition: scoreSubmission.leaderboardPosition,
+        newlyUnlockedModes: newlyUnlocked,
+        progressionData: this.progressionSystem.getProgressionData()
+      });
+    } catch (error) {
+      console.error('Failed to submit score:', error);
+      
+      // Still transition to GameOver scene even if API calls fail
+      this.scene.start('GameOver', {
+        score: this.score,
+        level: this.level,
+        mode: this.gameMode,
+        breakdown: {
+          baseScore: Math.floor(this.score * 0.7),
+          chainMultiplier: Math.floor(this.score * 0.2 / 100),
+          ultimateComboMultiplier: 1,
+          boosterModifiers: Math.floor(this.score * 0.1),
+          totalScore: this.score
+        },
+        error: 'Failed to connect to server',
+        newlyUnlockedModes: newlyUnlocked,
+        progressionData: this.progressionSystem.getProgressionData()
+      });
+    }
+  }
+
+  /**
+   * Cleanup when scene is destroyed
+   */
+  shutdown(): void {
+    // Cleanup performance optimizer
+    if (this.performanceOptimizer) {
+      this.performanceOptimizer.destroy();
+    }
   }
 }

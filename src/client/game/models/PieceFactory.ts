@@ -17,10 +17,10 @@ export class PieceFactory {
   }
 
   /**
-   * Create a random piece
+   * Create a random piece with mode-specific generation rules
    */
   public createRandomPiece(scene: Phaser.Scene, gridX: number = 4, gridY: number = 0): Piece {
-    const shape = this.getRandomShape();
+    const shape = this.getModeAwareRandomShape();
     return new Piece(scene, shape, this.gameMode, gridX, gridY, this.cellSize);
   }
 
@@ -200,6 +200,85 @@ export class PieceFactory {
    */
   public setCellSize(cellSize: number): void {
     this.cellSize = cellSize;
+  }
+
+  /**
+   * Get mode-aware random shape with difficulty-based distribution
+   */
+  private getModeAwareRandomShape(): TetrominoShape {
+    const config = GAME_MODES[this.gameMode];
+    
+    // Adjust shape distribution based on game mode
+    const weights: Record<TetrominoShape, number> = {
+      'I': 1.0,
+      'O': 1.0,
+      'T': 1.2,
+      'L': 1.0,
+      'J': 1.0,
+      'S': 0.8,
+      'Z': 0.8,
+      'PLUS': 0.5,
+      'CROSS': 0.3
+    };
+
+    // Modify weights based on difficulty
+    switch (this.gameMode) {
+      case 'easy':
+        // Favor simpler shapes in easy mode
+        weights['I'] = 1.5;
+        weights['O'] = 1.5;
+        weights['T'] = 1.3;
+        weights['PLUS'] = 0.2;
+        weights['CROSS'] = 0.1;
+        break;
+        
+      case 'medium':
+        // Balanced distribution
+        break;
+        
+      case 'hard':
+        // Slightly favor complex shapes
+        weights['PLUS'] = 0.7;
+        weights['CROSS'] = 0.4;
+        weights['S'] = 1.0;
+        weights['Z'] = 1.0;
+        break;
+        
+      case 'expert':
+        // More complex shapes
+        weights['PLUS'] = 1.0;
+        weights['CROSS'] = 0.6;
+        weights['S'] = 1.2;
+        weights['Z'] = 1.2;
+        break;
+        
+      case 'zen':
+        // Favor easier shapes for relaxed play
+        weights['I'] = 1.8;
+        weights['O'] = 1.8;
+        weights['T'] = 1.5;
+        weights['PLUS'] = 0.3;
+        weights['CROSS'] = 0.2;
+        break;
+    }
+
+    // Create weighted array
+    const weightedShapes: TetrominoShape[] = [];
+    this.availableShapes.forEach(shape => {
+      const weight = weights[shape] || 1.0;
+      const count = Math.ceil(weight * 10);
+      for (let i = 0; i < count; i++) {
+        weightedShapes.push(shape);
+      }
+    });
+
+    // Select random shape
+    const randomIndex = Math.floor(Math.random() * weightedShapes.length);
+    const shape = weightedShapes[randomIndex];
+    if (!shape) {
+      throw new Error('No weighted shapes available');
+    }
+    return shape;
   }
 
   /**
