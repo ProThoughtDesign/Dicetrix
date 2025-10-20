@@ -1,7 +1,26 @@
 import express from 'express';
-import { InitResponse, IncrementResponse, DecrementResponse } from '../shared/types/api';
 import { redis, createServer, context } from '@devvit/web/server';
 import { createPost } from './core/post';
+
+// Dicetrix game types
+interface GameInitResponse {
+  postId: string;
+  score: number;
+  level: number;
+  gameState: string;
+}
+
+interface ScoreSubmissionRequest {
+  score: number;
+  level: number;
+  mode: string;
+}
+
+interface ScoreSubmissionResponse {
+  success: boolean;
+  newHighScore: boolean;
+  leaderboardPosition?: number;
+}
 
 const app = express();
 
@@ -14,10 +33,11 @@ app.use(express.text());
 
 const router = express.Router();
 
-router.get<{ postId: string }, InitResponse | { status: string; message: string }>(
-  '/api/init',
+// Initialize game session
+router.get<{}, GameInitResponse | { status: string; message: string }>(
+  '/api/game/init',
   async (_req, res): Promise<void> => {
-    const { postId } = context;
+    const { postId, userId } = context;
 
     if (!postId) {
       console.error('API Init Error: postId not found in devvit context');
@@ -29,11 +49,24 @@ router.get<{ postId: string }, InitResponse | { status: string; message: string 
     }
 
     try {
-      const count = await redis.get('count');
+      // Get user's current game state or initialize new one
+      const gameStateKey = `dicetrix:game:${postId}:${userId || 'anonymous'}`;
+      const gameState = await redis.get(gameStateKey);
+      
+      let score = 0;
+      let level = 1;
+      
+      if (gameState) {
+        const parsed = JSON.parse(gameState);
+        score = parsed.score || 0;
+        level = parsed.level || 1;
+      }
+
       res.json({
-        type: 'init',
         postId: postId,
-        count: count ? parseInt(count) : 0,
+        score,
+        level,
+        gameState: 'initialized',
       });
     } catch (error) {
       console.error(`API Init Error for post ${postId}:`, error);
@@ -46,43 +79,62 @@ router.get<{ postId: string }, InitResponse | { status: string; message: string 
   }
 );
 
-router.post<{ postId: string }, IncrementResponse | { status: string; message: string }, unknown>(
-  '/api/increment',
-  async (_req, res): Promise<void> => {
-    const { postId } = context;
-    if (!postId) {
+// Submit score to leaderboard
+router.post<{}, ScoreSubmissionResponse | { status: string; message: string }, ScoreSubmissionRequest>(
+  '/api/game/score',
+  async (req, res): Promise<void> => {
+    const { postId, userId, username } = context;
+    
+    if (!postId || !userId) {
       res.status(400).json({
         status: 'error',
-        message: 'postId is required',
+        message: 'Authentication required',
       });
       return;
     }
 
-    res.json({
-      count: await redis.incrBy('count', 1),
-      postId,
-      type: 'increment',
-    });
-  }
-);
+    try {
+      const { score, level, mode } = req.body;
+      
+      if (typeof score !== 'number' || typeof level !== 'number' || typeof mode !== 'string') {
+        res.status(400).json({
+          status: 'error',
+          message: 'Invalid score data',
+        });
+        return;
+      }
 
-router.post<{ postId: string }, DecrementResponse | { status: string; message: string }, unknown>(
-  '/api/decrement',
-  async (_req, res): Promise<void> => {
-    const { postId } = context;
-    if (!postId) {
-      res.status(400).json({
-        status: 'error',
-        message: 'postId is required',
+      // Save to user's game state
+      const gameStateKey = `dicetrix:game:${postId}:${userId}`;
+      await redis.set(gameStateKey, JSON.stringify({ score, level, mode, timestamp: Date.now() }));
+
+      // Add to leaderboard
+      const leaderboardKey = `dicetrix:leaderboard:${mode}`;
+      const scoreData = JSON.stringify({
+        userId,
+        username: username || 'Anonymous',
+        score,
+        level,
+        timestamp: Date.now(),
       });
-      return;
-    }
+      
+      await redis.zadd(leaderboardKey, { score, member: scoreData });
 
-    res.json({
-      count: await redis.incrBy('count', -1),
-      postId,
-      type: 'decrement',
-    });
+      // Check if it's a new high score (simplified for now)
+      const userScores = await redis.zrevrangebyscore(leaderboardKey, '+inf', '-inf', { count: 1 });
+      const isNewHighScore = userScores.length > 0 && JSON.parse(userScores[0]).userId === userId;
+
+      res.json({
+        success: true,
+        newHighScore: isNewHighScore,
+      });
+    } catch (error) {
+      console.error(`Score submission error:`, error);
+      res.status(500).json({
+        status: 'error',
+        message: 'Failed to submit score',
+      });
+    }
   }
 );
 

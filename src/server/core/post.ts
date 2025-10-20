@@ -9,12 +9,11 @@ export const createPost = async () => {
   return await reddit.submitCustomPost({
     splash: {
       // Splash screen customization
-      appDisplayName: '<% name %>',
+      appDisplayName: 'Dicetrix',
       backgroundUri: 'default-splash.png',
-      buttonLabel: 'Start Playing',
-      description: 'An exciting interactive experience',
-      entryUri: 'index.html',
-      heading: 'Welcome to the Game!',
+      buttonLabel: 'Play Dicetrix',
+      description: 'A gravity-matching puzzle game combining Tetris-style mechanics with dice-based matching',
+      heading: 'Welcome to Dicetrix!',
       appIconUri: 'default-icon.png',
     },
     postData: {
@@ -22,6 +21,6 @@ export const createPost = async () => {
       score: 0,
     },
     subredditName: subredditName,
-    title: '<% name %>',
+    title: 'Dicetrix - Dice Matching Puzzle Game',
   });
 };

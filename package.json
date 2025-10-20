@@ -1,7 +1,8 @@
 {
   "private": true,
-  "name": "devvit-phaser-starter-experimental",
+  "name": "dice-trix",
   "version": "0.0.0",
+  "description": "Dicetrix - A gravity-matching puzzle game combining Tetris-style mechanics with dice-based matching",
   "license": "BSD-3-Clause",
   "type": "module",
   "scripts": {

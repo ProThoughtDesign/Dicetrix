@@ -6,13 +6,26 @@ export class Boot extends Scene {
   }
 
   preload() {
-    //  The Boot Scene is typically used to load in any assets you require for your Preloader, such as a game logo or background.
-    //  The smaller the file size of the assets, the better, as the Boot Scene itself has no preloader.
-
-    this.load.image('background', 'assets/bg.png');
+    // Load minimal assets needed for the preloader
+    // These should be small files for fast initial loading
+    
+    // Background for preloader
+    this.load.image('preloader-bg', 'assets/dicetrix-bg.png');
+    
+    // Logo for splash screen
+    this.load.image('dicetrix-logo', 'assets/dicetrix-logo.png');
+    
+    // Loading bar assets
+    this.load.image('loading-bar-bg', 'assets/loading-bar-bg.png');
+    this.load.image('loading-bar-fill', 'assets/loading-bar-fill.png');
   }
 
   create() {
+    // Set up any global game configuration
+    this.registry.set('gameVersion', '1.0.0');
+    this.registry.set('gameTitle', 'Dicetrix');
+    
+    // Start the preloader scene
     this.scene.start('Preloader');
   }
 }
