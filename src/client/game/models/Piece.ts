@@ -1,4 +1,4 @@
-import { Die } from './Die.js';
+import { SimpleDie } from './SimpleDie.js';
 import { DieFactory } from './DieFactory.js';
 import { TetrominoShape, GameMode, GridPosition } from '../../../shared/types/game.js';
 import { PIECE_SHAPES } from '../../../shared/config/game-modes.js';
@@ -6,8 +6,8 @@ import { PIECE_SHAPES } from '../../../shared/config/game-modes.js';
 /**
  * Piece class representing a Tetromino-shaped group of dice that falls as a unit
  */
-export class Piece extends Phaser.GameObjects.Group {
-  public dice: Die[];
+export class Piece {
+  public dice: SimpleDie[];
   public shape: TetrominoShape;
   public rotation: number;
   public gridX: number;
@@ -15,6 +15,13 @@ export class Piece extends Phaser.GameObjects.Group {
   public shapeMatrix: number[][];
   private dieFactory: DieFactory;
   private cellSize: number;
+  private gridOffsetX: number = 0;
+  private gridOffsetY: number = 0;
+  private scene: Phaser.Scene;
+  
+  // Fixed-size matrix containing dice (null for empty cells)
+  private diceMatrix: (SimpleDie | null)[][];
+  private matrixSize: number;
 
   constructor(
     scene: Phaser.Scene,
@@ -24,39 +31,73 @@ export class Piece extends Phaser.GameObjects.Group {
     gridY: number = 0,
     cellSize: number = 32
   ) {
-    super(scene);
-    
+    this.scene = scene;
     this.shape = shape;
     this.rotation = 0;
     this.gridX = gridX;
     this.gridY = gridY;
     this.cellSize = cellSize;
-    this.dieFactory = new DieFactory(gameMode);
+    this.dieFactory = new DieFactory(gameMode, cellSize);
+    
     const shapeData = PIECE_SHAPES[shape];
     if (!shapeData) {
       throw new Error(`Unknown piece shape: ${shape}`);
     }
-    this.shapeMatrix = this.getRotatedMatrix(shapeData, 0);
-    this.dice = [];
     
-    this.createDice();
+    // Calculate matrix size (max of width and height for square matrix)
+    this.matrixSize = Math.max(shapeData.length, Math.max(...shapeData.map(row => row.length)));
+    
+    // Initialize the dice matrix and shape matrix
+    this.initializeMatrices(shapeData);
     this.updateDicePositions();
-    
-    // Add to scene
-    scene.add.existing(this);
   }
 
   /**
-   * Create dice based on the piece shape
+   * Initialize both the dice matrix and shape matrix from the original shape data
    */
-  private createDice(): void {
-    const diceCount = this.countDiceInShape();
-    this.dice = this.dieFactory.createDiceForPiece(this.scene, diceCount);
+  private initializeMatrices(originalShape: number[][]): void {
+    // Create square matrices filled with nulls/zeros
+    this.diceMatrix = Array(this.matrixSize).fill(null).map(() => Array(this.matrixSize).fill(null as SimpleDie | null));
+    this.shapeMatrix = Array(this.matrixSize).fill(null).map(() => Array(this.matrixSize).fill(0));
     
-    // Add dice to this group
-    this.dice.forEach(die => {
-      this.add(die);
-    });
+    // Create dice and place them in the matrix according to the original shape
+    const diceNeeded = this.countDiceInOriginalShape(originalShape);
+    this.dice = this.dieFactory.createDiceForPiece(this.scene, diceNeeded);
+    
+    let dieIndex = 0;
+    for (let row = 0; row < originalShape.length; row++) {
+      const shapeRow = originalShape[row];
+      if (shapeRow) {
+        for (let col = 0; col < shapeRow.length; col++) {
+          if (shapeRow[col] === 1 && dieIndex < this.dice.length) {
+            // Place die in matrix
+            this.diceMatrix[row][col] = this.dice[dieIndex];
+            this.shapeMatrix[row][col] = 1;
+            dieIndex++;
+          }
+        }
+      }
+    }
+    
+    console.log(`Initialized ${this.matrixSize}x${this.matrixSize} matrix with ${dieIndex} dice`);
+  }
+
+  /**
+   * Count dice needed in original shape
+   */
+  private countDiceInOriginalShape(shape: number[][]): number {
+    let count = 0;
+    for (let row = 0; row < shape.length; row++) {
+      const shapeRow = shape[row];
+      if (shapeRow) {
+        for (let col = 0; col < shapeRow.length; col++) {
+          if (shapeRow[col] === 1) {
+            count++;
+          }
+        }
+      }
+    }
+    return count;
   }
 
   /**
@@ -64,13 +105,10 @@ export class Piece extends Phaser.GameObjects.Group {
    */
   private countDiceInShape(): number {
     let count = 0;
-    for (let row = 0; row < this.shapeMatrix.length; row++) {
-      const matrixRow = this.shapeMatrix[row];
-      if (matrixRow) {
-        for (let col = 0; col < matrixRow.length; col++) {
-          if (matrixRow[col] === 1) {
-            count++;
-          }
+    for (let row = 0; row < this.matrixSize; row++) {
+      for (let col = 0; col < this.matrixSize; col++) {
+        if (this.shapeMatrix[row][col] === 1) {
+          count++;
         }
       }
     }
@@ -81,25 +119,37 @@ export class Piece extends Phaser.GameObjects.Group {
    * Update dice positions based on current grid position and rotation
    */
   private updateDicePositions(): void {
-    let dieIndex = 0;
-    
-    for (let row = 0; row < this.shapeMatrix.length; row++) {
-      const matrixRow = this.shapeMatrix[row];
-      if (matrixRow) {
-        for (let col = 0; col < matrixRow.length; col++) {
-          if (matrixRow[col] === 1 && dieIndex < this.dice.length) {
-          const die = this.dice[dieIndex];
-          if (die) {
-            const worldX = (this.gridX + col) * this.cellSize + this.cellSize / 2;
-            const worldY = (this.gridY + row) * this.cellSize + this.cellSize / 2;
-            
-            die.setPosition(worldX, worldY);
-            dieIndex++;
-          }
+    this.updateDicePositionsWithOffset(this.gridOffsetX, this.gridOffsetY);
+  }
+
+  /**
+   * Update dice positions with grid offset (for proper positioning within the game grid)
+   */
+  public updateDicePositionsWithOffset(gridOffsetX: number, gridOffsetY: number): void {
+    // Simply iterate through the dice matrix and position each die
+    for (let row = 0; row < this.matrixSize; row++) {
+      for (let col = 0; col < this.matrixSize; col++) {
+        const die = this.diceMatrix[row][col];
+        if (die) {
+          die.setGridPosition(
+            this.gridX + col,
+            this.gridY + row,
+            this.cellSize,
+            gridOffsetX,
+            gridOffsetY
+          );
         }
       }
     }
-    }
+  }
+
+  /**
+   * Set the grid offset for this piece (called by Game scene)
+   */
+  public setGridOffset(gridOffsetX: number, gridOffsetY: number): void {
+    this.gridOffsetX = gridOffsetX;
+    this.gridOffsetY = gridOffsetY;
+    this.updateDicePositions();
   }
 
   /**
@@ -142,37 +192,74 @@ export class Piece extends Phaser.GameObjects.Group {
   }
 
   /**
+   * Move piece down by one grid cell with grid collision detection
+   */
+  public moveDownWithGrid(grid: any): boolean {
+    const newY = this.gridY + 1;
+    if (this.canMoveToWithGrid(this.gridX, newY, grid)) {
+      this.gridY = newY;
+      this.updateDicePositions();
+      return true;
+    }
+    return false;
+  }
+
+  /**
    * Rotate piece clockwise by 90 degrees
    */
   public rotatePiece(): boolean {
-    const newRotation = (this.rotation + 90) % 360;
-    const shapeData = PIECE_SHAPES[this.shape];
-    if (!shapeData) {
-      return false;
-    }
-    const newMatrix = this.getRotatedMatrix(shapeData, newRotation);
+    // Create rotated matrices
+    const newDiceMatrix = this.rotateMatrixClockwise(this.diceMatrix);
+    const newShapeMatrix = this.rotateMatrixClockwise(this.shapeMatrix);
     
     // Check if rotation is valid at current position
-    if (this.canMoveToWithMatrix(this.gridX, this.gridY, newMatrix)) {
-      this.rotation = newRotation;
-      this.shapeMatrix = newMatrix;
+    if (this.canMoveToWithMatrix(this.gridX, this.gridY, newShapeMatrix)) {
+      this.rotation = (this.rotation + 90) % 360;
+      this.diceMatrix = newDiceMatrix;
+      this.shapeMatrix = newShapeMatrix;
       this.updateDicePositions();
+      console.log(`Piece rotated to ${this.rotation} degrees`);
       return true;
     }
     
     // Try wall kicks (move left/right to accommodate rotation)
-    const kicks = [-1, 1, -2, 2]; // Try moving left/right by 1 or 2 cells
+    const kicks = [-1, 1, -2, 2];
     for (const kick of kicks) {
-      if (this.canMoveToWithMatrix(this.gridX + kick, this.gridY, newMatrix)) {
+      if (this.canMoveToWithMatrix(this.gridX + kick, this.gridY, newShapeMatrix)) {
         this.gridX += kick;
-        this.rotation = newRotation;
-        this.shapeMatrix = newMatrix;
+        this.rotation = (this.rotation + 90) % 360;
+        this.diceMatrix = newDiceMatrix;
+        this.shapeMatrix = newShapeMatrix;
         this.updateDicePositions();
+        console.log(`Piece rotated to ${this.rotation} degrees with kick ${kick}`);
         return true;
       }
     }
     
     return false;
+  }
+
+  /**
+   * Rotate a matrix 90 degrees clockwise
+   */
+  private rotateMatrixClockwise<T>(matrix: T[][]): T[][] {
+    const size = matrix.length;
+    const rotated: T[][] = Array(size).fill(null).map(() => Array(size).fill(null as T));
+    
+    for (let row = 0; row < size; row++) {
+      const matrixRow = matrix[row];
+      if (matrixRow) {
+        for (let col = 0; col < matrixRow.length; col++) {
+          // Clockwise rotation: new_row = col, new_col = size - 1 - row
+          const rotatedRow = rotated[col];
+          if (rotatedRow) {
+            rotatedRow[size - 1 - row] = matrixRow[col];
+          }
+        }
+      }
+    }
+    
+    return rotated;
   }
 
   /**
@@ -225,44 +312,7 @@ export class Piece extends Phaser.GameObjects.Group {
     return true;
   }
 
-  /**
-   * Get rotated matrix for the shape
-   */
-  private getRotatedMatrix(originalMatrix: number[][], degrees: number): number[][] {
-    let matrix = originalMatrix.map(row => [...row]); // Deep copy
-    
-    const rotations = (degrees / 90) % 4;
-    for (let i = 0; i < rotations; i++) {
-      matrix = this.rotateMatrix90(matrix);
-    }
-    
-    return matrix;
-  }
 
-  /**
-   * Rotate matrix 90 degrees clockwise
-   */
-  private rotateMatrix90(matrix: number[][]): number[][] {
-    const rows = matrix.length;
-    const firstRow = matrix[0];
-    if (!firstRow) return matrix;
-    
-    const cols = firstRow.length;
-    const rotated: number[][] = [];
-    
-    for (let col = 0; col < cols; col++) {
-      const newRow: number[] = [];
-      for (let row = rows - 1; row >= 0; row--) {
-        const matrixRow = matrix[row];
-        if (matrixRow) {
-          newRow.push(matrixRow[col] || 0);
-        }
-      }
-      rotated.push(newRow);
-    }
-    
-    return rotated;
-  }
 
   /**
    * Lock piece to grid (called when piece can't move down further)
@@ -270,11 +320,11 @@ export class Piece extends Phaser.GameObjects.Group {
   public lockToGrid(): GridPosition[] {
     const positions: GridPosition[] = [];
     
-    for (let row = 0; row < this.shapeMatrix.length; row++) {
-      const matrixRow = this.shapeMatrix[row];
-      if (matrixRow) {
-        for (let col = 0; col < matrixRow.length; col++) {
-          if (matrixRow[col] === 1) {
+    for (let row = 0; row < this.matrixSize; row++) {
+      const shapeRow = this.shapeMatrix[row];
+      if (shapeRow) {
+        for (let col = 0; col < shapeRow.length; col++) {
+          if (shapeRow[col] === 1) {
             positions.push({
               x: this.gridX + col,
               y: this.gridY + row
@@ -293,11 +343,11 @@ export class Piece extends Phaser.GameObjects.Group {
   public getDicePositions(): GridPosition[] {
     const positions: GridPosition[] = [];
     
-    for (let row = 0; row < this.shapeMatrix.length; row++) {
-      const matrixRow = this.shapeMatrix[row];
-      if (matrixRow) {
-        for (let col = 0; col < matrixRow.length; col++) {
-          if (matrixRow[col] === 1) {
+    for (let row = 0; row < this.matrixSize; row++) {
+      const shapeRow = this.shapeMatrix[row];
+      if (shapeRow) {
+        for (let col = 0; col < shapeRow.length; col++) {
+          if (shapeRow[col] === 1) {
             positions.push({
               x: this.gridX + col,
               y: this.gridY + row
@@ -316,11 +366,11 @@ export class Piece extends Phaser.GameObjects.Group {
   public getBounds(): { left: number; right: number; top: number; bottom: number } {
     let left = Infinity, right = -Infinity, top = Infinity, bottom = -Infinity;
     
-    for (let row = 0; row < this.shapeMatrix.length; row++) {
-      const matrixRow = this.shapeMatrix[row];
-      if (matrixRow) {
-        for (let col = 0; col < matrixRow.length; col++) {
-          if (matrixRow[col] === 1) {
+    for (let row = 0; row < this.matrixSize; row++) {
+      const shapeRow = this.shapeMatrix[row];
+      if (shapeRow) {
+        for (let col = 0; col < shapeRow.length; col++) {
+          if (shapeRow[col] === 1) {
             const x = this.gridX + col;
             const y = this.gridY + row;
             
@@ -342,7 +392,10 @@ export class Piece extends Phaser.GameObjects.Group {
   public createGhost(scene: Phaser.Scene, ghostY: number): Piece {
     const ghost = new Piece(scene, this.shape, this.dieFactory.getGameMode(), this.gridX, ghostY, this.cellSize);
     ghost.rotation = this.rotation;
+    
+    // Copy the matrices
     ghost.shapeMatrix = this.shapeMatrix.map(row => [...row]);
+    ghost.diceMatrix = this.diceMatrix.map(row => [...row]);
     
     // Make ghost dice semi-transparent
     ghost.dice.forEach(die => {
@@ -355,10 +408,9 @@ export class Piece extends Phaser.GameObjects.Group {
   /**
    * Destroy the piece and all its dice
    */
-  public override destroy(): void {
+  public destroy(): void {
     this.dice.forEach(die => die.destroy());
     this.dice = [];
-    super.destroy();
   }
 
   /**
@@ -369,7 +421,7 @@ export class Piece extends Phaser.GameObjects.Group {
     rotation: number;
     gridX: number;
     gridY: number;
-    dice: ReturnType<Die['toData']>[];
+    dice: ReturnType<SimpleDie['toData']>[];
   } {
     return {
       shape: this.shape,
@@ -378,5 +430,36 @@ export class Piece extends Phaser.GameObjects.Group {
       gridY: this.gridY,
       dice: this.dice.map(die => die.toData())
     };
+  }
+
+  /**
+   * Get the dice matrix (for Grid access)
+   */
+  public getDiceMatrix(): (SimpleDie | null)[][] {
+    return this.diceMatrix;
+  }
+
+  /**
+   * Get the matrix size (for Grid access)
+   */
+  public getMatrixSize(): number {
+    return this.matrixSize;
+  }
+
+  /**
+   * Debug method to verify die positions
+   */
+  public debugDiePositions(): void {
+    console.log(`=== Piece ${this.shape} Debug (Rotation: ${this.rotation}°) ===`);
+    console.log('Shape matrix:');
+    this.shapeMatrix.forEach((row, rowIndex) => {
+      console.log(`Row ${rowIndex}: [${row.join(', ')}]`);
+    });
+    
+    console.log('Dice matrix:');
+    this.diceMatrix.forEach((row, rowIndex) => {
+      const rowDisplay = row.map(die => die ? die.getDisplayText() : '.');
+      console.log(`Row ${rowIndex}: [${rowDisplay.join(', ')}]`);
+    });
   }
 }

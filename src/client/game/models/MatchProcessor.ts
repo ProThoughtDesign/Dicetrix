@@ -3,6 +3,7 @@ import { MatchGroup } from './MatchGroup.js';
 import { MatchEffects } from './MatchEffects.js';
 import { BoosterManager } from './BoosterManager.js';
 import { Die } from './Die.js';
+import { TestDie } from './TestDie.js';
 import { GridPosition, ColorBooster, SizeEffect } from '../../../shared/types/game.js';
 import { AudioEvents } from '../audio/AudioEvents.js';
 
@@ -64,8 +65,12 @@ export class MatchProcessor {
   private async processSingleMatch(match: MatchGroup, result: MatchProcessResult): Promise<void> {
     // Check for Black Die first (it removes boosters before other effects)
     if (match.hasBlackDice()) {
-      if (this.audioEvents) {
-        this.audioEvents.onBlackDieActivate();
+      try {
+        if (this.audioEvents) {
+          this.audioEvents.onBlackDieActivate();
+        }
+      } catch (error) {
+        console.warn('Audio event failed:', error);
       }
       await this.effects.playBlackDieEffect(match, this.grid.gridToScreen.bind(this.grid));
     }
@@ -73,8 +78,12 @@ export class MatchProcessor {
     // Check for Ultimate Combo
     if (match.isUltimateCombo()) {
       result.ultimateComboTriggered = true;
-      if (this.audioEvents) {
-        this.audioEvents.onUltimateCombo();
+      try {
+        if (this.audioEvents) {
+          this.audioEvents.onUltimateCombo();
+        }
+      } catch (error) {
+        console.warn('Audio event failed:', error);
       }
       await this.effects.playUltimateComboEffect(match, this.grid.gridToScreen.bind(this.grid));
       
@@ -101,8 +110,12 @@ export class MatchProcessor {
     }
 
     // Play audio for match clearing
-    if (this.audioEvents && !match.hasBlackDice() && !match.isUltimateCombo()) {
-      this.audioEvents.onMatchClear(match.size);
+    try {
+      if (this.audioEvents && !match.hasBlackDice() && !match.isUltimateCombo()) {
+        this.audioEvents.onMatchClear(match.size);
+      }
+    } catch (error) {
+      console.warn('Audio event failed:', error);
     }
 
     // Play visual effects (if not already played for black die or ultimate combo)
@@ -159,38 +172,62 @@ export class MatchProcessor {
   }
 
   /**
-   * Apply standard clear effect (3-dice matches)
+   * Apply standard clear effect (3+ dice matches)
    */
   private applyStandardClear(match: MatchGroup): Die[] {
-    // Clear only the matched dice
-    return this.grid.clearCells(match.positions);
+    console.log(`🔥 STANDARD CLEAR: Clearing ${match.size} matched dice`);
+    
+    // Clear ALL the matched dice (not just 3)
+    const clearedDice = this.grid.clearCells(match.positions);
+    
+    console.log(`🔥 STANDARD CLEAR: Successfully cleared ${clearedDice.length} dice`);
+    return clearedDice;
   }
 
   /**
    * Apply line clear effect (4-dice matches)
    */
   private applyLineClear(match: MatchGroup): Die[] {
-    const center = match.getCenterPosition();
+    console.log(`🔥 LINE CLEAR: Processing ${match.size} dice match`);
     
-    // Determine whether to clear row or column based on match shape
-    const minX = Math.min(...match.positions.map(p => p.x));
-    const maxX = Math.max(...match.positions.map(p => p.x));
-    const minY = Math.min(...match.positions.map(p => p.y));
-    const maxY = Math.max(...match.positions.map(p => p.y));
+    // First clear all the matched dice
+    let clearedDice: Die[] = this.grid.clearCells(match.positions);
+    console.log(`🔥 LINE CLEAR: Cleared ${clearedDice.length} matched dice`);
     
-    const horizontalSpread = maxX - minX;
-    const verticalSpread = maxY - minY;
+    // Check if match is horizontal (all same Y) or vertical (all same X)
+    const yValues = [...new Set(match.positions.map(p => p.y))];
+    const xValues = [...new Set(match.positions.map(p => p.x))];
     
-    let clearedDice: Die[] = [];
-    
-    if (horizontalSpread >= verticalSpread) {
-      // Clear entire row
-      clearedDice = this.grid.clearRow(center.y);
+    if (yValues.length === 1) {
+      // Horizontal match - clear the entire row
+      const rowY = yValues[0];
+      console.log(`🔥 LINE CLEAR: Horizontal match detected, clearing row ${rowY}`);
+      const rowDice = this.grid.clearRow(rowY);
+      clearedDice.push(...rowDice);
+    } else if (xValues.length === 1) {
+      // Vertical match - clear the entire column
+      const colX = xValues[0];
+      console.log(`🔥 LINE CLEAR: Vertical match detected, clearing column ${colX}`);
+      const colDice = this.grid.clearColumn(colX);
+      clearedDice.push(...colDice);
     } else {
-      // Clear entire column
-      clearedDice = this.grid.clearColumn(center.x);
+      // Mixed match - use center position for line clear
+      const center = match.getCenterPosition();
+      const horizontalSpread = Math.max(...match.positions.map(p => p.x)) - Math.min(...match.positions.map(p => p.x));
+      const verticalSpread = Math.max(...match.positions.map(p => p.y)) - Math.min(...match.positions.map(p => p.y));
+      
+      if (horizontalSpread >= verticalSpread) {
+        console.log(`🔥 LINE CLEAR: Mixed match, clearing row ${center.y} (horizontal bias)`);
+        const rowDice = this.grid.clearRow(center.y);
+        clearedDice.push(...rowDice);
+      } else {
+        console.log(`🔥 LINE CLEAR: Mixed match, clearing column ${center.x} (vertical bias)`);
+        const colDice = this.grid.clearColumn(center.x);
+        clearedDice.push(...colDice);
+      }
     }
     
+    console.log(`🔥 LINE CLEAR: Total cleared dice: ${clearedDice.length}`);
     return clearedDice;
   }
 
@@ -205,8 +242,12 @@ export class MatchProcessor {
     this.spawnWildDie();
     
     // Play wild die spawn sound
-    if (this.audioEvents) {
-      this.audioEvents.onWildDieSpawn();
+    try {
+      if (this.audioEvents) {
+        this.audioEvents.onWildDieSpawn();
+      }
+    } catch (error) {
+      console.warn('Audio event failed:', error);
     }
     
     return clearedDice;
@@ -252,7 +293,7 @@ export class MatchProcessor {
       
       if (position) {
         // Create a wild die
-        const wildDie = new Die(
+        const wildDie = new TestDie(
           this.scene,
           0, 0, // Position will be set by grid
           6, // Default sides for wild die

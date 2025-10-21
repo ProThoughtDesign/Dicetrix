@@ -33,8 +33,12 @@ export class BoosterManager {
     // Remove expired boosters
     for (const key of expiredBoosters) {
       const booster = this.activeBoosters.get(key);
-      if (booster && this.audioEvents) {
-        this.audioEvents.onBoosterDeactivate();
+      try {
+        if (booster && this.audioEvents) {
+          this.audioEvents.onBoosterDeactivate();
+        }
+      } catch (error) {
+        console.warn('Audio event failed:', error);
       }
       this.activeBoosters.delete(key);
     }
@@ -60,8 +64,12 @@ export class BoosterManager {
       this.activateBooster(colorBooster);
       
       // Play booster activation sound
-      if (this.audioEvents) {
-        this.audioEvents.onBoosterActivate(boosterData.color);
+      try {
+        if (this.audioEvents) {
+          this.audioEvents.onBoosterActivate(boosterData.color);
+        }
+      } catch (error) {
+        console.warn('Audio event failed:', error);
       }
     }
   }

@@ -1,15 +1,17 @@
-import { Die } from './Die.js';
+import { SimpleDie } from './SimpleDie.js';
 import { Piece } from './Piece.js';
 import { MatchGroup } from './MatchGroup.js';
 import { GridPosition } from '../../../shared/types/game.js';
 import { GAME_CONSTANTS } from '../../../shared/config/game-modes.js';
+import { Die } from './Die.js';
 
 /**
  * Grid class representing the 10x20 playing field where dice pieces are placed
  * Handles collision detection, piece placement, and match detection
  */
 export class Grid {
-  public cells: (Die | null)[][];
+  public cells: (SimpleDie | null)[][];
+  public lockedPieces: Piece[]; // Pieces that are locked but still cohesive
   public readonly width: number = GAME_CONSTANTS.GRID_WIDTH;
   public readonly height: number = GAME_CONSTANTS.GRID_HEIGHT;
   private cellSize: number;
@@ -20,6 +22,7 @@ export class Grid {
     this.cellSize = cellSize;
     this.offsetX = offsetX;
     this.offsetY = offsetY;
+    this.lockedPieces = [];
     
     // Initialize empty grid
     this.cells = [];
@@ -53,7 +56,7 @@ export class Grid {
   /**
    * Get the die at a specific grid position
    */
-  public getDie(x: number, y: number): Die | null {
+  public getDie(x: number, y: number): SimpleDie | null {
     if (!this.isValidPosition(x, y)) {
       return null;
     }
@@ -64,22 +67,28 @@ export class Grid {
   /**
    * Set a die at a specific grid position
    */
-  public setDie(x: number, y: number, die: Die | null): boolean {
+  public setDie(x: number, y: number, die: SimpleDie | null): boolean {
     if (!this.isValidPosition(x, y)) {
+      console.log(`❌ GRID: Invalid position (${x}, ${y})`);
       return false;
     }
     
     const row = this.cells[y];
     if (!row) {
+      console.log(`❌ GRID: No row at y=${y}`);
       return false;
     }
     
-    row[x] = die;
-    
-    // Update die's visual position if placing a die
     if (die) {
+      console.log(`📍 GRID: Placing die ${die.getDisplayText()} at (${x}, ${y})`);
+      row[x] = die;
+      
+      // Update die's visual position
       const worldPos = this.gridToScreen(x, y);
       die.setPosition(worldPos.x, worldPos.y);
+    } else {
+      console.log(`🧹 GRID: Clearing position (${x}, ${y})`);
+      row[x] = null;
     }
     
     return true;
@@ -113,25 +122,32 @@ export class Grid {
    * Check collision for piece movement
    */
   public checkCollision(piece: Piece, newGridX: number, newGridY: number): boolean {
-    const positions = piece.getDicePositions();
+    // Use the dice matrix for accurate collision detection
+    const diceMatrix = piece.getDiceMatrix();
+    const matrixSize = piece.getMatrixSize();
     
-    for (const pos of positions) {
-      const absoluteX = newGridX + pos.x - piece.gridX;
-      const absoluteY = newGridY + pos.y - piece.gridY;
-      
-      // Check bounds
-      if (absoluteX < 0 || absoluteX >= this.width || absoluteY >= this.height) {
-        return true; // Collision with boundaries
-      }
-      
-      // Allow movement above the grid (negative Y)
-      if (absoluteY < 0) {
-        continue;
-      }
-      
-      // Check if position is occupied
-      if (!this.isEmpty(absoluteX, absoluteY)) {
-        return true; // Collision with existing die
+    for (let row = 0; row < matrixSize; row++) {
+      for (let col = 0; col < matrixSize; col++) {
+        const die = diceMatrix[row]?.[col];
+        if (die) {
+          const absoluteX = newGridX + col;
+          const absoluteY = newGridY + row;
+          
+          // Check bounds
+          if (absoluteX < 0 || absoluteX >= this.width || absoluteY >= this.height) {
+            return true; // Collision with boundaries
+          }
+          
+          // Allow movement above the grid (negative Y)
+          if (absoluteY < 0) {
+            continue;
+          }
+          
+          // Check if position is occupied
+          if (!this.isEmpty(absoluteX, absoluteY)) {
+            return true; // Collision with existing die
+          }
+        }
       }
     }
     
@@ -139,9 +155,76 @@ export class Grid {
   }
 
   /**
-   * Add a piece to the grid at its current position
+   * Check collision for individual die at specific position
+   */
+  public checkDieCollision(x: number, y: number): boolean {
+    // Check bounds
+    if (x < 0 || x >= this.width || y >= this.height) {
+      return true; // Collision with boundaries
+    }
+    
+    // Allow movement above the grid (negative Y)
+    if (y < 0) {
+      return false;
+    }
+    
+    // Check if position is occupied
+    return !this.isEmpty(x, y);
+  }
+
+  /**
+   * Add a piece to the grid at its current position (breaks piece into individual dice)
    */
   public addPiece(piece: Piece): boolean {
+    // Get dice directly from the piece's rotated matrix to maintain proper positioning
+    const diceToPlace: Array<{ die: SimpleDie; x: number; y: number }> = [];
+    
+    // Extract dice from the piece's dice matrix (which is properly rotated)
+    if (typeof piece.getDiceMatrix === 'function' && typeof piece.getMatrixSize === 'function') {
+      const diceMatrix = piece.getDiceMatrix();
+      const matrixSize = piece.getMatrixSize();
+      
+      for (let row = 0; row < matrixSize; row++) {
+        for (let col = 0; col < matrixSize; col++) {
+          const die = diceMatrix[row]?.[col];
+          if (die) {
+            const gridX = piece.gridX + col;
+            const gridY = piece.gridY + row;
+            diceToPlace.push({ die, x: gridX, y: gridY });
+          }
+        }
+      }
+    } else {
+      // Fallback to old method if piece doesn't have dice matrix
+      const positions = piece.getDicePositions();
+      for (let i = 0; i < positions.length && i < piece.dice.length; i++) {
+        const pos = positions[i];
+        const die = piece.dice[i];
+        if (pos && die) {
+          diceToPlace.push({ die, x: pos.x, y: pos.y });
+        }
+      }
+    }
+    
+    // First check if all positions are valid and empty
+    for (const { x, y } of diceToPlace) {
+      if (!this.isValidPosition(x, y) || !this.isEmpty(x, y)) {
+        return false;
+      }
+    }
+    
+    // Place all dice at their correct rotated positions
+    for (const { die, x, y } of diceToPlace) {
+      this.setDie(x, y, die);
+    }
+    
+    return true;
+  }
+
+  /**
+   * Add a locked piece to the grid (keeps piece cohesive until matches break it)
+   */
+  public addLockedPiece(piece: Piece): boolean {
     const positions = piece.getDicePositions();
     
     // First check if all positions are valid and empty
@@ -151,7 +234,10 @@ export class Grid {
       }
     }
     
-    // Place all dice
+    // Add piece to locked pieces array
+    this.lockedPieces.push(piece);
+    
+    // Also place dice in cells array for collision detection
     for (let i = 0; i < positions.length && i < piece.dice.length; i++) {
       const pos = positions[i];
       const die = piece.dice[i];
@@ -160,14 +246,17 @@ export class Grid {
       }
     }
     
+    console.log(`Locked piece ${piece.shape} added to grid. Total locked pieces: ${this.lockedPieces.length}`);
     return true;
   }
 
   /**
    * Remove dice from specified positions
    */
-  public clearCells(positions: GridPosition[]): Die[] {
-    const clearedDice: Die[] = [];
+  public clearCells(positions: GridPosition[]): SimpleDie[] {
+    const clearedDice: SimpleDie[] = [];
+    
+    console.log(`🧹 GRID: Clearing ${positions.length} cells`);
     
     for (const pos of positions) {
       if (this.isValidPosition(pos.x, pos.y)) {
@@ -175,18 +264,143 @@ export class Grid {
         if (row) {
           const die = row[pos.x];
           if (die !== null && die !== undefined) {
+            console.log(`🧹 GRID: Clearing die ${die.getDisplayText()} at (${pos.x}, ${pos.y})`);
             clearedDice.push(die);
-            row[pos.x] = null;
+            row[pos.x] = null; // Clear the cell
+          } else {
+            console.log(`⚠️ GRID: No die found at (${pos.x}, ${pos.y}) to clear`);
           }
         }
+      } else {
+        console.log(`❌ GRID: Invalid position (${pos.x}, ${pos.y})`);
       }
     }
     
+    console.log(`🧹 GRID: Successfully cleared ${clearedDice.length} dice`);
     return clearedDice;
   }
 
   /**
-   * Apply gravity to make dice fall down after clearing
+   * Apply gravity with smooth animations
+   * Only affects individual dice, not locked pieces
+   */
+  public async applyGravityWithAnimation(scene: Phaser.Scene): Promise<boolean> {
+    const fallOperations: Array<{
+      die: SimpleDie;
+      fromX: number;
+      fromY: number;
+      toX: number;
+      toY: number;
+    }> = [];
+
+    // Find all dice that can fall (only individual dice, not part of pieces)
+    for (let x = 0; x < this.width; x++) {
+      for (let y = this.height - 2; y >= 0; y--) { // Start from second-to-bottom row
+        const die = this.getDie(x, y);
+        if (die && !this.isDiePartOfLockedPiece(die, x, y)) {
+          const fallDistance = this.calculateFallDistance(x, y);
+          if (fallDistance > 0) {
+            fallOperations.push({
+              die,
+              fromX: x,
+              fromY: y,
+              toX: x,
+              toY: y + fallDistance
+            });
+          }
+        }
+      }
+    }
+
+    if (fallOperations.length === 0) {
+      return false; // No dice to fall
+    }
+
+    // Execute fall animations
+    await this.executeFallAnimations(scene, fallOperations);
+    return true;
+  }
+
+  /**
+   * Calculate how far a die can fall
+   */
+  private calculateFallDistance(x: number, y: number): number {
+    let distance = 0;
+    let checkY = y + 1;
+
+    while (checkY < this.height && this.isEmpty(x, checkY)) {
+      distance++;
+      checkY++;
+    }
+
+    return distance;
+  }
+
+  /**
+   * Execute fall animations with smooth tweening
+   */
+  private async executeFallAnimations(scene: Phaser.Scene, operations: Array<{
+    die: SimpleDie;
+    fromX: number;
+    fromY: number;
+    toX: number;
+    toY: number;
+  }>): Promise<void> {
+    // Clear dice from current positions
+    for (const op of operations) {
+      this.setDie(op.fromX, op.fromY, null);
+    }
+
+    // Create animation promises
+    const animationPromises: Promise<void>[] = [];
+
+    for (const op of operations) {
+      // Place die in new position in grid
+      this.setDie(op.toX, op.toY, op.die);
+
+      // Create smooth fall animation
+      const targetPos = this.gridToScreen(op.toX, op.toY);
+      const fallDistance = op.toY - op.fromY;
+      const duration = Math.min(300 + fallDistance * 50, 800); // Longer falls take more time
+
+      const animationPromise = new Promise<void>((resolve) => {
+        // Safety check - make sure die and its components exist
+        if (!op.die || !op.die.graphics || !op.die.text) {
+          console.warn('Die or its components missing during animation');
+          resolve();
+          return;
+        }
+
+        // Check if the die components are still valid (not destroyed)
+        if (op.die.graphics.scene && op.die.text.scene) {
+          scene.tweens.add({
+            targets: [op.die.graphics, op.die.text],
+            x: targetPos.x,
+            y: targetPos.y,
+            duration: duration,
+            ease: 'Bounce.easeOut',
+            onComplete: () => resolve(),
+            onError: () => {
+              console.warn('Animation error for die');
+              resolve();
+            }
+          });
+        } else {
+          console.warn('Die components destroyed before animation');
+          resolve();
+        }
+      });
+
+      animationPromises.push(animationPromise);
+    }
+
+    // Wait for all animations to complete
+    await Promise.all(animationPromises);
+  }
+
+  /**
+   * Apply gravity to make dice fall down after clearing (synchronous version)
+   * Only affects individual dice, not locked pieces
    */
   public applyGravity(): boolean {
     let moved = false;
@@ -202,26 +416,91 @@ export class Grid {
         
         const die = row[x];
         if (die !== null && die !== undefined) {
-          if (writeIndex !== y) {
-            // Move die down
-            const writeRow = this.cells[writeIndex];
-            if (writeRow) {
-              writeRow[x] = die;
-              row[x] = null;
-              
-              // Update die's visual position
-              const worldPos = this.gridToScreen(x, writeIndex);
-              die.setPosition(worldPos.x, worldPos.y);
-              
-              moved = true;
+          // Check if this die is part of a locked piece
+          const isPartOfLockedPiece = this.isDiePartOfLockedPiece(die, x, y);
+          
+          if (!isPartOfLockedPiece) {
+            // Only move individual dice, not dice that are part of locked pieces
+            if (writeIndex !== y) {
+              // Move die down
+              const writeRow = this.cells[writeIndex];
+              if (writeRow) {
+                writeRow[x] = die;
+                row[x] = null;
+                
+                // Update die's visual position
+                const worldPos = this.gridToScreen(x, writeIndex);
+                die.setPosition(worldPos.x, worldPos.y);
+                
+                moved = true;
+              }
             }
+            writeIndex--;
+          } else {
+            // Die is part of a locked piece, don't move it individually
+            writeIndex--;
           }
-          writeIndex--;
         }
       }
     }
     
     return moved;
+  }
+
+  /**
+   * Check if a die at a specific position is part of a locked piece
+   */
+  public isDiePartOfLockedPiece(die: SimpleDie, x: number, y: number): boolean {
+    for (const piece of this.lockedPieces) {
+      const positions = piece.getDicePositions();
+      for (let i = 0; i < positions.length && i < piece.dice.length; i++) {
+        const pos = positions[i];
+        const pieceDie = piece.dice[i];
+        if (pos && pieceDie === die && pos.x === x && pos.y === y) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Break a piece into individual dice (when matches occur)
+   */
+  public breakPiece(piece: Piece): void {
+    const index = this.lockedPieces.indexOf(piece);
+    if (index > -1) {
+      this.lockedPieces.splice(index, 1);
+      console.log(`Broke piece ${piece.shape}. Remaining locked pieces: ${this.lockedPieces.length}`);
+    }
+  }
+
+  /**
+   * Break pieces that contain any of the specified dice positions
+   */
+  public breakPiecesContaining(positions: GridPosition[]): void {
+    const piecesToBreak: Piece[] = [];
+    
+    for (const piece of this.lockedPieces) {
+      const piecePositions = piece.getDicePositions();
+      
+      // Check if any of the piece's positions match the cleared positions
+      for (const piecePos of piecePositions) {
+        for (const clearPos of positions) {
+          if (piecePos.x === clearPos.x && piecePos.y === clearPos.y) {
+            if (!piecesToBreak.includes(piece)) {
+              piecesToBreak.push(piece);
+            }
+            break;
+          }
+        }
+      }
+    }
+    
+    // Break all affected pieces
+    for (const piece of piecesToBreak) {
+      this.breakPiece(piece);
+    }
   }
 
   /**
@@ -359,7 +638,7 @@ export class Grid {
   /**
    * Get all dice in a specific row
    */
-  public getRow(y: number): (Die | null)[] {
+  public getRow(y: number): (SimpleDie | null)[] {
     if (y < 0 || y >= this.height) {
       return [];
     }
@@ -370,12 +649,12 @@ export class Grid {
   /**
    * Get all dice in a specific column
    */
-  public getColumn(x: number): (Die | null)[] {
+  public getColumn(x: number): (SimpleDie | null)[] {
     if (x < 0 || x >= this.width) {
       return [];
     }
     
-    const column: (Die | null)[] = [];
+    const column: (SimpleDie | null)[] = [];
     for (let y = 0; y < this.height; y++) {
       const row = this.cells[y];
       column.push(row ? (row[x] ?? null) : null);
@@ -386,12 +665,12 @@ export class Grid {
   /**
    * Clear an entire row
    */
-  public clearRow(y: number): Die[] {
+  public clearRow(y: number): SimpleDie[] {
     if (y < 0 || y >= this.height) {
       return [];
     }
     
-    const clearedDice: Die[] = [];
+    const clearedDice: SimpleDie[] = [];
     const row = this.cells[y];
     if (!row) return clearedDice;
     
@@ -409,12 +688,12 @@ export class Grid {
   /**
    * Clear an entire column
    */
-  public clearColumn(x: number): Die[] {
+  public clearColumn(x: number): SimpleDie[] {
     if (x < 0 || x >= this.width) {
       return [];
     }
     
-    const clearedDice: Die[] = [];
+    const clearedDice: SimpleDie[] = [];
     for (let y = 0; y < this.height; y++) {
       const row = this.cells[y];
       if (!row) continue;
@@ -432,8 +711,8 @@ export class Grid {
   /**
    * Clear a rectangular area around a center point
    */
-  public clearArea(centerX: number, centerY: number, size: number): Die[] {
-    const clearedDice: Die[] = [];
+  public clearArea(centerX: number, centerY: number, size: number): SimpleDie[] {
+    const clearedDice: SimpleDie[] = [];
     const halfSize = Math.floor(size / 2);
     
     for (let y = centerY - halfSize; y <= centerY + halfSize; y++) {
@@ -457,8 +736,8 @@ export class Grid {
   /**
    * Clear the entire grid
    */
-  public clearAll(): Die[] {
-    const clearedDice: Die[] = [];
+  public clearAll(): SimpleDie[] {
+    const clearedDice: SimpleDie[] = [];
     
     for (let y = 0; y < this.height; y++) {
       const row = this.cells[y];
@@ -549,18 +828,53 @@ export class Grid {
   }
 
   /**
+   * Debug method to print grid state
+   */
+  public debugPrintGrid(): void {
+    console.log('🔍 GRID STATE:');
+    let filledCells = 0;
+    
+    for (let y = 0; y < this.height; y++) {
+      const row = this.cells[y];
+      if (!row) continue;
+      
+      let rowStr = `Row ${y.toString().padStart(2)}: `;
+      for (let x = 0; x < this.width; x++) {
+        const die = row[x];
+        if (die) {
+          rowStr += `[${die.getDisplayText().padStart(2)}]`;
+          filledCells++;
+        } else {
+          rowStr += '[ ]';
+        }
+      }
+      
+      // Only print rows that have dice
+      if (rowStr.includes('[') && !rowStr.match(/^\w+\s+\d+:\s+(\[\s+\])+$/)) {
+        console.log(rowStr);
+      }
+    }
+    
+    console.log(`🔍 GRID: ${filledCells} total dice in grid`);
+  }
+
+  /**
    * Reset the grid to empty state
    */
   public reset(): void {
+    // Clear locked pieces (this also destroys their dice)
+    for (const piece of this.lockedPieces) {
+      piece.destroy();
+    }
+    this.lockedPieces = [];
+    
+    // Clear the cells array
     for (let y = 0; y < this.height; y++) {
       const row = this.cells[y];
       if (!row) continue;
       
       for (let x = 0; x < this.width; x++) {
-        const die = row[x];
-        if (die) {
-          die.destroy();
-        }
+        // Just clear the reference - dice were already destroyed with their pieces
         row[x] = null;
       }
     }
@@ -580,6 +894,69 @@ export class Grid {
           const worldPos = this.gridToScreen(x, y);
           die.setPosition(worldPos.x, worldPos.y);
         }
+      }
+    }
+  }
+
+  /**
+   * Render all dice based on grid state - Grid is the single source of truth
+   */
+  public renderAllDice(): void {
+    console.log('🎨 GRID: Rendering all dice from grid state');
+    
+    for (let y = 0; y < this.height; y++) {
+      const row = this.cells[y];
+      if (!row) continue;
+      
+      for (let x = 0; x < this.width; x++) {
+        const die = row[x];
+        if (die) {
+          // Ensure die is positioned correctly and visible
+          const worldPos = this.gridToScreen(x, y);
+          die.setPosition(worldPos.x, worldPos.y);
+          die.setVisible(true);
+          
+          // Make sure die is added to scene if not already
+          if (!die.scene) {
+            // This shouldn't happen, but just in case
+            console.warn(`⚠️ Die at (${x}, ${y}) not in scene, re-adding`);
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Hide all dice that are not in the grid (cleanup orphaned dice)
+   */
+  public hideOrphanedDice(scene: Phaser.Scene): void {
+    // Get all SimpleDie objects in the scene
+    const allDice = scene.children.list.filter(child => 
+      child instanceof SimpleDie
+    ) as SimpleDie[];
+    
+    console.log(`🧹 GRID: Checking ${allDice.length} dice for orphans`);
+    
+    for (const die of allDice) {
+      let foundInGrid = false;
+      
+      // Check if this die is in our grid
+      for (let y = 0; y < this.height && !foundInGrid; y++) {
+        const row = this.cells[y];
+        if (!row) continue;
+        
+        for (let x = 0; x < this.width && !foundInGrid; x++) {
+          if (row[x] === die) {
+            foundInGrid = true;
+          }
+        }
+      }
+      
+      if (!foundInGrid) {
+        console.log(`🧹 GRID: Hiding orphaned die ${die.getDisplayText()}`);
+        die.setVisible(false);
+        // Optionally destroy it
+        // die.destroy();
       }
     }
   }

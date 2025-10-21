@@ -64,18 +64,23 @@ export class GameOver extends Scene {
     super('GameOver');
   }
 
-  init(data: GameOverData) {
+  public override init(data: GameOverData): void {
     this.gameData = data;
   }
 
-  create() {
+  public override create(): void {
     // Initialize audio system
     this.audioManager = new AudioManager(this);
     this.audioEvents = new AudioEvents(this.audioManager);
-    this.audioManager.initialize();
     
-    // Stop game music and play game over sound
-    this.audioManager.stopMusic();
+    try {
+      this.audioManager.initialize();
+      
+      // Stop game music and play game over sound
+      this.audioManager.stopMusic();
+    } catch (error) {
+      console.warn('Audio system initialization failed in GameOver:', error);
+    }
 
     // Configure camera
     this.camera = this.cameras.main;
@@ -99,7 +104,7 @@ export class GameOver extends Scene {
     
     // Title
     this.titleText = this.add.text(width / 2, 60, 'Game Over', {
-      fontFamily: 'Arial Black',
+      fontFamily: 'Nabla',
       fontSize: '48px',
       color: '#ff6b6b',
       stroke: '#000000',
@@ -109,7 +114,7 @@ export class GameOver extends Scene {
 
     // Score information
     this.scoreText = this.add.text(width / 2, 120, `Final Score: ${this.gameData.score.toLocaleString()}`, {
-      fontFamily: 'Arial Black',
+      fontFamily: 'Stalinist One',
       fontSize: '32px',
       color: '#ffd700',
       stroke: '#000000',
@@ -329,7 +334,11 @@ export class GameOver extends Scene {
     .on('pointerover', () => this.playAgainButton.setStyle({ backgroundColor: '#218838' }))
     .on('pointerout', () => this.playAgainButton.setStyle({ backgroundColor: '#28a745' }))
     .on('pointerdown', () => {
-      this.audioEvents.onMenuSelect();
+      try {
+        this.audioEvents.onMenuSelect();
+      } catch (error) {
+        console.warn('Audio event failed:', error);
+      }
       this.scene.start('Game');
     });
 
@@ -346,8 +355,12 @@ export class GameOver extends Scene {
     .on('pointerover', () => this.mainMenuButton.setStyle({ backgroundColor: '#5a6268' }))
     .on('pointerout', () => this.mainMenuButton.setStyle({ backgroundColor: '#6c757d' }))
     .on('pointerdown', () => {
-      this.audioEvents.onMenuSelect();
-      this.scene.start('MainMenu');
+      try {
+        this.audioEvents.onMenuSelect();
+      } catch (error) {
+        console.warn('Audio event failed:', error);
+      }
+      this.scene.start('StartMenu');
     });
   }
 

@@ -109,8 +109,7 @@ export const PIECE_SHAPES: Record<string, number[][]> = {
   S: [[0, 1, 1], [1, 1, 0]],
   Z: [[1, 1, 0], [0, 1, 1]],
   // Custom shapes for higher difficulties
-  PLUS: [[0, 1, 0], [1, 1, 1], [0, 1, 0]],
-  CROSS: [[1, 0, 1], [0, 1, 0], [1, 0, 1]]
+  PLUS: [[0, 1, 0], [1, 1, 1], [0, 1, 0]]
 };
 
 // Game constants

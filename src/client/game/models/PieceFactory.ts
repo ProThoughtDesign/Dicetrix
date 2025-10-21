@@ -49,21 +49,13 @@ export class PieceFactory {
    * Get available shapes based on game mode difficulty
    */
   private getAvailableShapes(): TetrominoShape[] {
-    const config = GAME_MODES[this.gameMode];
-    
-    // Base shapes available in all modes
-    const baseShapes: TetrominoShape[] = ['I', 'O', 'T', 'L', 'J', 'S', 'Z'];
-    
-    // Add complex shapes for higher difficulties
-    if (config.maxPieceSize >= 6) {
-      baseShapes.push('PLUS');
+    // Easy mode: only simple pieces
+    if (this.gameMode === 'easy') {
+      return ['O', 'I', 'L', 'J', 'T'];
     }
     
-    if (config.maxPieceSize >= 7) {
-      baseShapes.push('CROSS');
-    }
-    
-    return baseShapes;
+    // Other modes: include all pieces including PLUS
+    return ['O', 'I', 'S', 'Z', 'L', 'J', 'T', 'PLUS'];
   }
 
   /**
@@ -91,8 +83,7 @@ export class PieceFactory {
       'J': 1.0,  // J piece - common
       'S': 0.8,  // S piece - slightly less common
       'Z': 0.8,  // Z piece - slightly less common
-      'PLUS': 0.5,  // Plus piece - rare
-      'CROSS': 0.3  // Cross piece - very rare
+      'PLUS': 0.5  // Plus piece - rare
     };
 
     // Create weighted array
@@ -217,8 +208,7 @@ export class PieceFactory {
       'J': 1.0,
       'S': 0.8,
       'Z': 0.8,
-      'PLUS': 0.5,
-      'CROSS': 0.3
+      'PLUS': 0.5
     };
 
     // Modify weights based on difficulty
@@ -229,7 +219,6 @@ export class PieceFactory {
         weights['O'] = 1.5;
         weights['T'] = 1.3;
         weights['PLUS'] = 0.2;
-        weights['CROSS'] = 0.1;
         break;
         
       case 'medium':
@@ -239,7 +228,6 @@ export class PieceFactory {
       case 'hard':
         // Slightly favor complex shapes
         weights['PLUS'] = 0.7;
-        weights['CROSS'] = 0.4;
         weights['S'] = 1.0;
         weights['Z'] = 1.0;
         break;
@@ -247,7 +235,6 @@ export class PieceFactory {
       case 'expert':
         // More complex shapes
         weights['PLUS'] = 1.0;
-        weights['CROSS'] = 0.6;
         weights['S'] = 1.2;
         weights['Z'] = 1.2;
         break;
@@ -258,7 +245,6 @@ export class PieceFactory {
         weights['O'] = 1.8;
         weights['T'] = 1.5;
         weights['PLUS'] = 0.3;
-        weights['CROSS'] = 0.2;
         break;
     }
 

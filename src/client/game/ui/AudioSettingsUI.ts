@@ -108,12 +108,27 @@ export class AudioSettingsUI {
     }).setOrigin(0.5);
     this.container.add(this.titleText);
 
+    // Get settings safely
+    let settings;
+    try {
+      settings = this.audioManager.getSettings();
+    } catch (error) {
+      console.warn('Failed to get audio settings, using defaults:', error);
+      settings = {
+        masterVolume: 0.7,
+        musicVolume: 0.8,
+        sfxVolume: 0.9,
+        musicEnabled: true,
+        sfxEnabled: true
+      };
+    }
+
     // Master Volume Slider
     this.masterVolumeSlider = new VolumeSlider(
       this.scene,
       0, -80,
       'Master Volume',
-      this.audioManager.getSettings().masterVolume,
+      settings.masterVolume,
       (value) => this.onMasterVolumeChange(value)
     );
     this.container.add(this.masterVolumeSlider.getContainer());
@@ -123,7 +138,7 @@ export class AudioSettingsUI {
       this.scene,
       0, -30,
       'Music Volume',
-      this.audioManager.getSettings().musicVolume,
+      settings.musicVolume,
       (value) => this.onMusicVolumeChange(value)
     );
     this.container.add(this.musicVolumeSlider.getContainer());
@@ -133,7 +148,7 @@ export class AudioSettingsUI {
       this.scene,
       0, 20,
       'SFX Volume',
-      this.audioManager.getSettings().sfxVolume,
+      settings.sfxVolume,
       (value) => this.onSFXVolumeChange(value)
     );
     this.container.add(this.sfxVolumeSlider.getContainer());
@@ -143,7 +158,7 @@ export class AudioSettingsUI {
       this.scene,
       -50, 80,
       'Music',
-      this.audioManager.getSettings().musicEnabled,
+      settings.musicEnabled,
       (enabled) => this.onMusicToggle(enabled)
     );
     this.container.add(this.musicToggle.getContainer());
@@ -153,7 +168,7 @@ export class AudioSettingsUI {
       this.scene,
       50, 80,
       'SFX',
-      this.audioManager.getSettings().sfxEnabled,
+      settings.sfxEnabled,
       (enabled) => this.onSFXToggle(enabled)
     );
     this.container.add(this.sfxToggle.getContainer());
@@ -179,36 +194,60 @@ export class AudioSettingsUI {
    * Update UI to reflect current settings
    */
   private updateUI(): void {
-    const settings = this.audioManager.getSettings();
-    
-    this.masterVolumeSlider.setValue(settings.masterVolume);
-    this.musicVolumeSlider.setValue(settings.musicVolume);
-    this.sfxVolumeSlider.setValue(settings.sfxVolume);
-    this.musicToggle.setEnabled(settings.musicEnabled);
-    this.sfxToggle.setEnabled(settings.sfxEnabled);
+    try {
+      const settings = this.audioManager.getSettings();
+      
+      this.masterVolumeSlider.setValue(settings.masterVolume);
+      this.musicVolumeSlider.setValue(settings.musicVolume);
+      this.sfxVolumeSlider.setValue(settings.sfxVolume);
+      this.musicToggle.setEnabled(settings.musicEnabled);
+      this.sfxToggle.setEnabled(settings.sfxEnabled);
+    } catch (error) {
+      console.warn('Failed to update audio settings UI:', error);
+    }
   }
 
   /**
    * Event handlers
    */
   private onMasterVolumeChange(value: number): void {
-    this.audioManager.updateSettings({ masterVolume: value });
+    try {
+      this.audioManager.updateSettings({ masterVolume: value });
+    } catch (error) {
+      console.warn('Failed to update master volume:', error);
+    }
   }
 
   private onMusicVolumeChange(value: number): void {
-    this.audioManager.updateSettings({ musicVolume: value });
+    try {
+      this.audioManager.updateSettings({ musicVolume: value });
+    } catch (error) {
+      console.warn('Failed to update music volume:', error);
+    }
   }
 
   private onSFXVolumeChange(value: number): void {
-    this.audioManager.updateSettings({ sfxVolume: value });
+    try {
+      this.audioManager.updateSettings({ sfxVolume: value });
+    } catch (error) {
+      console.warn('Failed to update SFX volume:', error);
+    }
   }
 
   private onMusicToggle(enabled: boolean): void {
-    this.audioManager.updateSettings({ musicEnabled: enabled });
+    try {
+      this.audioManager.updateSettings({ musicEnabled: enabled });
+    } catch (error) {
+      console.warn('Failed to toggle music:', error);
+    }
   }
 
   private onSFXToggle(enabled: boolean): void {
-    this.audioManager.updateSettings({ sfxEnabled: enabled });
+    try {
+      this.audioManager.updateSettings({ sfxEnabled: enabled });
+    } catch (error) {
+      console.warn('Failed to toggle SFX:', error);
+    }
   }
 
   /**

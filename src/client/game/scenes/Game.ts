@@ -1,724 +1,1185 @@
 import { Scene } from 'phaser';
 import * as Phaser from 'phaser';
-import { BoosterManager } from '../models/BoosterManager.js';
-import { BoosterHUD } from '../ui/BoosterHUD.js';
-import { GameController } from '../controllers/GameController.js';
-import { Grid } from '../models/Grid.js';
 import { Piece } from '../models/Piece.js';
-import { GameMode, ScoreBreakdown } from '../../../shared/types/game.js';
+import { PieceFactory } from '../models/PieceFactory.js';
+import { GameStateManager } from '../models/GameStateManager.js';
+import { InputManager } from '../input/InputManager.js';
 import { AudioManager, AudioEvents } from '../audio/index.js';
-import { AudioSettingsUI } from '../ui/AudioSettingsUI.js';
-import { ApiService } from '../services/ApiService.js';
-import { ProgressionSystem, ProgressionData } from '../systems/ProgressionSystem.js';
-import { PerformanceOptimizer } from '../systems/PerformanceOptimizer.js';
-import { GAME_MODES } from '../../../shared/config/game-modes.js';
+import { TetrominoShape, GameMode } from '../../../shared/types/game.js';
+import { GameStateController } from '../controllers/GameStateController.js';
+import { SimpleDie } from '../models/SimpleDie.js';
+import { SimpleDie } from '../models/SimpleDie.js';
 
 export class Game extends Scene {
-  camera: Phaser.Cameras.Scene2D.Camera;
-  background: Phaser.GameObjects.Image;
-  
-  // Game state
-  score: number = 0;
-  level: number = 1;
-  gameMode: GameMode = 'medium';
-  previousHighScore: number = 0;
-  gameStartTime: number = 0;
-  
-  // Progression system
-  private progressionSystem: ProgressionSystem;
-  private progressionData: ProgressionData;
-  
-  // Core game systems
-  grid: Grid;
-  gameController: GameController;
-  currentPiece: Piece | null = null;
-  nextPiece: Piece | null = null;
-  
-  // Booster system
-  boosterManager: BoosterManager;
-  boosterHUD: BoosterHUD;
-  
-  // Audio system
+  // Grid properties
+  private gridWidth: number = 10;
+  private gridHeight: number = 20;
+  private cellSize: number = 0; // Will be calculated dynamically
+  private gridGraphics: Phaser.GameObjects.Graphics;
+  private gridOffsetX: number = 0;
+  private gridOffsetY: number = 0;
+
+  // Target interface dimensions (portrait mobile)
+  private targetWidth: number = 400;
+  private targetHeight: number = 600;
+
+  // Display type tracking
+  private currentDisplayType: 'mobile' | 'desktop' | 'fullscreen' = 'mobile';
+
+  // UI elements
+  private scoreText: Phaser.GameObjects.Text;
+  private scoreValueText: Phaser.GameObjects.Text;
+  private nextPieceLabel: Phaser.GameObjects.Text;
+  private nextPieceSquare: Phaser.GameObjects.Graphics;
+  private nextPieceGraphics: Phaser.GameObjects.Graphics;
+  private debugButtons: Phaser.GameObjects.Text[] = [];
+
+  // Game systems
+  private gameStateManager: GameStateManager;
+  private inputManager: InputManager;
   private audioManager: AudioManager;
   private audioEvents: AudioEvents;
-  private audioSettingsUI: AudioSettingsUI;
-  
-  // Performance optimization system
-  private performanceOptimizer: PerformanceOptimizer;
-  
-  // UI elements
-  scoreText: Phaser.GameObjects.Text;
-  levelText: Phaser.GameObjects.Text;
-  gameOverButton: Phaser.GameObjects.Text;
-  pauseText: Phaser.GameObjects.Text;
-  audioButton: Phaser.GameObjects.Text;
-  performanceText: Phaser.GameObjects.Text;
+  private gameStateController: GameStateController;
+
+  // Piece system
+  private currentPiece: Piece | null = null;
+  private nextPiece: Piece | null = null;
+  private pieceFactory: PieceFactory;
+
+  // Game timing and state
+  private gravitySpeed: number = 1000; // 1 second per drop
+  private lastGravityTime: number = 0;
+  private gameMode: GameMode = 'easy';
+  private isGameActive: boolean = true;
+  private isProcessingTurn: boolean = false;
 
   constructor() {
     super('Game');
   }
 
   /**
-   * Initialize scene with data from MainMenu
+   * Main update loop - called every frame by Phaser
    */
-  init(data: { gameMode?: GameMode; progressionData?: ProgressionData }): void {
-    // Initialize progression system
-    this.progressionSystem = ProgressionSystem.getInstance();
-    this.progressionData = data.progressionData || this.progressionSystem.getProgressionData();
-    
-    // Set game mode from data or use current progression mode
-    this.gameMode = data.gameMode || this.progressionData.currentMode;
-    
-    // Record game start time for playtime tracking
-    this.gameStartTime = Date.now();
-    
-    console.log(`Starting game in ${this.gameMode} mode`);
-  }
+  public override update(time: number, delta: number): void {
+    if (!this.isGameActive) {
+      return;
+    }
 
-  override update(time: number, delta: number): void {
-    // Update performance optimizer (must be first for accurate tracking)
-    if (this.performanceOptimizer) {
-      this.performanceOptimizer.update(time, delta);
+    // Update the finite state machine
+    if (this.gameStateController) {
+      this.gameStateController.update();
     }
-    
-    // Update game controller (handles input and piece movement)
-    if (this.gameController) {
-      this.gameController.update(delta);
+
+    // Update input manager (only if input is enabled)
+    if (this.inputManager && this.gameStateController?.isInputEnabled()) {
+      this.inputManager.update(delta);
     }
-    
-    // Update booster system
-    if (this.boosterManager) {
-      this.boosterManager.update(delta);
-    }
-    
-    // Update booster HUD
-    if (this.boosterHUD) {
-      this.boosterHUD.update();
+
+    // Handle gravity - move pieces down every second (only if input enabled)
+    if (this.gameStateController?.isInputEnabled()) {
+      this.updateGravity(time);
     }
   }
 
-  create() {
-    // Initialize performance optimization system first
-    this.performanceOptimizer = PerformanceOptimizer.getInstance(this);
-    this.performanceOptimizer.initialize({
-      targetFrameTime: 60, // 60ms target as per requirement 8.5
-      autoOptimization: true,
-      enableObjectPooling: true,
-      enableMatchOptimization: true,
-      enableMemoryManagement: true,
-      enablePerformanceMonitoring: true
+  /**
+   * Handle gravity system - moves pieces down at regular intervals
+   */
+  private updateGravity(currentTime: number): void {
+    const currentPiece = this.gameStateController?.getCurrentPiece();
+    if (!currentPiece) {
+      return;
+    }
+
+    // Check if it's time for gravity to apply
+    if (currentTime - this.lastGravityTime >= this.gravitySpeed) {
+      this.applyGravityToPiece();
+      this.lastGravityTime = currentTime;
+    }
+  }
+
+  /**
+   * Setup game state controller events
+   */
+  private setupGameStateEvents(): void {
+    this.gameStateController.on('spawnNextPiece', () => {
+      console.log('🎮 Received spawnNextPiece event - spawning piece');
+      this.spawnNextPiece();
     });
+
+    this.gameStateController.on('gameOver', () => {
+      this.handleGameOver();
+    });
+
+    this.gameStateController.on('scoreUpdate', (score: number) => {
+      // Update score display
+      this.updateScore();
+    });
+
+    this.gameStateController.on('inputEnabled', () => {
+      console.log('Input enabled');
+    });
+
+    this.gameStateController.on('inputDisabled', () => {
+      console.log('Input disabled');
+    });
+  }
+
+  /**
+   * Apply gravity to the current piece
+   */
+  private applyGravityToPiece(): void {
+    if (!this.currentPiece) {
+      return;
+    }
+
+    const grid = this.gameStateManager.getGrid();
     
-    // Initialize audio system
-    this.audioManager = new AudioManager(this);
-    this.audioEvents = new AudioEvents(this.audioManager);
-    this.audioSettingsUI = new AudioSettingsUI(this, this.audioManager);
-    this.audioManager.initialize();
+    // Check individual dice using the dice matrix for accurate collision detection
+    const diceMatrix = this.currentPiece.getDiceMatrix();
+    const matrixSize = this.currentPiece.getMatrixSize();
+    const collidingDice: { die: SimpleDie; x: number; y: number }[] = [];
     
-    // Start game music for current mode
-    this.audioEvents.onModeStart(this.gameMode);
+    for (let row = 0; row < matrixSize; row++) {
+      for (let col = 0; col < matrixSize; col++) {
+        const die = diceMatrix[row]?.[col];
+        if (die) {
+          const currentX = this.currentPiece.gridX + col;
+          const currentY = this.currentPiece.gridY + row;
+          const newY = currentY + 1;
+          
+          // Check if this specific die would collide when moving down
+          if (grid.checkDieCollision(currentX, newY)) {
+            collidingDice.push({ die, x: currentX, y: currentY });
+          }
+        }
+      }
+    }
 
-    // Configure camera & background with dark theme for Dicetrix
-    this.camera = this.cameras.main;
-    this.camera.setBackgroundColor(0x1a1a2e);
-
-    // Semi-transparent background
-    this.background = this.add.image(512, 384, 'background').setAlpha(0.1);
-
-    // Initialize core game systems
-    this.initializeGameSystems();
-
-    // Initialize booster system
-    this.boosterManager = new BoosterManager(this);
-    this.boosterHUD = new BoosterHUD(this, this.boosterManager);
+    const totalDice = this.currentPiece.dice.length;
     
-    // Connect audio events to booster manager
-    this.boosterManager.setAudioEvents(this.audioEvents);
+    if (collidingDice.length === 0) {
+      // No collisions - move entire piece down
+      this.movePieceDownSmooth();
+    } else if (collidingDice.length === totalDice) {
+      // All dice colliding - lock entire piece
+      console.log(`🔒 All ${totalDice} dice colliding - locking piece`);
+      this.gameStateController.lockCurrentPiece();
+    } else {
+      // Some dice colliding - break piece and handle individually
+      console.log(`🔒 ${collidingDice.length}/${totalDice} dice colliding - breaking piece`);
+      this.breakPieceOnCollision(collidingDice);
+    }
+  }
 
-    // Initialize game session with server
-    void this.initializeGame();
+  public create(): void {
+    console.log('Game scene create() called');
+
+    try {
+      // Set dark background
+      this.cameras.main.setBackgroundColor(0x1a1a2e);
+
+      // Detect initial display type
+      this.detectDisplayType();
+
+      // Calculate initial layout (this sets cellSize)
+      this.calculateLayout(this.scale.width, this.scale.height);
+      console.log('Layout calculated, cellSize:', this.cellSize);
+
+      // Create the grid graphics
+      this.createGrid();
+      console.log('Grid graphics created');
+
+      // Initialize game systems
+      this.initializeGameSystems();
+      console.log('Game systems initialized');
+
+      // Initialize game state controller
+      this.gameStateController = new GameStateController(
+        this,
+        this.gameStateManager.getGrid(),
+        this.gameStateManager.getMatchProcessor()
+      );
+      this.setupGameStateEvents();
+      console.log('Game state controller initialized');
+
+      // Setup input handling
+      this.setupInput();
+      console.log('Input system initialized');
+
+      // Generate initial pieces
+      this.generateNextPiece();
+      this.spawnFirstPiece();
+      console.log('Initial pieces created');
+    } catch (error) {
+      console.error('Error in Game scene create():', error);
+      throw error; // Re-throw to see the full error
+    }
 
     // Create UI elements
     this.createUI();
 
-    // Setup responsive layout
-    this.updateLayout(this.scale.width, this.scale.height);
+    // Add debug buttons for testing display modes
+    this.createDebugButtons();
+
+    // Debug square removed - no longer needed
+
+    // Handle window resize
     this.scale.on('resize', (gameSize: Phaser.Structs.Size) => {
-      const { width, height } = gameSize;
-      this.updateLayout(width, height);
+      this.updateLayout(gameSize.width, gameSize.height);
     });
 
-    // Display game instructions
-    this.add.text(this.scale.width / 2, this.scale.height / 2, 
-      'Dicetrix Controls:\n\n' +
-      'Arrow Keys / Swipe: Move & Rotate\n' +
-      'Space / Double Tap: Hard Drop\n' +
-      'ESC: Pause\n\n' +
-      'Match 3+ dice with same number!', {
-      fontFamily: 'Arial Black',
-      fontSize: 24,
-      color: '#00ff88',
-      stroke: '#000000',
-      strokeThickness: 2,
-      align: 'center'
-    }).setOrigin(0.5);
+    // Listen for fullscreen changes (multiple event types for cross-browser support)
+    const fullscreenEvents = [
+      'fullscreenchange',
+      'webkitfullscreenchange',
+      'mozfullscreenchange',
+      'MSFullscreenChange',
+    ];
+    fullscreenEvents.forEach((eventType) => {
+      document.addEventListener(eventType, () => {
+        console.log(`Fullscreen event: ${eventType}`);
+        setTimeout(() => {
+          this.detectDisplayType();
+          this.updateLayout(this.scale.width, this.scale.height);
+        }, 100); // Small delay to ensure fullscreen state is updated
+      });
+    });
 
-    // Add test button to demonstrate input system
-    const testButton = this.add.text(this.scale.width / 2, this.scale.height / 2 + 150, 'Test Input System', {
-      fontFamily: 'Arial Black',
-      fontSize: 20,
-      color: '#ffffff',
-      backgroundColor: '#444444',
-      padding: { x: 15, y: 8 } as Phaser.Types.GameObjects.Text.TextPadding,
-    })
-    .setOrigin(0.5)
-    .setInteractive({ useHandCursor: true })
-    .on('pointerover', () => testButton.setStyle({ backgroundColor: '#555555' }))
-    .on('pointerout', () => testButton.setStyle({ backgroundColor: '#444444' }))
-    .on('pointerdown', () => this.testInputSystem());
+    // Also listen for window resize events
+    window.addEventListener('resize', () => {
+      console.log(`Window resize: ${window.innerWidth}x${window.innerHeight}`);
+      setTimeout(() => {
+        this.detectDisplayType();
+        this.updateLayout(window.innerWidth, window.innerHeight);
+      }, 100);
+    });
 
-    // Add audio test button
-    const audioTestButton = this.add.text(this.scale.width / 2, this.scale.height / 2 + 200, 'Test Audio System', {
-      fontFamily: 'Arial Black',
-      fontSize: 20,
-      color: '#ffffff',
-      backgroundColor: '#444444',
-      padding: { x: 15, y: 8 } as Phaser.Types.GameObjects.Text.TextPadding,
-    })
-    .setOrigin(0.5)
-    .setInteractive({ useHandCursor: true })
-    .on('pointerover', () => audioTestButton.setStyle({ backgroundColor: '#555555' }))
-    .on('pointerout', () => audioTestButton.setStyle({ backgroundColor: '#444444' }))
-    .on('pointerdown', () => this.testAudioSystem());
-
-    // Add performance test button
-    const performanceTestButton = this.add.text(this.scale.width / 2, this.scale.height / 2 + 250, 'Test Performance System', {
-      fontFamily: 'Arial Black',
-      fontSize: 20,
-      color: '#ffffff',
-      backgroundColor: '#444444',
-      padding: { x: 15, y: 8 } as Phaser.Types.GameObjects.Text.TextPadding,
-    })
-    .setOrigin(0.5)
-    .setInteractive({ useHandCursor: true })
-    .on('pointerover', () => performanceTestButton.setStyle({ backgroundColor: '#555555' }))
-    .on('pointerout', () => performanceTestButton.setStyle({ backgroundColor: '#444444' }))
-    .on('pointerdown', () => this.testPerformanceSystem());
+    console.log('Game scene initialization complete');
   }
 
   /**
-   * Initialize core game systems (grid, controller, etc.)
+   * Create the game grid using Phaser graphics
+   */
+  private createGrid(): void {
+    // Create graphics object for the grid
+    this.gridGraphics = this.add.graphics();
+
+    // Draw the grid
+    this.drawGrid();
+  }
+
+  /**
+   * Draw the grid lines
+   */
+  private drawGrid(): void {
+    this.gridGraphics.clear();
+
+    // Set line style - green color, 2px width
+    this.gridGraphics.lineStyle(2, 0x00ff00, 1);
+
+    // Draw vertical lines
+    for (let x = 0; x <= this.gridWidth; x++) {
+      const lineX = this.gridOffsetX + x * this.cellSize;
+      this.gridGraphics.moveTo(lineX, this.gridOffsetY);
+      this.gridGraphics.lineTo(lineX, this.gridOffsetY + this.gridHeight * this.cellSize);
+    }
+
+    // Draw horizontal lines
+    for (let y = 0; y <= this.gridHeight; y++) {
+      const lineY = this.gridOffsetY + y * this.cellSize;
+      this.gridGraphics.moveTo(this.gridOffsetX, lineY);
+      this.gridGraphics.lineTo(this.gridOffsetX + this.gridWidth * this.cellSize, lineY);
+    }
+
+    // Apply the stroke to make lines visible
+    this.gridGraphics.strokePath();
+  }
+
+  /**
+   * Calculate grid layout based on display type with specific cell sizes
+   */
+  private calculateLayout(width: number, height: number): void {
+    let availableWidth = width;
+    let availableHeight = height;
+
+    // Set cell size based on display type
+    switch (this.currentDisplayType) {
+      case 'mobile':
+        // Use target mobile dimensions if screen is larger
+        availableWidth = Math.min(width, this.targetWidth);
+        availableHeight = Math.min(height, this.targetHeight);
+        this.cellSize = 24; // Fixed 24x24 for mobile
+        break;
+
+      case 'desktop':
+        this.cellSize = 32; // Fixed 32x32 for desktop
+        break;
+
+      case 'fullscreen':
+        // For fullscreen, calculate optimal size up to 128x128 max
+        const maxCellByWidth = Math.floor((width - 200) / this.gridWidth); // Leave 200px for UI
+        const maxCellByHeight = Math.floor((height - 200) / this.gridHeight);
+        const calculatedSize = Math.min(maxCellByWidth, maxCellByHeight);
+
+        // Use calculated size but cap at 128px maximum
+        this.cellSize = Math.min(calculatedSize, 128);
+
+        // Ensure minimum size for visibility
+        this.cellSize = Math.max(this.cellSize, 32);
+        break;
+    }
+
+    // Calculate actual grid dimensions
+    const gridPixelWidth = this.gridWidth * this.cellSize;
+    const gridPixelHeight = this.gridHeight * this.cellSize;
+
+    // Position grid based on display type
+    if (this.currentDisplayType === 'mobile') {
+      // Mobile: 10px from left, centered vertically
+      this.gridOffsetX = 10;
+      this.gridOffsetY = (availableHeight - gridPixelHeight) / 2;
+    } else {
+      // Desktop/Fullscreen: center both horizontally and vertically
+      this.gridOffsetX = (availableWidth - gridPixelWidth) / 2;
+      this.gridOffsetY = (availableHeight - gridPixelHeight) / 2;
+    }
+
+    // Calculate UI area information
+    const rightUISpace = availableWidth - this.gridOffsetX - gridPixelWidth;
+    const bottomUISpace = availableHeight - this.gridOffsetY - gridPixelHeight;
+
+    console.log(
+      `${this.currentDisplayType.toUpperCase()}: ${this.cellSize}x${this.cellSize} cells`
+    );
+    console.log(
+      `Grid: ${gridPixelWidth}x${gridPixelHeight} at (${this.gridOffsetX.toFixed(1)}, ${this.gridOffsetY.toFixed(1)})`
+    );
+    console.log(
+      `UI space - Right: ${rightUISpace.toFixed(1)}px, Bottom: ${bottomUISpace.toFixed(1)}px`
+    );
+
+    // Log screen utilization
+    const screenUtilization = (
+      ((gridPixelWidth * gridPixelHeight) / (availableWidth * availableHeight)) *
+      100
+    ).toFixed(1);
+    console.log(`Screen utilization: ${screenUtilization}%`);
+  }
+
+  /**
+   * Detect the current display type based on specific dimension criteria
+   */
+  private detectDisplayType(): void {
+    const width = this.scale.width;
+    const height = this.scale.height;
+    const previousType = this.currentDisplayType;
+
+    // Use your corrected criteria:
+    // Mobile: 1080 or below (in either dimension)
+    // Desktop: up to 1600 (in both dimensions)
+    // Fullscreen: anything above 1600 (in either dimension)
+
+    if (width > 1600 || height > 1600) {
+      this.currentDisplayType = 'fullscreen';
+    } else if (width <= 1080 || height <= 1080) {
+      this.currentDisplayType = 'mobile';
+    } else {
+      this.currentDisplayType = 'desktop';
+    }
+
+    console.log(`Display type: ${previousType} -> ${this.currentDisplayType} (${width}x${height})`);
+    console.log(`Criteria: Mobile(≤1080), Desktop(≤1600), Fullscreen(>1600)`);
+  }
+
+  /**
+   * Get the current display type
+   */
+  public getDisplayType(): 'mobile' | 'desktop' | 'fullscreen' {
+    return this.currentDisplayType;
+  }
+
+  /**
+   * Initialize all game systems
    */
   private initializeGameSystems(): void {
-    // Calculate grid layout for responsive design
-    const cellSize = Math.min(
-      Math.floor(this.scale.width / 15), // Leave room for UI
-      Math.floor(this.scale.height / 25)  // Leave room for UI
-    );
-    
-    const gridWidth = 10 * cellSize;
-    const gridHeight = 20 * cellSize;
-    const offsetX = (this.scale.width - gridWidth) / 2;
-    const offsetY = (this.scale.height - gridHeight) / 2;
-
-    // Initialize grid
-    this.grid = new Grid(cellSize, offsetX, offsetY);
-
-    // Initialize game controller
-    this.gameController = new GameController(this, {
-      currentPiece: null,
-      nextPiece: null,
-      grid: this.grid,
-      gameMode: this.gameMode,
-      isPaused: false,
-      isGameOver: false,
-      canMove: true
-    });
-
-    // Setup game controller callbacks
-    this.setupGameControllerCallbacks();
-    
-    // Connect audio events to game controller
-    this.gameController.setAudioEvents(this.audioEvents);
-  }
-
-  /**
-   * Setup callbacks for game controller events
-   */
-  private setupGameControllerCallbacks(): void {
-    this.gameController.onPieceLockedCallback((_, positions) => {
-      console.log('Piece locked at positions:', positions);
-      this.audioEvents.onPieceLock();
-      // Here we would trigger match detection, cascades, etc.
-      // For now, just log the event
-    });
-
-    this.gameController.onGameOverCallback(async () => {
-      console.log('Game Over!');
-      this.audioEvents.onGameOver();
-      
-      // Submit score to server and get leaderboard data
-      await this.handleGameOver();
-    });
-
-    this.gameController.onPauseCallback((paused) => {
-      if (this.pauseText) {
-        this.pauseText.setVisible(paused);
-      }
-      
-      if (paused) {
-        this.audioEvents.onGamePause();
-      } else {
-        this.audioEvents.onGameResume();
-      }
-    });
-
-    this.gameController.onScoreUpdateCallback((points) => {
-      // Apply mode-specific score multiplier
-      const modeConfig = GAME_MODES[this.gameMode];
-      const adjustedPoints = Math.floor(points * modeConfig.scoreMultiplier);
-      this.score += adjustedPoints;
-      
-      // Check for level up using mode-specific threshold
-      const oldLevel = this.level;
-      this.level = Math.floor(this.score / modeConfig.levelUpThreshold) + 1;
-      
-      // Cap level at mode maximum
-      if (this.level > modeConfig.maxLevel) {
-        this.level = modeConfig.maxLevel;
-      }
-      
-      if (this.level > oldLevel) {
-        this.audioEvents.onLevelUp();
-      }
-      
-      // Check for high score
-      if (this.score > this.previousHighScore && this.previousHighScore > 0) {
-        this.audioEvents.onHighScore();
-        this.previousHighScore = this.score;
-      }
-      
-      this.updateUI();
-    });
-  }
-
-  private async initializeGame(): Promise<void> {
     try {
-      const response = await fetch('/api/game/init');
-      if (!response.ok) throw new Error(`API error: ${response.status}`);
+      // Initialize audio system
+      this.audioManager = new AudioManager(this);
+      this.audioEvents = new AudioEvents(this.audioManager);
 
-      const data = await response.json();
-      this.score = data.score || 0;
-      this.level = data.level || 1;
-      this.gameMode = data.mode || 'medium';
-      this.previousHighScore = data.highScore || 0;
-      this.updateUI();
+      try {
+        this.audioManager.initialize();
+      } catch (error) {
+        console.warn('Audio system initialization failed:', error);
+      }
+
+      // Initialize GameStateManager with proper game mode
+      this.gameStateManager = new GameStateManager(this, this.gameMode);
+      console.log('GameStateManager created successfully');
+
+      // Initialize piece factory
+      this.pieceFactory = new PieceFactory(this.gameMode, this.cellSize);
+      console.log('PieceFactory created successfully');
+
+      // Connect audio events to game systems
+      if (this.audioEvents) {
+        const boosterManager = this.gameStateManager.getBoosterManager();
+        const matchProcessor = this.gameStateManager.getMatchProcessor();
+
+        boosterManager.setAudioEvents(this.audioEvents);
+        matchProcessor.setAudioEvents(this.audioEvents);
+      }
+
+      // Update grid layout
+      this.updateGridLayout();
+
+      console.log('Game systems initialized successfully');
     } catch (error) {
-      console.error('Failed to initialize game:', error);
+      console.error('Error initializing game systems:', error);
+      throw error;
     }
   }
 
-  private createUI(): void {
-    // Score display
-    this.scoreText = this.add.text(20, 20, `Score: ${this.score}`, {
-      fontFamily: 'Arial Black',
-      fontSize: 24,
-      color: '#ffd700',
-      stroke: '#000000',
-      strokeThickness: 3,
-    });
+  /**
+   * Update grid layout when display changes
+   */
+  private updateGridLayout(): void {
+    const grid = this.gameStateManager.getGrid();
+    if (grid) {
+      grid.setLayout(this.cellSize, this.gridOffsetX, this.gridOffsetY);
+    }
+    if (this.pieceFactory) {
+      this.pieceFactory.setCellSize(this.cellSize);
+    }
 
-    // Level display
-    this.levelText = this.add.text(20, 60, `Level: ${this.level}`, {
-      fontFamily: 'Arial Black',
-      fontSize: 24,
-      color: '#00ff88',
-      stroke: '#000000',
-      strokeThickness: 3,
-    });
-
-    // Pause indicator (hidden by default)
-    this.pauseText = this.add.text(this.scale.width / 2, 100, 'PAUSED', {
-      fontFamily: 'Arial Black',
-      fontSize: 48,
-      color: '#ff4444',
-      stroke: '#000000',
-      strokeThickness: 4,
-    })
-    .setOrigin(0.5)
-    .setVisible(false);
-
-    // Game Over button for testing
-    this.gameOverButton = this.add.text(0, 0, 'Game Over', {
-      fontFamily: 'Arial Black',
-      fontSize: 24,
-      color: '#ffffff',
-      backgroundColor: '#444444',
-      padding: { x: 15, y: 8 } as Phaser.Types.GameObjects.Text.TextPadding,
-    })
-    .setOrigin(0.5)
-    .setInteractive({ useHandCursor: true })
-    .on('pointerover', () => this.gameOverButton.setStyle({ backgroundColor: '#555555' }))
-    .on('pointerout', () => this.gameOverButton.setStyle({ backgroundColor: '#444444' }))
-    .on('pointerdown', () => {
-      this.audioEvents.onMenuSelect();
-      this.scene.start('GameOver');
-    });
-
-    // Audio settings button
-    this.audioButton = this.add.text(0, 0, '🔊', {
-      fontFamily: 'Arial Black',
-      fontSize: '24px',
-      color: '#ffffff',
-      backgroundColor: '#444444',
-      padding: { x: 10, y: 8 } as Phaser.Types.GameObjects.Text.TextPadding
-    })
-    .setOrigin(1, 0)
-    .setInteractive({ useHandCursor: true })
-    .on('pointerover', () => {
-      this.audioEvents.onMenuHover();
-      this.audioButton.setStyle({ backgroundColor: '#555555' });
-    })
-    .on('pointerout', () => {
-      this.audioButton.setStyle({ backgroundColor: '#444444' });
-    })
-    .on('pointerdown', () => {
-      this.audioEvents.onMenuSelect();
-      this.audioSettingsUI.toggle();
-    });
-
-    // Performance display
-    this.performanceText = this.add.text(20, 100, '', {
-      fontFamily: 'Arial',
-      fontSize: 14,
-      color: '#00ff88',
-      stroke: '#000000',
-      strokeThickness: 1,
-    });
-    
-    // Update performance display every second
-    this.time.addEvent({
-      delay: 1000,
-      callback: this.updatePerformanceDisplay,
-      callbackScope: this,
-      loop: true
-    });
+    // Update current piece if it exists
+    if (this.currentPiece) {
+      // Update each die in the current piece with new cell size
+      this.currentPiece.dice.forEach((die) => {
+        if ('updateCellSize' in die) {
+          (die as any).updateCellSize(this.cellSize);
+        }
+      });
+      // Update piece positions with new grid offset
+      this.currentPiece.setGridOffset(this.gridOffsetX, this.gridOffsetY);
+    }
   }
 
-  private updateLayout(width: number, height: number): void {
-    // Resize camera viewport
-    this.cameras.resize(width, height);
+  /**
+   * Setup input handling
+   */
+  private setupInput(): void {
+    this.inputManager = new InputManager(this);
 
-    // Position background
-    if (this.background) {
-      this.background.setPosition(width / 2, height / 2);
-      if (this.background.width && this.background.height) {
-        const scale = Math.max(width / this.background.width, height / this.background.height);
-        this.background.setScale(scale);
+    // Handle piece movement
+    this.inputManager.onInput('move_left', () => {
+      if (this.currentPiece && this.isGameActive && this.gameStateController?.isInputEnabled()) {
+        this.movePieceLeft();
+      }
+    });
+
+    this.inputManager.onInput('move_right', () => {
+      if (this.currentPiece && this.isGameActive && this.gameStateController?.isInputEnabled()) {
+        this.movePieceRight();
+      }
+    });
+
+    this.inputManager.onInput('move_down', () => {
+      if (this.currentPiece && this.isGameActive && this.gameStateController?.isInputEnabled()) {
+        this.movePieceDown();
+      }
+    });
+
+    this.inputManager.onInput('rotate', () => {
+      if (this.currentPiece && this.isGameActive && this.gameStateController?.isInputEnabled()) {
+        this.rotatePiece();
+      }
+    });
+
+    this.inputManager.onInput('hard_drop', () => {
+      if (this.currentPiece && this.isGameActive && this.gameStateController?.isInputEnabled()) {
+        this.hardDropPiece();
+      }
+    });
+
+    console.log('Input system setup complete');
+  }
+
+  /**
+   * Generate a random Tetris piece shape based on game mode
+   */
+  private getRandomShape(): TetrominoShape {
+    let shapes: TetrominoShape[];
+    
+    // Easy mode: only simple pieces
+    if (this.gameMode === 'easy') {
+      shapes = ['O', 'I', 'L', 'J', 'T'];
+    } else {
+      // Other modes: include all pieces
+      shapes = ['O', 'I', 'S', 'Z', 'L', 'J', 'T', 'PLUS'];
+    }
+    
+    const randomIndex = Math.floor(Math.random() * shapes.length);
+    const shape = shapes[randomIndex];
+    return shape || 'I'; // Fallback to 'I' if undefined
+  }
+
+  /**
+   * Generate the next piece shape (just the shape, not the actual piece)
+   */
+  private generateNextPiece(): void {
+    try {
+      // Just store the shape and matrix for preview, don't create actual piece
+      const shape = this.getRandomShape();
+
+      // Create a simple preview object instead of a full piece
+      this.nextPiece = {
+        shape: shape,
+        shapeMatrix: this.getShapeMatrix(shape),
+      } as any; // Temporary type override
+
+      console.log(`Generated next piece shape: ${shape}`);
+    } catch (error) {
+      console.error('Error generating next piece:', error);
+      this.nextPiece = null;
+    }
+  }
+
+  /**
+   * Get shape matrix for a given shape
+   */
+  private getShapeMatrix(shape: TetrominoShape): number[][] {
+    const shapeMatrices: Record<TetrominoShape, number[][]> = {
+      'I': [[1, 1, 1, 1]],
+      'O': [
+        [1, 1],
+        [1, 1],
+      ],
+      'T': [
+        [0, 1, 0],
+        [1, 1, 1],
+      ],
+      'S': [
+        [0, 1, 1],
+        [1, 1, 0],
+      ],
+      'Z': [
+        [1, 1, 0],
+        [0, 1, 1],
+      ],
+      'J': [
+        [1, 0, 0],
+        [1, 1, 1],
+      ],
+      'L': [
+        [0, 0, 1],
+        [1, 1, 1],
+      ],
+      'PLUS': [
+        [0, 1, 0],
+        [1, 1, 1],
+        [0, 1, 0],
+      ],
+    };
+
+    return shapeMatrices[shape] || [[1]];
+  }
+
+  /**
+   * Render the next piece in the preview area
+   */
+  private renderNextPiece(): void {
+    if (!this.nextPiece || !this.nextPieceGraphics) return;
+
+    this.nextPieceGraphics.clear();
+
+    const uiStartX = this.gridOffsetX + this.gridWidth * this.cellSize + 20;
+    const uiStartY = this.gridOffsetY + 20;
+    const previewX = uiStartX + 5;
+    const previewY = uiStartY + 30;
+    const previewCellSize = 15;
+
+    // Get the piece shape matrix
+    const matrix = this.nextPiece.shapeMatrix;
+    if (!matrix || !matrix[0]) return;
+
+    // Calculate centering
+    const pieceWidth = matrix[0].length * previewCellSize;
+    const pieceHeight = matrix.length * previewCellSize;
+    const centerX = previewX + (70 - pieceWidth) / 2;
+    const centerY = previewY + (70 - pieceHeight) / 2;
+
+    // Draw each cell of the piece
+    for (let row = 0; row < matrix.length; row++) {
+      const matrixRow = matrix[row];
+      if (!matrixRow) continue;
+
+      for (let col = 0; col < matrixRow.length; col++) {
+        if (matrixRow[col] === 1) {
+          const cellX = centerX + col * previewCellSize;
+          const cellY = centerY + row * previewCellSize;
+
+          // Use a nice blue color for preview
+          this.nextPieceGraphics.fillStyle(0x4dabf7, 1);
+          this.nextPieceGraphics.fillRect(cellX, cellY, previewCellSize - 1, previewCellSize - 1);
+
+          // Add white border
+          this.nextPieceGraphics.lineStyle(1, 0xffffff, 0.8);
+          this.nextPieceGraphics.strokeRect(cellX, cellY, previewCellSize - 1, previewCellSize - 1);
+        }
       }
     }
-
-    // Position Game Over button
-    if (this.gameOverButton) {
-      this.gameOverButton.setPosition(width - 80, height - 30);
-    }
-
-    // Position audio button
-    if (this.audioButton) {
-      this.audioButton.setPosition(width - 20, 20);
-    }
-
-    // Position pause text
-    if (this.pauseText) {
-      this.pauseText.setPosition(width / 2, 100);
-    }
-
-    // Update grid layout if it exists
-    if (this.grid) {
-      const cellSize = Math.min(
-        Math.floor(width / 15),
-        Math.floor(height / 25)
-      );
-      
-      const gridWidth = 10 * cellSize;
-      const gridHeight = 20 * cellSize;
-      const offsetX = (width - gridWidth) / 2;
-      const offsetY = (height - gridHeight) / 2;
-      
-      this.grid.setLayout(cellSize, offsetX, offsetY);
-    }
-
-    // Update input manager layout (for touch controls)
-    if (this.gameController) {
-      this.gameController.getInputManager().updateLayout(width, height);
-    }
-
-    // Update booster HUD layout
-    if (this.boosterHUD) {
-      this.boosterHUD.updateLayout(width, height);
-    }
-
-    // Update audio settings UI layout
-    if (this.audioSettingsUI) {
-      this.audioSettingsUI.updateLayout(width, height);
-    }
-    
-    // Position performance text
-    if (this.performanceText) {
-      this.performanceText.setPosition(20, 100);
-    }
-  }
-
-  private updateUI(): void {
-    if (this.scoreText) {
-      this.scoreText.setText(`Score: ${this.score}`);
-    }
-    if (this.levelText) {
-      this.levelText.setText(`Level: ${this.level}`);
-    }
   }
 
   /**
-   * Test input system functionality
+   * Create UI elements (score and next piece)
    */
-  private testInputSystem(): void {
-    if (!this.gameController) {
-      console.log('Game controller not initialized');
-      return;
-    }
+  private createUI(): void {
+    // Score in top left margin - "Score:" left aligned, number right aligned to grid edge
+    const scoreY = this.gridOffsetY - 30;
+    const gridRightEdge = this.gridOffsetX + this.gridWidth * this.cellSize;
 
-    const inputManager = this.gameController.getInputManager();
-    
-    // Test input configuration
-    console.log('Current input config:', inputManager.getConfig());
-    
-    // Test input events by logging them
-    inputManager.onInput('*', (event) => {
-      console.log('Input event:', event);
-      
-      // Show visual feedback
-      const feedbackText = this.add.text(
-        this.scale.width / 2, 
-        this.scale.height - 100, 
-        `${event.type.toUpperCase()} (${event.source})`,
-        {
-          fontFamily: 'Arial Black',
-          fontSize: 20,
-          color: '#ffff00',
-          stroke: '#000000',
-          strokeThickness: 2,
-        }
-      ).setOrigin(0.5);
-      
-      // Remove feedback after 1 second
-      this.time.delayedCall(1000, () => {
-        feedbackText.destroy();
-      });
+    // Score label (left aligned to grid) with Stalinist One font
+    this.scoreText = this.add.text(this.gridOffsetX, scoreY, 'Score:', {
+      fontFamily: 'Stalinist One',
+      fontSize: '18px',
+      color: '#ffffff',
+      stroke: '#000000',
+      strokeThickness: 2,
     });
-    
-    console.log('Input system test activated! Try using keyboard or touch controls.');
-  }
 
-  /**
-   * Test audio system functionality
-   */
-  private testAudioSystem(): void {
-    console.log('Testing audio system...');
-    
-    // Test various sound effects
-    this.audioEvents.onPieceMove();
-    
-    this.time.delayedCall(500, () => {
-      this.audioEvents.onPieceRotate();
-    });
-    
-    this.time.delayedCall(1000, () => {
-      this.audioEvents.onPieceLock();
-    });
-    
-    this.time.delayedCall(1500, () => {
-      this.audioEvents.onMatchClear(3);
-    });
-    
-    this.time.delayedCall(2000, () => {
-      this.audioEvents.onCascade(1);
-    });
-    
-    this.time.delayedCall(2500, () => {
-      this.audioEvents.onBoosterActivate('red');
-    });
-    
-    this.time.delayedCall(3000, () => {
-      this.audioEvents.onLevelUp();
-    });
-    
-    console.log('Audio system test sequence started!');
-  }
-
-  /**
-   * Test performance optimization system
-   */
-  private testPerformanceSystem(): void {
-    console.log('Testing performance system...');
-    
-    if (!this.performanceOptimizer) {
-      console.error('Performance optimizer not initialized');
-      return;
-    }
-    
-    // Get performance report
-    const report = this.performanceOptimizer.getPerformanceReport();
-    console.log('Performance Report:', report);
-    
-    // Test object pooling
-    const pooledSprite = this.performanceOptimizer.acquireDiceSprite();
-    if (pooledSprite) {
-      console.log('Successfully acquired pooled sprite');
-      this.time.delayedCall(1000, () => {
-        this.performanceOptimizer.releaseDiceSprite(pooledSprite);
-        console.log('Released pooled sprite');
-      });
-    }
-    
-    // Force optimization test
-    this.time.delayedCall(2000, () => {
-      this.performanceOptimizer.forceOptimization();
-      console.log('Forced performance optimization');
-    });
-    
-    // Show performance report in UI
-    const reportText = this.add.text(
-      this.scale.width / 2,
-      this.scale.height / 2 - 200,
-      `FPS: ${report.performanceMetrics?.currentFPS.toFixed(1) || 'N/A'}\n` +
-      `Frame Time: ${report.performanceMetrics?.averageFrameTime.toFixed(2) || 'N/A'}ms\n` +
-      `Memory: ${report.memoryStats?.memoryUsage ? 
-        (report.memoryStats.memoryUsage.used / 1024 / 1024).toFixed(2) + 'MB' : 'N/A'}`,
-      {
-        fontFamily: 'Arial Black',
-        fontSize: 16,
-        color: '#ffff00',
+    // Score value (right aligned to grid edge) with Stalinist One font
+    const currentScore = this.gameStateManager ? this.gameStateManager.getScore() : 0;
+    this.scoreValueText = this.add
+      .text(gridRightEdge, scoreY, currentScore.toString(), {
+        fontFamily: 'Stalinist One',
+        fontSize: '18px',
+        color: '#ffd700',
         stroke: '#000000',
         strokeThickness: 2,
-        align: 'center'
-      }
-    ).setOrigin(0.5);
-    
-    // Remove report after 5 seconds
-    this.time.delayedCall(5000, () => {
-      reportText.destroy();
+      })
+      .setOrigin(1, 0); // Right aligned
+
+    // Next Piece in right side area
+    const uiStartX = this.gridOffsetX + this.gridWidth * this.cellSize + 20;
+    const uiStartY = this.gridOffsetY + 20;
+
+    this.nextPieceLabel = this.add.text(uiStartX, uiStartY, 'Next Piece:', {
+      fontFamily: 'Stalinist One',
+      fontSize: '16px',
+      color: '#ffffff',
+      stroke: '#000000',
+      strokeThickness: 2,
     });
-    
-    console.log('Performance system test completed!');
+
+    // Background square for next piece preview
+    this.nextPieceSquare = this.add.graphics();
+    this.nextPieceSquare.fillStyle(0x222222, 1); // Dark gray background
+    this.nextPieceSquare.fillRect(uiStartX, uiStartY + 25, 80, 80);
+    this.nextPieceSquare.lineStyle(2, 0x666666, 1); // Gray border
+    this.nextPieceSquare.strokeRect(uiStartX, uiStartY + 25, 80, 80);
+
+    // Graphics object for rendering the actual piece
+    this.nextPieceGraphics = this.add.graphics();
+
+    // Render the initial next piece
+    this.renderNextPiece();
   }
 
   /**
-   * Update performance display
+   * Update UI positions when layout changes
    */
-  private updatePerformanceDisplay(): void {
-    if (!this.performanceOptimizer || !this.performanceText) {
+  private updateUI(): void {
+    if (!this.scoreText) return;
+
+    // Update score position in top margin
+    const scoreY = this.gridOffsetY - 30;
+    const gridRightEdge = this.gridOffsetX + this.gridWidth * this.cellSize;
+
+    this.scoreText.setPosition(this.gridOffsetX, scoreY);
+    this.scoreValueText.setPosition(gridRightEdge, scoreY);
+    const currentScore = this.gameStateManager ? this.gameStateManager.getScore() : 0;
+    this.scoreValueText.setText(currentScore.toString());
+
+    // Update next piece area in right side
+    const uiStartX = this.gridOffsetX + this.gridWidth * this.cellSize + 20;
+    const uiStartY = this.gridOffsetY + 20;
+
+    // Update next piece label position
+    this.nextPieceLabel.setPosition(uiStartX, uiStartY);
+
+    // Update next piece background square
+    this.nextPieceSquare.clear();
+    this.nextPieceSquare.fillStyle(0x222222, 1);
+    this.nextPieceSquare.fillRect(uiStartX, uiStartY + 25, 80, 80);
+    this.nextPieceSquare.lineStyle(2, 0x666666, 1);
+    this.nextPieceSquare.strokeRect(uiStartX, uiStartY + 25, 80, 80);
+
+    // Re-render the next piece in new position
+    this.renderNextPiece();
+  }
+
+  /**
+   * Update debug button positions
+   */
+  private updateDebugButtons(): void {
+    if (this.debugButtons.length === 0) return;
+
+    const buttonSize = 24;
+    const buttonSpacing = 4;
+    const startX = this.scale.width - (3 * buttonSize + 2 * buttonSpacing + 10);
+    const buttonY = 10;
+
+    this.debugButtons.forEach((button, index) => {
+      const buttonX = startX + index * (buttonSize + buttonSpacing);
+      button.setPosition(buttonX, buttonY);
+    });
+  }
+
+  /**
+   * Update score value from game state
+   */
+  public updateScore(): void {
+    const currentScore = this.gameStateManager ? this.gameStateManager.getScore() : 0;
+
+    if (this.scoreValueText) {
+      this.scoreValueText.setText(currentScore.toString());
+    }
+  }
+
+  /**
+   * Refresh visual state - ensure only grid dice are visible
+   */
+  public refreshVisualState(): void {
+    const grid = this.gameStateManager.getGrid();
+    if (grid) {
+      console.log('🎨 GAME: Refreshing visual state');
+      grid.renderAllDice();
+      grid.hideOrphanedDice(this);
+    }
+  }
+
+  /**
+   * Spawn next piece as current piece
+   */
+  public spawnNextPiece(): void {
+    console.log('🎮 spawnNextPiece() called');
+    
+    if (!this.nextPiece) {
+      console.error('❌ No next piece available');
       return;
     }
     
-    const report = this.performanceOptimizer.getPerformanceReport();
-    const fps = report.performanceMetrics?.currentFPS || 0;
-    const frameTime = report.performanceMetrics?.averageFrameTime || 0;
-    const memoryMB = report.memoryStats?.memoryUsage ? 
-      (report.memoryStats.memoryUsage.used / 1024 / 1024) : 0;
-    
-    // Color code based on performance
-    let color = '#00ff88'; // Green for good performance
-    if (frameTime > 50) {
-      color = '#ffaa00'; // Orange for warning
+    if (!this.pieceFactory) {
+      console.error('❌ No piece factory available');
+      return;
     }
-    if (frameTime > 80) {
-      color = '#ff4444'; // Red for critical
-    }
-    
-    this.performanceText.setText(
-      `FPS: ${fps.toFixed(1)} | Frame: ${frameTime.toFixed(1)}ms | Mem: ${memoryMB.toFixed(1)}MB`
-    );
-    this.performanceText.setColor(color);
-  }
 
-
-
-  /**
-   * Handle game over: submit score and transition to GameOver scene
-   */
-  private async handleGameOver(): Promise<void> {
-    // Track playtime
-    const playTime = Date.now() - this.gameStartTime;
-    this.progressionSystem.addPlayTime(playTime);
-    
-    // Update progression with final score
-    const newlyUnlocked = this.progressionSystem.updateScore(this.gameMode, this.score);
-    
     try {
-      const apiService = ApiService.getInstance();
+      console.log(`🎮 Creating piece: ${this.nextPiece.shape}`);
       
-      // Create a basic score breakdown since we don't have access to the detailed one
-      const scoreBreakdown: ScoreBreakdown = {
-        baseScore: Math.floor(this.score * 0.7), // Estimate base score as 70% of total
-        chainMultiplier: Math.floor(this.score * 0.2 / 100), // Estimate chain multiplier
-        ultimateComboMultiplier: 1,
-        boosterModifiers: Math.floor(this.score * 0.1), // Estimate booster bonus as 10%
-        totalScore: this.score
-      };
+      // Update piece factory with current cell size
+      this.pieceFactory.setCellSize(this.cellSize);
 
-      // Submit score to server
-      const scoreSubmission = await apiService.submitScore({
-        score: this.score,
-        level: this.level,
-        mode: this.gameMode,
-        breakdown: scoreBreakdown
-      });
+      // Create actual piece from the preview shape
+      const actualPiece = this.pieceFactory.createPiece(
+        this,
+        this.nextPiece.shape,
+        4, // Center of 10-wide grid
+        0 // Top of grid
+      );
 
-      // Get leaderboard data for the current mode
-      const leaderboardData = await apiService.getLeaderboard(this.gameMode);
+      console.log(`🎮 Piece created with ${actualPiece.dice.length} dice`);
 
-      // Pass game data to GameOver scene including progression info
-      this.scene.start('GameOver', {
-        score: this.score,
-        level: this.level,
-        mode: this.gameMode,
-        breakdown: scoreBreakdown,
-        scoreSubmission,
-        leaderboardData,
-        isNewHighScore: scoreSubmission.newHighScore,
-        leaderboardPosition: scoreSubmission.leaderboardPosition,
-        newlyUnlockedModes: newlyUnlocked,
-        progressionData: this.progressionSystem.getProgressionData()
-      });
+      // Position the piece within the grid bounds immediately
+      this.positionPieceInGrid(actualPiece);
+
+      // Set as current piece
+      this.currentPiece = actualPiece;
+      console.log('🎮 Setting current piece in GameStateController');
+      this.gameStateController.setCurrentPiece(actualPiece);
+
+      // Generate new next piece preview
+      this.generateNextPiece();
+      this.renderNextPiece();
+
+      console.log(
+        `✅ Spawned new piece: ${actualPiece.shape} at (${actualPiece.gridX}, ${actualPiece.gridY})`
+      );
+
+      // Check if the new piece can be placed (game over check)
+      const grid = this.gameStateManager.getGrid();
+      if (grid.checkCollision(actualPiece, actualPiece.gridX, actualPiece.gridY)) {
+        console.log('Cannot place new piece - Game Over!');
+        this.handleGameOver();
+      }
     } catch (error) {
-      console.error('Failed to submit score:', error);
-      
-      // Still transition to GameOver scene even if API calls fail
-      this.scene.start('GameOver', {
-        score: this.score,
-        level: this.level,
-        mode: this.gameMode,
-        breakdown: {
-          baseScore: Math.floor(this.score * 0.7),
-          chainMultiplier: Math.floor(this.score * 0.2 / 100),
-          ultimateComboMultiplier: 1,
-          boosterModifiers: Math.floor(this.score * 0.1),
-          totalScore: this.score
-        },
-        error: 'Failed to connect to server',
-        newlyUnlockedModes: newlyUnlocked,
-        progressionData: this.progressionSystem.getProgressionData()
-      });
+      console.error('❌ Error spawning next piece:', error);
+      this.handleGameOver();
     }
   }
 
   /**
-   * Cleanup when scene is destroyed
+   * Create debug buttons for testing display modes
    */
-  shutdown(): void {
-    // Cleanup performance optimizer
-    if (this.performanceOptimizer) {
-      this.performanceOptimizer.destroy();
+  private createDebugButtons(): void {
+    const buttonSize = 24;
+    const buttonSpacing = 4;
+    const startX = this.scale.width - (3 * buttonSize + 2 * buttonSpacing + 10);
+    const buttonY = 10;
+
+    const buttonLabels = ['M', 'D', 'F'];
+    const buttonModes: ('mobile' | 'desktop' | 'fullscreen')[] = [
+      'mobile',
+      'desktop',
+      'fullscreen',
+    ];
+
+    buttonLabels.forEach((label, index) => {
+      const buttonX = startX + index * (buttonSize + buttonSpacing);
+      const button = this.add
+        .text(buttonX, buttonY, label, {
+          fontFamily: 'Stalinist One',
+          fontSize: '14px',
+          color: '#ffffff',
+          backgroundColor: '#444444',
+          padding: { x: 6, y: 4 },
+        })
+        .setOrigin(0.5)
+        .setInteractive({ useHandCursor: true })
+        .on('pointerdown', () => {
+          const mode = buttonModes[index];
+          if (mode) {
+            console.log(`Forcing ${mode} mode`);
+            this.currentDisplayType = mode;
+            this.calculateLayout(this.scale.width, this.scale.height);
+            this.drawGrid();
+            this.updateUI();
+            this.updateDebugButtons();
+          }
+        });
+
+      this.debugButtons.push(button);
+    });
+  }
+
+  /**
+   * Update layout when window is resized
+   */
+  private updateLayout(width: number, height: number): void {
+    console.log(`Layout update triggered: ${width}x${height}`);
+
+    // Re-detect display type on resize
+    this.detectDisplayType();
+
+    // Recalculate layout
+    this.calculateLayout(width, height);
+
+    // Redraw the grid with new layout
+    if (this.gridGraphics) {
+      this.drawGrid();
     }
+
+    // Update grid layout for game systems
+    this.updateGridLayout();
+
+    // Update UI positions
+    this.updateUI();
+
+    // Update debug button positions
+    this.updateDebugButtons();
+
+    console.log(
+      `Layout update complete: ${this.currentDisplayType} mode, ${this.cellSize}px cells`
+    );
+  }
+
+  /**
+   * Spawn the first piece to start the game
+   */
+  private spawnFirstPiece(): void {
+    if (this.nextPiece && this.pieceFactory) {
+      try {
+        // Update piece factory with current cell size
+        this.pieceFactory.setCellSize(this.cellSize);
+
+        // Create actual piece from the preview shape
+        const actualPiece = this.pieceFactory.createPiece(
+          this,
+          this.nextPiece.shape,
+          4, // Center of 10-wide grid
+          0 // Top of grid
+        );
+
+        // Position the piece within the grid bounds
+        this.positionPieceInGrid(actualPiece);
+
+        // Set as current piece
+        this.currentPiece = actualPiece;
+        this.gameStateController.setCurrentPiece(actualPiece);
+
+        console.log(
+          `First piece spawned: ${this.currentPiece.shape} at (${this.currentPiece.gridX}, ${this.currentPiece.gridY})`
+        );
+
+        // Generate new next piece preview
+        this.generateNextPiece();
+        this.renderNextPiece();
+
+        // Initialize gravity timer
+        this.lastGravityTime = this.time.now;
+      } catch (error) {
+        console.error('Error spawning first piece:', error);
+        this.handleGameOver();
+      }
+    }
+  }
+
+  /**
+   * Position a piece correctly within the game grid
+   */
+  private positionPieceInGrid(piece: Piece): void {
+    console.log(`Positioning piece ${piece.shape} with ${piece.dice.length} dice`);
+    console.log(`Piece grid position: (${piece.gridX}, ${piece.gridY})`);
+    console.log(
+      `Grid offset: (${this.gridOffsetX}, ${this.gridOffsetY}), Cell size: ${this.cellSize}`
+    );
+
+    // Use the new positioning method with grid offset
+    piece.updateDicePositionsWithOffset(this.gridOffsetX, this.gridOffsetY);
+  }
+
+  // Old lockCurrentPiece method removed - now handled by GameStateController
+
+  /**
+   * Move piece left with collision detection
+   */
+  private movePieceLeft(): void {
+    if (!this.currentPiece) return;
+
+    const grid = this.gameStateManager.getGrid();
+    const canMove = !grid.checkCollision(
+      this.currentPiece,
+      this.currentPiece.gridX - 1,
+      this.currentPiece.gridY
+    );
+
+    if (canMove) {
+      this.currentPiece.gridX--;
+      this.currentPiece.setGridOffset(this.gridOffsetX, this.gridOffsetY);
+      console.log(`Piece moved left to x=${this.currentPiece.gridX}`);
+    }
+  }
+
+  /**
+   * Move piece right with collision detection
+   */
+  private movePieceRight(): void {
+    if (!this.currentPiece) return;
+
+    const grid = this.gameStateManager.getGrid();
+    const canMove = !grid.checkCollision(
+      this.currentPiece,
+      this.currentPiece.gridX + 1,
+      this.currentPiece.gridY
+    );
+
+    if (canMove) {
+      this.currentPiece.gridX++;
+      this.currentPiece.setGridOffset(this.gridOffsetX, this.gridOffsetY);
+      console.log(`Piece moved right to x=${this.currentPiece.gridX}`);
+    }
+  }
+
+  /**
+   * Move piece down manually (soft drop)
+   */
+  private movePieceDown(): void {
+    if (!this.currentPiece) return;
+
+    const grid = this.gameStateManager.getGrid();
+    const canMove = !grid.checkCollision(
+      this.currentPiece,
+      this.currentPiece.gridX,
+      this.currentPiece.gridY + 1
+    );
+
+    if (canMove) {
+      this.currentPiece.gridY++;
+      this.currentPiece.setGridOffset(this.gridOffsetX, this.gridOffsetY);
+      console.log(`Piece soft dropped to y=${this.currentPiece.gridY}`);
+
+      // Reset gravity timer to prevent double movement
+      this.lastGravityTime = this.time.now;
+    } else {
+      // Can't move down - lock immediately
+      this.gameStateController.lockCurrentPiece();
+    }
+  }
+
+  /**
+   * Move piece down smoothly due to gravity
+   */
+  private movePieceDownSmooth(): void {
+    if (!this.currentPiece) return;
+
+    this.currentPiece.gridY++;
+    this.currentPiece.setGridOffset(this.gridOffsetX, this.gridOffsetY);
+    console.log(`Piece gravity moved to y=${this.currentPiece.gridY}`);
+  }
+
+  /**
+   * Rotate piece with collision detection
+   */
+  private rotatePiece(): void {
+    if (!this.currentPiece) return;
+
+    // Try to rotate the piece (this updates the shapeMatrix and repositions dice)
+    const success = this.currentPiece.rotatePiece();
+    if (success) {
+      // Ensure the piece uses the correct grid offset after rotation
+      this.currentPiece.setGridOffset(this.gridOffsetX, this.gridOffsetY);
+      console.log(`Piece rotated to ${this.currentPiece.rotation} degrees, dice repositioned`);
+    }
+  }
+
+  /**
+   * Hard drop piece to bottom
+   */
+  private hardDropPiece(): void {
+    if (!this.currentPiece) return;
+
+    const grid = this.gameStateManager.getGrid();
+    let dropDistance = 0;
+
+    // Find how far the piece can drop
+    while (
+      !grid.checkCollision(
+        this.currentPiece,
+        this.currentPiece.gridX,
+        this.currentPiece.gridY + dropDistance + 1
+      )
+    ) {
+      dropDistance++;
+    }
+
+    if (dropDistance > 0) {
+      this.currentPiece.gridY += dropDistance;
+      this.tweenPieceToPosition(this.currentPiece, 200); // Fast hard drop
+      console.log(`Piece hard dropped ${dropDistance} cells to y=${this.currentPiece.gridY}`);
+
+      // Lock the piece after hard drop
+      this.time.delayedCall(200, () => {
+        this.gameStateController.lockCurrentPiece();
+      });
+    } else {
+      // Already at bottom, lock immediately
+      this.gameStateController.lockCurrentPiece();
+    }
+  }
+
+  /**
+   * Smoothly tween piece to its grid position
+   */
+  private tweenPieceToPosition(piece: Piece, duration: number): void {
+    let dieIndex = 0;
+
+    for (let row = 0; row < piece.shapeMatrix.length; row++) {
+      const matrixRow = piece.shapeMatrix[row];
+      if (matrixRow) {
+        for (let col = 0; col < matrixRow.length; col++) {
+          if (matrixRow[col] === 1 && dieIndex < piece.dice.length) {
+            const die = piece.dice[dieIndex];
+            if (die) {
+              const targetX =
+                this.gridOffsetX + (piece.gridX + col) * this.cellSize + this.cellSize / 2;
+              const targetY =
+                this.gridOffsetY + (piece.gridY + row) * this.cellSize + this.cellSize / 2;
+
+              // Smooth tween to target position
+              this.tweens.add({
+                targets: die,
+                x: targetX,
+                y: targetY,
+                duration: duration,
+                ease: 'Power2',
+              });
+            }
+            dieIndex++;
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Break piece when some dice collide but others don't
+   */
+  private async breakPieceOnCollision(collidingDice: { die: SimpleDie; x: number; y: number }[]): Promise<void> {
+    if (!this.currentPiece) return;
+
+    console.log(`Breaking piece ${this.currentPiece.shape} - ${collidingDice.length} dice colliding`);
+    
+    this.isProcessingTurn = true;
+
+    try {
+      const grid = this.gameStateManager.getGrid();
+      
+      // Place colliding dice in the grid
+      for (const { die, x, y } of collidingDice) {
+        grid.setDie(x, y, die);
+      }
+
+      // Remove colliding dice from the piece
+      const remainingDice = this.currentPiece.dice.filter(die => 
+        !collidingDice.some(colliding => colliding.die === die)
+      );
+
+      if (remainingDice.length > 0) {
+        // Create a new piece with remaining dice
+        // For now, let remaining dice fall individually
+        for (const die of remainingDice) {
+          // Find the die's current position
+          const dicePositions = this.currentPiece.getDicePositions();
+          for (let i = 0; i < dicePositions.length && i < this.currentPiece.dice.length; i++) {
+            if (this.currentPiece.dice[i] === die) {
+              const pos = dicePositions[i];
+              if (pos) {
+                grid.setDie(pos.x, pos.y, die);
+              }
+              break;
+            }
+          }
+        }
+      }
+
+      // Clear current piece and spawn next piece immediately
+      this.currentPiece = null;
+      this.spawnNextPiece();
+
+      // Enable controls immediately
+      this.isProcessingTurn = false;
+
+      // GameStateController will handle cascade processing
+
+    } catch (error) {
+      console.error('Error breaking piece on collision:', error);
+      this.handleGameOver();
+      this.isProcessingTurn = false;
+    }
+  }
+
+  /**
+   * Handle game over condition
+   */
+  private handleGameOver(): void {
+    console.log('Game Over!');
+
+    this.isGameActive = false;
+
+    // Could transition to GameOver scene here
+    // For now, just log the final score
+    const finalScore = this.gameStateManager.getScore();
+    console.log(`Final Score: ${finalScore}`);
   }
 }

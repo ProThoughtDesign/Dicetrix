@@ -5,7 +5,7 @@ export class Boot extends Scene {
     super('Boot');
   }
 
-  preload() {
+  public override preload(): void {
     // Load minimal assets needed for the preloader
     // These should be small files for fast initial loading
     
@@ -20,7 +20,7 @@ export class Boot extends Scene {
     this.load.image('loading-bar-fill', 'assets/loading-bar-fill.png');
   }
 
-  create() {
+  public override create(): void {
     // Set up any global game configuration
     this.registry.set('gameVersion', '1.0.0');
     this.registry.set('gameTitle', 'Dicetrix');

@@ -1,4 +1,4 @@
-import { Die } from './Die.js';
+import { SimpleDie } from './SimpleDie.js';
 import { DieColor, GameMode } from '../../../shared/types/game.js';
 import { GAME_MODES } from '../../../shared/config/game-modes.js';
 
@@ -8,16 +8,18 @@ import { GAME_MODES } from '../../../shared/config/game-modes.js';
 export class DieFactory {
   private gameMode: GameMode;
   private config: typeof GAME_MODES[GameMode];
+  private cellSize: number = 32;
 
-  constructor(gameMode: GameMode) {
+  constructor(gameMode: GameMode, cellSize: number = 32) {
     this.gameMode = gameMode;
     this.config = GAME_MODES[gameMode];
+    this.cellSize = cellSize;
   }
 
   /**
    * Create a random die based on current game mode configuration
    */
-  public createRandomDie(scene: Phaser.Scene, x: number, y: number): Die {
+  public createRandomDie(scene: Phaser.Scene, x: number, y: number): SimpleDie {
     // Determine if this should be a black die
     const isBlack = Math.random() < this.config.blackDieChance;
     
@@ -25,7 +27,7 @@ export class DieFactory {
       // Black dice use random sides and color from available options
       const sides = this.getRandomSides();
       const color = this.getRandomColor();
-      return new Die(scene, x, y, sides, color, false, true);
+      return new SimpleDie(scene, x, y, sides, color, false, true, this.cellSize);
     }
 
     // Regular die creation
@@ -33,17 +35,17 @@ export class DieFactory {
     const color = this.getRandomColor();
     const isWild = false; // Wild dice are created through special effects, not randomly
     
-    return new Die(scene, x, y, sides, color, isWild, false);
+    return new SimpleDie(scene, x, y, sides, color, isWild, false, this.cellSize);
   }
 
   /**
    * Create a wild die with specified color
    */
-  public createWildDie(scene: Phaser.Scene, x: number, y: number, color?: DieColor): Die {
+  public createWildDie(scene: Phaser.Scene, x: number, y: number, color?: DieColor): SimpleDie {
     const dieColor = color || this.getRandomColor();
     const sides = this.getRandomSides(); // Wild dice still have sides for visual consistency
     
-    return new Die(scene, x, y, sides, dieColor, true, false);
+    return new SimpleDie(scene, x, y, sides, dieColor, true, false, this.cellSize);
   }
 
   /**
@@ -57,15 +59,15 @@ export class DieFactory {
     color: DieColor,
     isWild: boolean = false,
     isBlack: boolean = false
-  ): Die {
-    return new Die(scene, x, y, sides, color, isWild, isBlack);
+  ): SimpleDie {
+    return new SimpleDie(scene, x, y, sides, color, isWild, isBlack, this.cellSize);
   }
 
   /**
    * Create an array of random dice for a piece
    */
-  public createDiceForPiece(scene: Phaser.Scene, count: number): Die[] {
-    const dice: Die[] = [];
+  public createDiceForPiece(scene: Phaser.Scene, count: number): SimpleDie[] {
+    const dice: SimpleDie[] = [];
     
     for (let i = 0; i < count; i++) {
       // Position will be set by the piece, using 0,0 as placeholder
@@ -145,6 +147,13 @@ export class DieFactory {
   }
 
   /**
+   * Set cell size for die rendering
+   */
+  public setCellSize(cellSize: number): void {
+    this.cellSize = cellSize;
+  }
+
+  /**
    * Create dice with specific distribution for testing
    */
   public createTestDice(
@@ -155,16 +164,17 @@ export class DieFactory {
       isWild?: boolean;
       isBlack?: boolean;
     }>
-  ): Die[] {
+  ): SimpleDie[] {
     return specifications.map((spec, index) => 
-      new Die(
+      new SimpleDie(
         scene,
         index * 40, // Spread them out horizontally
         0,
         spec.sides,
         spec.color,
         spec.isWild || false,
-        spec.isBlack || false
+        spec.isBlack || false,
+        this.cellSize
       )
     );
   }

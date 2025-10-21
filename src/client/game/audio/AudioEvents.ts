@@ -192,6 +192,13 @@ export class AudioEvents {
   }
 
   /**
+   * Handle menu exit (fade out music)
+   */
+  onMenuExit(): void {
+    this.audioManager.stopMusic();
+  }
+
+  /**
    * Handle pause/resume
    */
   onGamePause(): void {

@@ -1,5 +1,6 @@
 // Export all game models
 export { Die } from './Die.js';
+export { TestDie } from './TestDie.js';
 export { DieFactory } from './DieFactory.js';
 export { Piece } from './Piece.js';
 export { PieceFactory } from './PieceFactory.js';

@@ -2,7 +2,7 @@
 
 export type DieColor = 'red' | 'blue' | 'green' | 'yellow' | 'purple' | 'orange' | 'cyan';
 export type GameMode = 'easy' | 'medium' | 'hard' | 'expert' | 'zen';
-export type TetrominoShape = 'I' | 'O' | 'T' | 'L' | 'J' | 'S' | 'Z' | 'PLUS' | 'CROSS';
+export type TetrominoShape = 'I' | 'O' | 'T' | 'L' | 'J' | 'S' | 'Z' | 'PLUS';
 
 export interface GridPosition {
   x: number;
