@@ -1,32 +1,25 @@
 import { Boot } from './scenes/Boot';
-import { GameOver } from './scenes/GameOver';
-import { Game as MainGame } from './scenes/Game';
-import { StartMenu } from './scenes/StartMenu';
-import { ModeSelection } from './scenes/ModeSelection';
-import { AudioSettings } from './scenes/AudioSettings';
-import * as Phaser from 'phaser';
-import { AUTO, Game } from 'phaser';
 import { Preloader } from './scenes/Preloader';
+import { StartMenu } from './scenes/StartMenu';
+import { Game } from './scenes/Game';
+import { GameOver } from './scenes/GameOver';
+import * as Phaser from 'phaser';
 
-//  Find out more information about the Game Config at:
-//  https://docs.phaser.io/api-documentation/typedef/types-core#gameconfig
 const config: Phaser.Types.Core.GameConfig = {
-  type: AUTO,
+  type: Phaser.AUTO,
   parent: 'game-container',
   backgroundColor: '#1a1a2e',
   scale: {
-    // Keep a fixed game resolution but automatically scale it to fit within the available
-    // web-view / device while maintaining aspect ratio.
     mode: Phaser.Scale.RESIZE,
     autoCenter: Phaser.Scale.CENTER_BOTH,
     width: 1024,
     height: 768,
   },
-  scene: [Boot, Preloader, StartMenu, ModeSelection, AudioSettings, MainGame, GameOver],
+  scene: [Boot, Preloader, StartMenu, Game, GameOver],
 };
 
 const StartGame = (parent: string) => {
-  return new Game({ ...config, parent });
+  return new Phaser.Game({ ...config, parent });
 };
 
 export default StartGame;

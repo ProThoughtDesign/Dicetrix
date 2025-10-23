@@ -12,6 +12,7 @@ import {
   ErrorResponse 
 } from '../shared/types/api';
 import { GameMode } from '../shared/types/game';
+import Logger from './utils/Logger';
 
 const app = express();
 
@@ -41,7 +42,7 @@ const authenticateUser = (req: express.Request, res: express.Response, next: exp
 
 // Error handling middleware
 const handleError = (error: unknown, operation: string): ErrorResponse => {
-  console.error(`${operation} Error:`, error);
+  Logger.log(`${operation} Error: ${String(error)}`);
   
   if (error instanceof Error) {
     return {
@@ -263,7 +264,7 @@ router.post<{}, ScoreSubmissionResponse | ErrorResponse, ScoreSubmissionRequest>
           }
         }
       } catch (rankError) {
-        console.warn('Could not determine leaderboard position:', rankError);
+  Logger.log('Could not determine leaderboard position: ' + String(rankError));
         leaderboardPosition = undefined;
       }
 
@@ -316,7 +317,7 @@ router.get<{ mode: GameMode }, LeaderboardResponse | ErrorResponse>(
             entries.push(entryData);
           }
         } catch (parseError) {
-          console.warn('Failed to parse leaderboard entry:', parseError);
+          Logger.log('Failed to parse leaderboard entry: ' + String(parseError));
         }
       }
 
@@ -355,7 +356,7 @@ router.get<{ mode: GameMode }, LeaderboardResponse | ErrorResponse>(
               }
             }
           } catch (rankError) {
-            console.warn('Could not determine user rank:', rankError);
+            Logger.log('Could not determine user rank: ' + String(rankError));
             userRank = undefined;
           }
         }
@@ -427,11 +428,11 @@ Think you can beat my score? Try Dicetrix now! 🎮
       // For now, we'll simulate post creation and log the content
       const postUrl = `https://reddit.com/r/${subredditName}/comments/dicetrix_score_${Date.now()}`;
       
-      // Log the formatted post content for debugging
-      console.log('Score share post content:', postContent);
+  // Log the formatted post content for debugging
+  Logger.log('Score share post content: ' + postContent);
       
-      // Log the share event
-      console.log(`Score shared by ${username}: ${score} points in ${mode} mode`);
+  // Log the share event
+  Logger.log(`Score shared by ${username}: ${score} points in ${mode} mode`);
 
       res.json({
         success: true,
@@ -453,8 +454,8 @@ router.post('/internal/on-app-install', async (_req, res): Promise<void> => {
       status: 'success',
       message: `Post created in subreddit ${context.subredditName} with id ${post.id}`,
     });
-  } catch (error) {
-    console.error(`Error creating post: ${error}`);
+    } catch (error) {
+    Logger.log(`Error creating post: ${String(error)}`);
     res.status(400).json({
       status: 'error',
       message: 'Failed to create post',
@@ -469,8 +470,8 @@ router.post('/internal/menu/post-create', async (_req, res): Promise<void> => {
     res.json({
       navigateTo: `https://reddit.com/r/${context.subredditName}/comments/${post.id}`,
     });
-  } catch (error) {
-    console.error(`Error creating post: ${error}`);
+    } catch (error) {
+    Logger.log(`Error creating post: ${String(error)}`);
     res.status(400).json({
       status: 'error',
       message: 'Failed to create post',
@@ -485,5 +486,5 @@ app.use(router);
 const port = process.env.WEBBIT_PORT || 3000;
 
 const server = createServer(app);
-server.on('error', (err) => console.error(`server error; ${err.stack}`));
-server.listen(port, () => console.log(`http://localhost:${port}`));
+server.on('error', (err) => Logger.log(`server error; ${String((err as any)?.stack || err)}`));
+server.listen(port, () => Logger.log(`http://localhost:${port}`));

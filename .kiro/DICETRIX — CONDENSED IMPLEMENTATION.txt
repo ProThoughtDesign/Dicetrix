@@ -1,0 +1,194 @@
+DICETRIX — CONDENSED IMPLEMENTATION PLAN FOR PLAYTEST LAUNCH
+
+This plan focuses on delivering a semi-polished playable build suitable for external playtesting and game challenge submission.
+It removes nonessential documentation phases and streamlines development toward a functional, stable, and visually appealing Beta.
+
+Each phase lists Objectives, Deliverables, and Acceptance Criteria.
+The goal is a fully playable core loop with visuals, audio, boosters, scoring, and Reddit/leaderboard integration.
+
+PHASE 1: FOUNDATION AND FRAMEWORK
+
+Objective:
+Build a stable and scalable foundation that runs in a Reddit Devvit environment with Phaser 3, using TypeScript and Vite.
+
+Deliverables:
+■ Create project using npm create devvit@latest --template=phaser.
+■ Configure TypeScript, Vite, ESLint, and folder structure: /src/client/game/ with subfolders for scenes, models, controllers, ui, and audio.
+■ Implement scene flow: Boot → Preloader → Menu → Game → GameOver.
+■ Add devvit.json permissions for Reddit API, Redis, and webview.
+■ Load essential assets in the Preloader and show progress bar.
+■ Implement Grid.ts as authoritative 10×20 board with coordinate system, collision detection, and boundary validation.
+
+Acceptance Criteria:
+■ Game loads correctly inside Reddit Devvit or local test webview.
+■ All scenes transition successfully.
+■ Grid is initialized, and debug overlay displays live state.
+■ No load or runtime errors.
+
+PHASE 2: CORE GAMEPLAY MECHANICS
+
+Objective:
+Deliver the full playable core loop with controllable dice pieces, matching, and cascading logic.
+
+Deliverables:
+■ Implement Piece and Die systems with matrix-based structure and die value assignments on spawn.
+■ Include all base shapes (I, O, T, L, J, S, Z, PLUS).
+■ Integrate InputManager for keyboard (arrows, space, escape) and touch gestures (swipe and tap).
+■ Create GameStateController handling SPAWN, DROP_CONTROL, LOCK, MATCH, CLEAR_MATCH, CASCADE, and GAME_OVER.
+■ Add MatchProcessor with 4-directional flood-fill detection and wild die logic.
+■ Develop CascadeManager applying gravity and re-checking matches up to ten iterations.
+■ Lock delay logic (0.4 s) and hard drop functionality.
+■ Display grid, dice, and active piece visually.
+
+Acceptance Criteria:
+■ Dice pieces move, rotate, and lock correctly.
+■ Matches of three or more same-number dice trigger clearing.
+■ Cascades perform correctly without looping infinitely.
+■ Game transitions smoothly between gameplay phases.
+■ Control response is consistent on both desktop and mobile.
+
+PHASE 3: SCORING, BOOSTERS, AND GAME MODES
+
+Objective:
+Implement the reward systems that define depth and replayability.
+
+Deliverables:
+■ ScoreManager using base × chain × booster multipliers.
+■ BoosterManager with seven color-based effects (Red through Cyan) and HUD indicators.
+■ Mode configurations: Easy, Medium, Hard, Expert, Zen.
+■ Fall speed adjustments and random die type generation per mode.
+■ Black die mechanic removing active boosters.
+■ Wild dice correctly joining matches and showing gold visuals.
+■ Booster duration tracking and HUD countdown rings.
+
+Acceptance Criteria:
+■ Boosters activate from color-based matches and apply proper effects.
+■ Score updates immediately and accurately after clears and cascades.
+■ Difficulty scaling adjusts drop speeds and die types per mode.
+■ Booster HUD shows correct timers and deactivations.
+■ Mode select screen changes available dice and fall speed.
+
+PHASE 4: VISUALS, AUDIO, AND USER INTERFACE
+
+Objective:
+Provide a polished and readable presentation layer for players, ensuring the game feels visually complete and satisfying.
+
+Deliverables:
+■ DiceRenderer handling color tinting, number overlays, and wild/black die distinctions.
+■ ParticleEffects for clears, cascades, and boosters with optimized emitters.
+■ AnimationManager for movement easing and chained effects.
+■ AudioManager with categorized sounds: SFX, UI, and background tracks.
+■ GameHUD with score, next piece, boosters, and mode indicator.
+■ ResponsiveUISystem for mobile and desktop scaling.
+■ Menu UI with mode buttons and volume controls.
+■ GameOver UI with score breakdown and restart/menu buttons.
+
+Acceptance Criteria:
+■ Dice and effects display clearly across screen sizes.
+■ All SFX and BGM trigger at appropriate events.
+■ HUD elements scale and remain readable in portrait and landscape.
+■ Frame rate remains near 60 FPS on desktop and above 40 FPS on mobile.
+■ Particle and audio layers do not stack excessively during heavy cascades.
+
+PHASE 5: REDDIT INTEGRATION AND LEADERBOARDS
+
+Objective:
+Enable basic online functionality for competition and sharing while ensuring stable offline play.
+
+Deliverables:
+■ Server endpoints for /api/update-score, /api/get-leaderboard, and /api/share-score.
+■ Redis integration for per-mode leaderboards.
+■ Reddit OAuth for user authentication.
+■ Score submission workflow with secure verification.
+■ Leaderboard UI panel for top ten scores per mode.
+■ “Share Score” button posting formatted text to subreddit (optional image thumbnail).
+■ Local storage queue for offline score syncing.
+
+Acceptance Criteria:
+■ Scores submit and appear on the leaderboard within seconds.
+■ Offline play caches results and syncs on next connection.
+■ Reddit post sharing generates correctly formatted text.
+■ No duplicate or invalid score submissions.
+
+PHASE 6: PLAYTEST LAUNCH PREPARATION
+
+Objective:
+Assemble a stable and content-complete build suitable for player testing and submission to a game challenge.
+
+Deliverables:
+■ Production build via npm run build for Devvit packaging and itch.io backup zip.
+■ Menu assets, background music, all dice textures, and particle effects finalized.
+■ Quality check of visuals, input, and performance.
+■ Playtest-ready difficulty balancing for each mode.
+■ Debug overlay removed or toggle-hidden.
+■ Build uploaded to Reddit Devvit and verified playable in-post.
+
+Acceptance Criteria:
+■ Game runs from Boot to GameOver without crashes.
+■ All core mechanics, boosters, and score systems work reliably.
+■ Menus, HUD, and audio are functional and cohesive.
+■ Performance acceptable on standard devices.
+■ External playtesters can access, play, and complete games end-to-end.
+
+REQUIRED MEDIA ASSET LIST
+
+Dice Sprites and Visuals (PNG or texture atlas):
+■ dice_d4.png, dice_d6.png, dice_d8.png, dice_d10.png, dice_d12.png, dice_d20.png
+■ die_wild.png (gold accent)
+■ die_black.png (matte black)
+■ die_patterns.png (colorblind overlay patterns)
+■ dice_tints.png or dice_atlas.json (combined texture sheet)
+■ grid_bg.png (dark patterned background)
+■ particle_spritesheet.png (explosions, sparks, glows)
+■ logo_title.png (game logo)
+■ ui_button_primary.png, ui_button_secondary.png, ui_toggle.png, ui_slider.png
+■ hud_panel.png, preview_box.png, icons_boosters.png
+■ loading_bar.png
+■ fonts: StalinistOne.ttf (main font) and fallback sans-serif
+
+Audio Files (MP3 or OGG):
+■ sfx_move.mp3
+■ sfx_rotate.mp3
+■ sfx_lock.mp3
+■ sfx_match_small.mp3
+■ sfx_match_large.mp3
+■ sfx_cascade.mp3
+■ sfx_booster_activate.mp3
+■ sfx_booster_expire.mp3
+■ sfx_ultimate_combo.mp3
+■ bgm_menu_loop.mp3
+■ bgm_game_loop.mp3
+■ ui_click.mp3
+
+Optional:
+■ share_thumbnail_template.png for score posts
+■ bgm_zen_mode.mp3 (ambient low-tempo track for Zen mode)
+
+All assets should be optimized for web delivery, with total load kept below 20 MB.
+
+PERFORMANCE AND TEST TARGETS
+
+■ Minimum: 45 FPS sustained on mid-tier mobile devices
+■ Optimal: 60 FPS on desktop browsers
+■ Dice object pool limited to 200 simultaneous instances
+■ Particle effects capped dynamically below 50 FPS
+■ Audio limited to eight concurrent voices
+
+Testing Checklist:
+■ Verify cascades cap at ten iterations.
+■ Confirm boosters expire at correct durations.
+■ Validate grid sync after heavy chain clears.
+■ Confirm no memory leaks after multiple games.
+■ Confirm leaderboard and sharing work under normal network latency.
+
+PLAYTEST LAUNCH GOAL
+
+By the end of these phases, Dicetrix should present:
+■ Fully functional core gameplay loop with visual and audio feedback.
+■ Complete scoring, boosters, and chain mechanics.
+■ Distinct modes from Easy to Zen.
+■ Working menus and in-game HUD.
+■ Leaderboard integration and score sharing.
+■ Stable performance and responsive controls.
+
+This version represents a feature-complete Beta build designed for external feedback, gameplay tuning, and submission to a public or judged game challenge.

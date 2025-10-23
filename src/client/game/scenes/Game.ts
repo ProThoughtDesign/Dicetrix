@@ -1,1185 +1,1167 @@
 import { Scene } from 'phaser';
 import * as Phaser from 'phaser';
-import { Piece } from '../models/Piece.js';
-import { PieceFactory } from '../models/PieceFactory.js';
-import { GameStateManager } from '../models/GameStateManager.js';
-import { InputManager } from '../input/InputManager.js';
-import { AudioManager, AudioEvents } from '../audio/index.js';
-import { TetrominoShape, GameMode } from '../../../shared/types/game.js';
-import { GameStateController } from '../controllers/GameStateController.js';
-import { SimpleDie } from '../models/SimpleDie.js';
-import { SimpleDie } from '../models/SimpleDie.js';
+import GameBoard from '../logic/GameBoard';
+import { settings } from '../services/Settings';
+import { getMode } from '../config/GameMode';
+import { drawDie } from '../visuals/DiceRenderer';
+import Logger from '../../utils/Logger';
 
 export class Game extends Scene {
-  // Grid properties
-  private gridWidth: number = 10;
-  private gridHeight: number = 20;
-  private cellSize: number = 0; // Will be calculated dynamically
-  private gridGraphics: Phaser.GameObjects.Graphics;
-  private gridOffsetX: number = 0;
-  private gridOffsetY: number = 0;
-
-  // Target interface dimensions (portrait mobile)
-  private targetWidth: number = 400;
-  private targetHeight: number = 600;
-
-  // Display type tracking
-  private currentDisplayType: 'mobile' | 'desktop' | 'fullscreen' = 'mobile';
-
-  // UI elements
-  private scoreText: Phaser.GameObjects.Text;
-  private scoreValueText: Phaser.GameObjects.Text;
-  private nextPieceLabel: Phaser.GameObjects.Text;
-  private nextPieceSquare: Phaser.GameObjects.Graphics;
-  private nextPieceGraphics: Phaser.GameObjects.Graphics;
-  private debugButtons: Phaser.GameObjects.Text[] = [];
-
-  // Game systems
-  private gameStateManager: GameStateManager;
-  private inputManager: InputManager;
-  private audioManager: AudioManager;
-  private audioEvents: AudioEvents;
-  private gameStateController: GameStateController;
-
-  // Piece system
-  private currentPiece: Piece | null = null;
-  private nextPiece: Piece | null = null;
-  private pieceFactory: PieceFactory;
-
-  // Game timing and state
-  private gravitySpeed: number = 1000; // 1 second per drop
-  private lastGravityTime: number = 0;
-  private gameMode: GameMode = 'easy';
-  private isGameActive: boolean = true;
-  private isProcessingTurn: boolean = false;
-
   constructor() {
     super('Game');
   }
 
-  /**
-   * Main update loop - called every frame by Phaser
-   */
-  public override update(time: number, delta: number): void {
-    if (!this.isGameActive) {
-      return;
-    }
+  private renderGridPlaceholder(): void {
+    const l = (this as any)._layout;
+    if (!l) return;
 
-    // Update the finite state machine
-    if (this.gameStateController) {
-      this.gameStateController.update();
-    }
+    // We already draw a filled background in updateLayout; overlay cell lines
+    // read canonical metrics from layout (set in updateLayout)
+    const bm = l.boardMetrics || ({} as any);
+    const cols = bm.cols || 10;
+    const rows = bm.rows || 20;
+    const boardW = bm.boardW ?? Math.max(320, this.scale.width * 0.62 - 40);
+    const boardH = bm.boardH ?? Math.max(480, this.scale.height - 80);
+    const boardAreaY = bm.boardAreaY ?? 48;
 
-    // Update input manager (only if input is enabled)
-    if (this.inputManager && this.gameStateController?.isInputEnabled()) {
-      this.inputManager.update(delta);
-    }
+    const cellW = Math.floor(boardW / cols);
+    const cellH = Math.floor((boardH - boardAreaY) / rows);
 
-    // Handle gravity - move pieces down every second (only if input enabled)
-    if (this.gameStateController?.isInputEnabled()) {
-      this.updateGravity(time);
-    }
-  }
-
-  /**
-   * Handle gravity system - moves pieces down at regular intervals
-   */
-  private updateGravity(currentTime: number): void {
-    const currentPiece = this.gameStateController?.getCurrentPiece();
-    if (!currentPiece) {
-      return;
-    }
-
-    // Check if it's time for gravity to apply
-    if (currentTime - this.lastGravityTime >= this.gravitySpeed) {
-      this.applyGravityToPiece();
-      this.lastGravityTime = currentTime;
-    }
-  }
-
-  /**
-   * Setup game state controller events
-   */
-  private setupGameStateEvents(): void {
-    this.gameStateController.on('spawnNextPiece', () => {
-      console.log('🎮 Received spawnNextPiece event - spawning piece');
-      this.spawnNextPiece();
+    // helper to compute pixel coordinates for a grid cell (top-left)
+    const cellToPixel = (gx: number, gy: number) => ({
+      px: gx * cellW + 8,
+      py: 48 + gy * cellH,
     });
 
-    this.gameStateController.on('gameOver', () => {
-      this.handleGameOver();
-    });
-
-    this.gameStateController.on('scoreUpdate', (score: number) => {
-      // Update score display
-      this.updateScore();
-    });
-
-    this.gameStateController.on('inputEnabled', () => {
-      console.log('Input enabled');
-    });
-
-    this.gameStateController.on('inputDisabled', () => {
-      console.log('Input disabled');
-    });
-  }
-
-  /**
-   * Apply gravity to the current piece
-   */
-  private applyGravityToPiece(): void {
-    if (!this.currentPiece) {
-      return;
+    // draw grid lines on top (reuse if present)
+    if (!l.gridLines) {
+      l.gridLines = this.add.graphics();
+      l.boardContainer.add(l.gridLines);
     }
-
-    const grid = this.gameStateManager.getGrid();
-    
-    // Check individual dice using the dice matrix for accurate collision detection
-    const diceMatrix = this.currentPiece.getDiceMatrix();
-    const matrixSize = this.currentPiece.getMatrixSize();
-    const collidingDice: { die: SimpleDie; x: number; y: number }[] = [];
-    
-    for (let row = 0; row < matrixSize; row++) {
-      for (let col = 0; col < matrixSize; col++) {
-        const die = diceMatrix[row]?.[col];
-        if (die) {
-          const currentX = this.currentPiece.gridX + col;
-          const currentY = this.currentPiece.gridY + row;
-          const newY = currentY + 1;
-          
-          // Check if this specific die would collide when moving down
-          if (grid.checkDieCollision(currentX, newY)) {
-            collidingDice.push({ die, x: currentX, y: currentY });
-          }
-        }
-      }
+    l.gridLines.clear();
+    l.gridLines.lineStyle(1, 0x17f64b, 0.5); // rgb(23, 246, 75) at 50% opacity
+    for (let x = 0; x <= cols; x++) {
+      const px = x * cellW + 8;
+      l.gridLines.moveTo(px, 48);
+      l.gridLines.lineTo(px, 48 + rows * cellH);
     }
-
-    const totalDice = this.currentPiece.dice.length;
-    
-    if (collidingDice.length === 0) {
-      // No collisions - move entire piece down
-      this.movePieceDownSmooth();
-    } else if (collidingDice.length === totalDice) {
-      // All dice colliding - lock entire piece
-      console.log(`🔒 All ${totalDice} dice colliding - locking piece`);
-      this.gameStateController.lockCurrentPiece();
-    } else {
-      // Some dice colliding - break piece and handle individually
-      console.log(`🔒 ${collidingDice.length}/${totalDice} dice colliding - breaking piece`);
-      this.breakPieceOnCollision(collidingDice);
+    for (let y = 0; y <= rows; y++) {
+      const py = 48 + y * cellH;
+      l.gridLines.moveTo(0 + 8, py);
+      l.gridLines.lineTo(cols * cellW + 8, py);
     }
-  }
+    l.gridLines.strokePath();
 
-  public create(): void {
-    console.log('Game scene create() called');
-
-    try {
-      // Set dark background
-      this.cameras.main.setBackgroundColor(0x1a1a2e);
-
-      // Detect initial display type
-      this.detectDisplayType();
-
-      // Calculate initial layout (this sets cellSize)
-      this.calculateLayout(this.scale.width, this.scale.height);
-      console.log('Layout calculated, cellSize:', this.cellSize);
-
-      // Create the grid graphics
-      this.createGrid();
-      console.log('Grid graphics created');
-
-      // Initialize game systems
-      this.initializeGameSystems();
-      console.log('Game systems initialized');
-
-      // Initialize game state controller
-      this.gameStateController = new GameStateController(
-        this,
-        this.gameStateManager.getGrid(),
-        this.gameStateManager.getMatchProcessor()
-      );
-      this.setupGameStateEvents();
-      console.log('Game state controller initialized');
-
-      // Setup input handling
-      this.setupInput();
-      console.log('Input system initialized');
-
-      // Generate initial pieces
-      this.generateNextPiece();
-      this.spawnFirstPiece();
-      console.log('Initial pieces created');
-    } catch (error) {
-      console.error('Error in Game scene create():', error);
-      throw error; // Re-throw to see the full error
-    }
-
-    // Create UI elements
-    this.createUI();
-
-    // Add debug buttons for testing display modes
-    this.createDebugButtons();
-
-    // Debug square removed - no longer needed
-
-    // Handle window resize
-    this.scale.on('resize', (gameSize: Phaser.Structs.Size) => {
-      this.updateLayout(gameSize.width, gameSize.height);
-    });
-
-    // Listen for fullscreen changes (multiple event types for cross-browser support)
-    const fullscreenEvents = [
-      'fullscreenchange',
-      'webkitfullscreenchange',
-      'mozfullscreenchange',
-      'MSFullscreenChange',
-    ];
-    fullscreenEvents.forEach((eventType) => {
-      document.addEventListener(eventType, () => {
-        console.log(`Fullscreen event: ${eventType}`);
-        setTimeout(() => {
-          this.detectDisplayType();
-          this.updateLayout(this.scale.width, this.scale.height);
-        }, 100); // Small delay to ensure fullscreen state is updated
-      });
-    });
-
-    // Also listen for window resize events
-    window.addEventListener('resize', () => {
-      console.log(`Window resize: ${window.innerWidth}x${window.innerHeight}`);
-      setTimeout(() => {
-        this.detectDisplayType();
-        this.updateLayout(window.innerWidth, window.innerHeight);
-      }, 100);
-    });
-
-    console.log('Game scene initialization complete');
-  }
-
-  /**
-   * Create the game grid using Phaser graphics
-   */
-  private createGrid(): void {
-    // Create graphics object for the grid
-    this.gridGraphics = this.add.graphics();
-
-    // Draw the grid
-    this.drawGrid();
-  }
-
-  /**
-   * Draw the grid lines
-   */
-  private drawGrid(): void {
-    this.gridGraphics.clear();
-
-    // Set line style - green color, 2px width
-    this.gridGraphics.lineStyle(2, 0x00ff00, 1);
-
-    // Draw vertical lines
-    for (let x = 0; x <= this.gridWidth; x++) {
-      const lineX = this.gridOffsetX + x * this.cellSize;
-      this.gridGraphics.moveTo(lineX, this.gridOffsetY);
-      this.gridGraphics.lineTo(lineX, this.gridOffsetY + this.gridHeight * this.cellSize);
-    }
-
-    // Draw horizontal lines
-    for (let y = 0; y <= this.gridHeight; y++) {
-      const lineY = this.gridOffsetY + y * this.cellSize;
-      this.gridGraphics.moveTo(this.gridOffsetX, lineY);
-      this.gridGraphics.lineTo(this.gridOffsetX + this.gridWidth * this.cellSize, lineY);
-    }
-
-    // Apply the stroke to make lines visible
-    this.gridGraphics.strokePath();
-  }
-
-  /**
-   * Calculate grid layout based on display type with specific cell sizes
-   */
-  private calculateLayout(width: number, height: number): void {
-    let availableWidth = width;
-    let availableHeight = height;
-
-    // Set cell size based on display type
-    switch (this.currentDisplayType) {
-      case 'mobile':
-        // Use target mobile dimensions if screen is larger
-        availableWidth = Math.min(width, this.targetWidth);
-        availableHeight = Math.min(height, this.targetHeight);
-        this.cellSize = 24; // Fixed 24x24 for mobile
-        break;
-
-      case 'desktop':
-        this.cellSize = 32; // Fixed 32x32 for desktop
-        break;
-
-      case 'fullscreen':
-        // For fullscreen, calculate optimal size up to 128x128 max
-        const maxCellByWidth = Math.floor((width - 200) / this.gridWidth); // Leave 200px for UI
-        const maxCellByHeight = Math.floor((height - 200) / this.gridHeight);
-        const calculatedSize = Math.min(maxCellByWidth, maxCellByHeight);
-
-        // Use calculated size but cap at 128px maximum
-        this.cellSize = Math.min(calculatedSize, 128);
-
-        // Ensure minimum size for visibility
-        this.cellSize = Math.max(this.cellSize, 32);
-        break;
-    }
-
-    // Calculate actual grid dimensions
-    const gridPixelWidth = this.gridWidth * this.cellSize;
-    const gridPixelHeight = this.gridHeight * this.cellSize;
-
-    // Position grid based on display type
-    if (this.currentDisplayType === 'mobile') {
-      // Mobile: 10px from left, centered vertically
-      this.gridOffsetX = 10;
-      this.gridOffsetY = (availableHeight - gridPixelHeight) / 2;
-    } else {
-      // Desktop/Fullscreen: center both horizontally and vertically
-      this.gridOffsetX = (availableWidth - gridPixelWidth) / 2;
-      this.gridOffsetY = (availableHeight - gridPixelHeight) / 2;
-    }
-
-    // Calculate UI area information
-    const rightUISpace = availableWidth - this.gridOffsetX - gridPixelWidth;
-    const bottomUISpace = availableHeight - this.gridOffsetY - gridPixelHeight;
-
-    console.log(
-      `${this.currentDisplayType.toUpperCase()}: ${this.cellSize}x${this.cellSize} cells`
-    );
-    console.log(
-      `Grid: ${gridPixelWidth}x${gridPixelHeight} at (${this.gridOffsetX.toFixed(1)}, ${this.gridOffsetY.toFixed(1)})`
-    );
-    console.log(
-      `UI space - Right: ${rightUISpace.toFixed(1)}px, Bottom: ${bottomUISpace.toFixed(1)}px`
+    // draw active falling piece if present (multi-die support)
+    const active: any = (this as any).activePiece;
+    Logger.log(
+      `Active piece rendering: active=${active ? `${active.shape} at x=${active.x},y=${active.y}` : 'null'}, activeSprites=${l.activeSprites ? l.activeSprites.length : 0}`
     );
 
-    // Log screen utilization
-    const screenUtilization = (
-      ((gridPixelWidth * gridPixelHeight) / (availableWidth * availableHeight)) *
-      100
-    ).toFixed(1);
-    console.log(`Screen utilization: ${screenUtilization}%`);
-  }
-
-  /**
-   * Detect the current display type based on specific dimension criteria
-   */
-  private detectDisplayType(): void {
-    const width = this.scale.width;
-    const height = this.scale.height;
-    const previousType = this.currentDisplayType;
-
-    // Use your corrected criteria:
-    // Mobile: 1080 or below (in either dimension)
-    // Desktop: up to 1600 (in both dimensions)
-    // Fullscreen: anything above 1600 (in either dimension)
-
-    if (width > 1600 || height > 1600) {
-      this.currentDisplayType = 'fullscreen';
-    } else if (width <= 1080 || height <= 1080) {
-      this.currentDisplayType = 'mobile';
-    } else {
-      this.currentDisplayType = 'desktop';
-    }
-
-    console.log(`Display type: ${previousType} -> ${this.currentDisplayType} (${width}x${height})`);
-    console.log(`Criteria: Mobile(≤1080), Desktop(≤1600), Fullscreen(>1600)`);
-  }
-
-  /**
-   * Get the current display type
-   */
-  public getDisplayType(): 'mobile' | 'desktop' | 'fullscreen' {
-    return this.currentDisplayType;
-  }
-
-  /**
-   * Initialize all game systems
-   */
-  private initializeGameSystems(): void {
-    try {
-      // Initialize audio system
-      this.audioManager = new AudioManager(this);
-      this.audioEvents = new AudioEvents(this.audioManager);
-
-      try {
-        this.audioManager.initialize();
-      } catch (error) {
-        console.warn('Audio system initialization failed:', error);
+    if (active && active.dice) {
+      // Ensure activeSprites container exists
+      if (!l.activeSprites) {
+        l.activeSprites = [];
       }
 
-      // Initialize GameStateManager with proper game mode
-      this.gameStateManager = new GameStateManager(this, this.gameMode);
-      console.log('GameStateManager created successfully');
-
-      // Initialize piece factory
-      this.pieceFactory = new PieceFactory(this.gameMode, this.cellSize);
-      console.log('PieceFactory created successfully');
-
-      // Connect audio events to game systems
-      if (this.audioEvents) {
-        const boosterManager = this.gameStateManager.getBoosterManager();
-        const matchProcessor = this.gameStateManager.getMatchProcessor();
-
-        boosterManager.setAudioEvents(this.audioEvents);
-        matchProcessor.setAudioEvents(this.audioEvents);
-      }
-
-      // Update grid layout
-      this.updateGridLayout();
-
-      console.log('Game systems initialized successfully');
-    } catch (error) {
-      console.error('Error initializing game systems:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Update grid layout when display changes
-   */
-  private updateGridLayout(): void {
-    const grid = this.gameStateManager.getGrid();
-    if (grid) {
-      grid.setLayout(this.cellSize, this.gridOffsetX, this.gridOffsetY);
-    }
-    if (this.pieceFactory) {
-      this.pieceFactory.setCellSize(this.cellSize);
-    }
-
-    // Update current piece if it exists
-    if (this.currentPiece) {
-      // Update each die in the current piece with new cell size
-      this.currentPiece.dice.forEach((die) => {
-        if ('updateCellSize' in die) {
-          (die as any).updateCellSize(this.cellSize);
-        }
-      });
-      // Update piece positions with new grid offset
-      this.currentPiece.setGridOffset(this.gridOffsetX, this.gridOffsetY);
-    }
-  }
-
-  /**
-   * Setup input handling
-   */
-  private setupInput(): void {
-    this.inputManager = new InputManager(this);
-
-    // Handle piece movement
-    this.inputManager.onInput('move_left', () => {
-      if (this.currentPiece && this.isGameActive && this.gameStateController?.isInputEnabled()) {
-        this.movePieceLeft();
-      }
-    });
-
-    this.inputManager.onInput('move_right', () => {
-      if (this.currentPiece && this.isGameActive && this.gameStateController?.isInputEnabled()) {
-        this.movePieceRight();
-      }
-    });
-
-    this.inputManager.onInput('move_down', () => {
-      if (this.currentPiece && this.isGameActive && this.gameStateController?.isInputEnabled()) {
-        this.movePieceDown();
-      }
-    });
-
-    this.inputManager.onInput('rotate', () => {
-      if (this.currentPiece && this.isGameActive && this.gameStateController?.isInputEnabled()) {
-        this.rotatePiece();
-      }
-    });
-
-    this.inputManager.onInput('hard_drop', () => {
-      if (this.currentPiece && this.isGameActive && this.gameStateController?.isInputEnabled()) {
-        this.hardDropPiece();
-      }
-    });
-
-    console.log('Input system setup complete');
-  }
-
-  /**
-   * Generate a random Tetris piece shape based on game mode
-   */
-  private getRandomShape(): TetrominoShape {
-    let shapes: TetrominoShape[];
-    
-    // Easy mode: only simple pieces
-    if (this.gameMode === 'easy') {
-      shapes = ['O', 'I', 'L', 'J', 'T'];
-    } else {
-      // Other modes: include all pieces
-      shapes = ['O', 'I', 'S', 'Z', 'L', 'J', 'T', 'PLUS'];
-    }
-    
-    const randomIndex = Math.floor(Math.random() * shapes.length);
-    const shape = shapes[randomIndex];
-    return shape || 'I'; // Fallback to 'I' if undefined
-  }
-
-  /**
-   * Generate the next piece shape (just the shape, not the actual piece)
-   */
-  private generateNextPiece(): void {
-    try {
-      // Just store the shape and matrix for preview, don't create actual piece
-      const shape = this.getRandomShape();
-
-      // Create a simple preview object instead of a full piece
-      this.nextPiece = {
-        shape: shape,
-        shapeMatrix: this.getShapeMatrix(shape),
-      } as any; // Temporary type override
-
-      console.log(`Generated next piece shape: ${shape}`);
-    } catch (error) {
-      console.error('Error generating next piece:', error);
-      this.nextPiece = null;
-    }
-  }
-
-  /**
-   * Get shape matrix for a given shape
-   */
-  private getShapeMatrix(shape: TetrominoShape): number[][] {
-    const shapeMatrices: Record<TetrominoShape, number[][]> = {
-      'I': [[1, 1, 1, 1]],
-      'O': [
-        [1, 1],
-        [1, 1],
-      ],
-      'T': [
-        [0, 1, 0],
-        [1, 1, 1],
-      ],
-      'S': [
-        [0, 1, 1],
-        [1, 1, 0],
-      ],
-      'Z': [
-        [1, 1, 0],
-        [0, 1, 1],
-      ],
-      'J': [
-        [1, 0, 0],
-        [1, 1, 1],
-      ],
-      'L': [
-        [0, 0, 1],
-        [1, 1, 1],
-      ],
-      'PLUS': [
-        [0, 1, 0],
-        [1, 1, 1],
-        [0, 1, 0],
-      ],
-    };
-
-    return shapeMatrices[shape] || [[1]];
-  }
-
-  /**
-   * Render the next piece in the preview area
-   */
-  private renderNextPiece(): void {
-    if (!this.nextPiece || !this.nextPieceGraphics) return;
-
-    this.nextPieceGraphics.clear();
-
-    const uiStartX = this.gridOffsetX + this.gridWidth * this.cellSize + 20;
-    const uiStartY = this.gridOffsetY + 20;
-    const previewX = uiStartX + 5;
-    const previewY = uiStartY + 30;
-    const previewCellSize = 15;
-
-    // Get the piece shape matrix
-    const matrix = this.nextPiece.shapeMatrix;
-    if (!matrix || !matrix[0]) return;
-
-    // Calculate centering
-    const pieceWidth = matrix[0].length * previewCellSize;
-    const pieceHeight = matrix.length * previewCellSize;
-    const centerX = previewX + (70 - pieceWidth) / 2;
-    const centerY = previewY + (70 - pieceHeight) / 2;
-
-    // Draw each cell of the piece
-    for (let row = 0; row < matrix.length; row++) {
-      const matrixRow = matrix[row];
-      if (!matrixRow) continue;
-
-      for (let col = 0; col < matrixRow.length; col++) {
-        if (matrixRow[col] === 1) {
-          const cellX = centerX + col * previewCellSize;
-          const cellY = centerY + row * previewCellSize;
-
-          // Use a nice blue color for preview
-          this.nextPieceGraphics.fillStyle(0x4dabf7, 1);
-          this.nextPieceGraphics.fillRect(cellX, cellY, previewCellSize - 1, previewCellSize - 1);
-
-          // Add white border
-          this.nextPieceGraphics.lineStyle(1, 0xffffff, 0.8);
-          this.nextPieceGraphics.strokeRect(cellX, cellY, previewCellSize - 1, previewCellSize - 1);
-        }
-      }
-    }
-  }
-
-  /**
-   * Create UI elements (score and next piece)
-   */
-  private createUI(): void {
-    // Score in top left margin - "Score:" left aligned, number right aligned to grid edge
-    const scoreY = this.gridOffsetY - 30;
-    const gridRightEdge = this.gridOffsetX + this.gridWidth * this.cellSize;
-
-    // Score label (left aligned to grid) with Stalinist One font
-    this.scoreText = this.add.text(this.gridOffsetX, scoreY, 'Score:', {
-      fontFamily: 'Stalinist One',
-      fontSize: '18px',
-      color: '#ffffff',
-      stroke: '#000000',
-      strokeThickness: 2,
-    });
-
-    // Score value (right aligned to grid edge) with Stalinist One font
-    const currentScore = this.gameStateManager ? this.gameStateManager.getScore() : 0;
-    this.scoreValueText = this.add
-      .text(gridRightEdge, scoreY, currentScore.toString(), {
-        fontFamily: 'Stalinist One',
-        fontSize: '18px',
-        color: '#ffd700',
-        stroke: '#000000',
-        strokeThickness: 2,
-      })
-      .setOrigin(1, 0); // Right aligned
-
-    // Next Piece in right side area
-    const uiStartX = this.gridOffsetX + this.gridWidth * this.cellSize + 20;
-    const uiStartY = this.gridOffsetY + 20;
-
-    this.nextPieceLabel = this.add.text(uiStartX, uiStartY, 'Next Piece:', {
-      fontFamily: 'Stalinist One',
-      fontSize: '16px',
-      color: '#ffffff',
-      stroke: '#000000',
-      strokeThickness: 2,
-    });
-
-    // Background square for next piece preview
-    this.nextPieceSquare = this.add.graphics();
-    this.nextPieceSquare.fillStyle(0x222222, 1); // Dark gray background
-    this.nextPieceSquare.fillRect(uiStartX, uiStartY + 25, 80, 80);
-    this.nextPieceSquare.lineStyle(2, 0x666666, 1); // Gray border
-    this.nextPieceSquare.strokeRect(uiStartX, uiStartY + 25, 80, 80);
-
-    // Graphics object for rendering the actual piece
-    this.nextPieceGraphics = this.add.graphics();
-
-    // Render the initial next piece
-    this.renderNextPiece();
-  }
-
-  /**
-   * Update UI positions when layout changes
-   */
-  private updateUI(): void {
-    if (!this.scoreText) return;
-
-    // Update score position in top margin
-    const scoreY = this.gridOffsetY - 30;
-    const gridRightEdge = this.gridOffsetX + this.gridWidth * this.cellSize;
-
-    this.scoreText.setPosition(this.gridOffsetX, scoreY);
-    this.scoreValueText.setPosition(gridRightEdge, scoreY);
-    const currentScore = this.gameStateManager ? this.gameStateManager.getScore() : 0;
-    this.scoreValueText.setText(currentScore.toString());
-
-    // Update next piece area in right side
-    const uiStartX = this.gridOffsetX + this.gridWidth * this.cellSize + 20;
-    const uiStartY = this.gridOffsetY + 20;
-
-    // Update next piece label position
-    this.nextPieceLabel.setPosition(uiStartX, uiStartY);
-
-    // Update next piece background square
-    this.nextPieceSquare.clear();
-    this.nextPieceSquare.fillStyle(0x222222, 1);
-    this.nextPieceSquare.fillRect(uiStartX, uiStartY + 25, 80, 80);
-    this.nextPieceSquare.lineStyle(2, 0x666666, 1);
-    this.nextPieceSquare.strokeRect(uiStartX, uiStartY + 25, 80, 80);
-
-    // Re-render the next piece in new position
-    this.renderNextPiece();
-  }
-
-  /**
-   * Update debug button positions
-   */
-  private updateDebugButtons(): void {
-    if (this.debugButtons.length === 0) return;
-
-    const buttonSize = 24;
-    const buttonSpacing = 4;
-    const startX = this.scale.width - (3 * buttonSize + 2 * buttonSpacing + 10);
-    const buttonY = 10;
-
-    this.debugButtons.forEach((button, index) => {
-      const buttonX = startX + index * (buttonSize + buttonSpacing);
-      button.setPosition(buttonX, buttonY);
-    });
-  }
-
-  /**
-   * Update score value from game state
-   */
-  public updateScore(): void {
-    const currentScore = this.gameStateManager ? this.gameStateManager.getScore() : 0;
-
-    if (this.scoreValueText) {
-      this.scoreValueText.setText(currentScore.toString());
-    }
-  }
-
-  /**
-   * Refresh visual state - ensure only grid dice are visible
-   */
-  public refreshVisualState(): void {
-    const grid = this.gameStateManager.getGrid();
-    if (grid) {
-      console.log('🎨 GAME: Refreshing visual state');
-      grid.renderAllDice();
-      grid.hideOrphanedDice(this);
-    }
-  }
-
-  /**
-   * Spawn next piece as current piece
-   */
-  public spawnNextPiece(): void {
-    console.log('🎮 spawnNextPiece() called');
-    
-    if (!this.nextPiece) {
-      console.error('❌ No next piece available');
-      return;
-    }
-    
-    if (!this.pieceFactory) {
-      console.error('❌ No piece factory available');
-      return;
-    }
-
-    try {
-      console.log(`🎮 Creating piece: ${this.nextPiece.shape}`);
-      
-      // Update piece factory with current cell size
-      this.pieceFactory.setCellSize(this.cellSize);
-
-      // Create actual piece from the preview shape
-      const actualPiece = this.pieceFactory.createPiece(
-        this,
-        this.nextPiece.shape,
-        4, // Center of 10-wide grid
-        0 // Top of grid
-      );
-
-      console.log(`🎮 Piece created with ${actualPiece.dice.length} dice`);
-
-      // Position the piece within the grid bounds immediately
-      this.positionPieceInGrid(actualPiece);
-
-      // Set as current piece
-      this.currentPiece = actualPiece;
-      console.log('🎮 Setting current piece in GameStateController');
-      this.gameStateController.setCurrentPiece(actualPiece);
-
-      // Generate new next piece preview
-      this.generateNextPiece();
-      this.renderNextPiece();
-
-      console.log(
-        `✅ Spawned new piece: ${actualPiece.shape} at (${actualPiece.gridX}, ${actualPiece.gridY})`
-      );
-
-      // Check if the new piece can be placed (game over check)
-      const grid = this.gameStateManager.getGrid();
-      if (grid.checkCollision(actualPiece, actualPiece.gridX, actualPiece.gridY)) {
-        console.log('Cannot place new piece - Game Over!');
-        this.handleGameOver();
-      }
-    } catch (error) {
-      console.error('❌ Error spawning next piece:', error);
-      this.handleGameOver();
-    }
-  }
-
-  /**
-   * Create debug buttons for testing display modes
-   */
-  private createDebugButtons(): void {
-    const buttonSize = 24;
-    const buttonSpacing = 4;
-    const startX = this.scale.width - (3 * buttonSize + 2 * buttonSpacing + 10);
-    const buttonY = 10;
-
-    const buttonLabels = ['M', 'D', 'F'];
-    const buttonModes: ('mobile' | 'desktop' | 'fullscreen')[] = [
-      'mobile',
-      'desktop',
-      'fullscreen',
-    ];
-
-    buttonLabels.forEach((label, index) => {
-      const buttonX = startX + index * (buttonSize + buttonSpacing);
-      const button = this.add
-        .text(buttonX, buttonY, label, {
-          fontFamily: 'Stalinist One',
-          fontSize: '14px',
-          color: '#ffffff',
-          backgroundColor: '#444444',
-          padding: { x: 6, y: 4 },
-        })
-        .setOrigin(0.5)
-        .setInteractive({ useHandCursor: true })
-        .on('pointerdown', () => {
-          const mode = buttonModes[index];
-          if (mode) {
-            console.log(`Forcing ${mode} mode`);
-            this.currentDisplayType = mode;
-            this.calculateLayout(this.scale.width, this.scale.height);
-            this.drawGrid();
-            this.updateUI();
-            this.updateDebugButtons();
+      // Clear old sprites if count doesn't match
+      if (l.activeSprites.length !== active.dice.length) {
+        l.activeSprites.forEach((sprite: any) => {
+          try {
+            sprite.destroy();
+          } catch (e) {
+            /* ignore */
           }
         });
+        l.activeSprites = [];
+      }
 
-      this.debugButtons.push(button);
+      // Create or update sprites for each die
+      active.dice.forEach((die: any, index: number) => {
+        const absoluteX = active.x + die.relativePos.x;
+        const absoluteY = active.y + die.relativePos.y;
+        const { px, py } = cellToPixel(absoluteX, absoluteY);
+
+        if (!l.activeSprites[index]) {
+          Logger.log(`Creating new active sprite ${index} at px=${px}, py=${py}`);
+          l.activeSprites[index] = drawDie(
+            this,
+            px,
+            py,
+            cellW,
+            cellH,
+            die
+          ) as Phaser.GameObjects.Container | null;
+          if (l.activeSprites[index]) {
+            l.boardContainer.add(l.activeSprites[index]);
+            Logger.log(`Created active sprite ${index}`);
+          }
+        } else {
+          // Move existing sprite
+          try {
+            l.activeSprites[index].setPosition(px, py);
+          } catch (e) {
+            Logger.log(`Error moving active sprite ${index}: ` + String(e));
+            // Recreate if needed
+            try {
+              l.activeSprites[index].destroy();
+            } catch (e2) {
+              /* ignore */
+            }
+            l.activeSprites[index] = drawDie(
+              this,
+              px,
+              py,
+              cellW,
+              cellH,
+              die
+            ) as Phaser.GameObjects.Container | null;
+            if (l.activeSprites[index]) {
+              l.boardContainer.add(l.activeSprites[index]);
+            }
+          }
+        }
+      });
+    } else {
+      Logger.log('No active piece to render');
+      // Clear any existing active sprites
+      if (l.activeSprites) {
+        l.activeSprites.forEach((sprite: any) => {
+          try {
+            sprite.destroy();
+          } catch (e) {
+            /* ignore */
+          }
+        });
+        l.activeSprites = [];
+      }
+    }
+
+    // Draw locked cells from gameBoard (reuse sprite pool)
+    const lg: any = (this as any).gameBoard;
+    if (lg) {
+      if (!l.cellGroup) {
+        l.cellGroup = this.add.container(0, 0);
+        l.boardContainer.add(l.cellGroup);
+      }
+      // Instead of clearing all locked visuals every frame, we assume locked cells
+      // are persistent visuals inside l.cellGroup. When a piece gets locked we will
+      // reparent the activeSprite into l.cellGroup at the locked cell coords so it
+      // remains visible. Here we only ensure already-locked visuals are positioned
+      // correctly (in case of resize) by scanning children and snapping them to
+      // the grid if they carry a custom data property.
+      // We'll also draw any missing locked visuals (for legacy or first-pass).
+      const height = lg.state.height;
+      const width = lg.state.width;
+      // Create a quick map of occupied grid coords -> die for detecting missing visuals
+      const occupied = new Map<string, any>();
+      for (let y = 0; y < height; y++) {
+        const row = lg.state.cells[y];
+        if (!row) continue;
+        for (let x = 0; x < width; x++) {
+          const d = row[x];
+          if (d) occupied.set(`${x},${y}`, d);
+        }
+      }
+
+      // Draw Next piece preview grid (4x4) and piece if present
+      if (l.nextMetrics) {
+        // Draw 4x4 grid lines in the next piece area
+        if (!l.nextGridLines) {
+          l.nextGridLines = this.add.graphics();
+          l.sideContainer.add(l.nextGridLines);
+        }
+
+        l.nextGridLines.clear();
+        l.nextGridLines.lineStyle(1, 0x17f64b, 0.5); // Same color as main grid
+
+        const nextGridCols = 4;
+        const nextGridRows = 4;
+        const nextCellW = Math.floor((l.nextMetrics.nextW as number) / nextGridCols);
+        const nextCellH = Math.floor((l.nextMetrics.nextW as number) / nextGridRows); // Square cells
+        const nextGridX = l.nextMetrics.nextBgX as number;
+        const nextGridY = l.nextMetrics.nextY as number;
+
+        // Draw vertical lines
+        for (let x = 0; x <= nextGridCols; x++) {
+          const px = nextGridX + x * nextCellW;
+          l.nextGridLines.moveTo(px, nextGridY);
+          l.nextGridLines.lineTo(px, nextGridY + nextGridRows * nextCellH);
+        }
+
+        // Draw horizontal lines
+        for (let y = 0; y <= nextGridRows; y++) {
+          const py = nextGridY + y * nextCellH;
+          l.nextGridLines.moveTo(nextGridX, py);
+          l.nextGridLines.lineTo(nextGridX + nextGridCols * nextCellW, py);
+        }
+
+        l.nextGridLines.strokePath();
+
+        // Draw next piece in the center of the 4x4 grid (multi-die support)
+        const np = (this as any).nextPiece;
+        Logger.log(
+          `Next piece rendering: nextMetrics=${!!l.nextMetrics}, nextPiece=${np ? `${np.shape} with ${np.dice?.length || 0} dice` : 'null'}`
+        );
+        if (np && np.dice) {
+          // Clear previous next sprites
+          if (l.nextSprites) {
+            l.nextSprites.forEach((sprite: any) => {
+              try {
+                sprite.destroy();
+              } catch (e) {
+                /* ignore */
+              }
+            });
+          }
+          l.nextSprites = [];
+
+          // Find bounding box of the piece to center it
+          const minX = Math.min(...np.dice.map((die: any) => die.relativePos.x));
+          const maxX = Math.max(...np.dice.map((die: any) => die.relativePos.x));
+          const minY = Math.min(...np.dice.map((die: any) => die.relativePos.y));
+          const maxY = Math.max(...np.dice.map((die: any) => die.relativePos.y));
+
+          const pieceWidth = maxX - minX + 1;
+          const pieceHeight = maxY - minY + 1;
+
+          // Center the piece in the 4x4 grid
+          const offsetX = (4 - pieceWidth) / 2 - minX;
+          const offsetY = (4 - pieceHeight) / 2 - minY;
+
+          // Create sprites for each die in the next piece
+          np.dice.forEach((die: any, index: number) => {
+            const gridX = die.relativePos.x + offsetX;
+            const gridY = die.relativePos.y + offsetY;
+            const nx = nextGridX + gridX * nextCellW;
+            const ny = nextGridY + gridY * nextCellH;
+
+            Logger.log(`Next piece die ${index} at grid(${gridX}, ${gridY}) pixel(${nx}, ${ny})`);
+
+            const sprite = drawDie(
+              this,
+              nx,
+              ny,
+              nextCellW,
+              nextCellH,
+              die
+            ) as Phaser.GameObjects.Container | null;
+            if (sprite) {
+              l.sideContainer.add(sprite);
+              l.nextSprites.push(sprite);
+              Logger.log(`Created next sprite ${index}`);
+            }
+          });
+
+          Logger.log(`Created ${l.nextSprites.length} next piece sprites`);
+        } else {
+          Logger.log('No next piece to render');
+        }
+      } else {
+        Logger.log('No nextMetrics available for next piece rendering');
+      }
+
+      // snap existing children that have a __gridPos data to new positions
+      l.cellGroup.each((child: any) => {
+        try {
+          const meta = child.getData ? child.getData('__gridPos') : undefined;
+          if (meta) {
+            const { px, py } = cellToPixel(meta.x, meta.y);
+            child.setPosition(px, py);
+            // mark that this grid cell is satisfied
+            occupied.delete(`${meta.x},${meta.y}`);
+          } else {
+            // If child lacks meta, ignore for now
+          }
+        } catch (e) {
+          /* ignore individual child errors */
+        }
+      });
+
+      // For any occupied cells that don't have visuals yet, create them
+      occupied.forEach((d: any, key: string) => {
+        const parts = key.split(',');
+        const sx = parts.length > 0 ? Number(parts[0]) : NaN;
+        const sy = parts.length > 1 ? Number(parts[1]) : NaN;
+        if (Number.isNaN(sx) || Number.isNaN(sy)) return;
+        const { px, py } = cellToPixel(sx, sy);
+        const spr = drawDie(
+          this,
+          px,
+          py,
+          cellW,
+          cellH,
+          d as any
+        ) as Phaser.GameObjects.Container | null;
+        if (spr) {
+          // tag with grid pos so we can reposition on resize and avoid re-creating
+          if ((spr as any).setData) (spr as any).setData('__gridPos', { x: sx, y: sy });
+          l.cellGroup.add(spr as any);
+        }
+      });
+    }
+  }
+
+  private generateMultiDiePiece(): any {
+    // Define piece shapes (relative positions from origin)
+    const pieceShapes = [
+      // Single die
+      { name: 'single', positions: [{ x: 0, y: 0 }] },
+      // Line pieces
+      {
+        name: 'line2',
+        positions: [
+          { x: 0, y: 0 },
+          { x: 1, y: 0 },
+        ],
+      },
+      {
+        name: 'line3',
+        positions: [
+          { x: 0, y: 0 },
+          { x: 1, y: 0 },
+          { x: 2, y: 0 },
+        ],
+      },
+      {
+        name: 'line4',
+        positions: [
+          { x: 0, y: 0 },
+          { x: 1, y: 0 },
+          { x: 2, y: 0 },
+          { x: 3, y: 0 },
+        ],
+      },
+      // L-shapes
+      {
+        name: 'L3',
+        positions: [
+          { x: 0, y: 0 },
+          { x: 0, y: 1 },
+          { x: 1, y: 1 },
+        ],
+      },
+      {
+        name: 'L4',
+        positions: [
+          { x: 0, y: 0 },
+          { x: 0, y: 1 },
+          { x: 0, y: 2 },
+          { x: 1, y: 2 },
+        ],
+      },
+      // Square
+      {
+        name: 'square',
+        positions: [
+          { x: 0, y: 0 },
+          { x: 1, y: 0 },
+          { x: 0, y: 1 },
+          { x: 1, y: 1 },
+        ],
+      },
+      // T-shape
+      {
+        name: 'T',
+        positions: [
+          { x: 1, y: 0 },
+          { x: 0, y: 1 },
+          { x: 1, y: 1 },
+          { x: 2, y: 1 },
+        ],
+      },
+    ];
+
+    const diceTypes: number[] = (this.registry.get('gameConfig') as any)?.diceTypes || [6];
+    const palette = ['red', 'blue', 'green', 'yellow', 'purple', 'orange', 'teal', 'gray'];
+
+    // Select random shape
+    const shape = pieceShapes[Math.floor(Math.random() * pieceShapes.length)];
+    if (!shape) {
+      // Fallback to single die if no shape found
+      const fallbackShape = { name: 'single', positions: [{ x: 0, y: 0 }] };
+      const dice = fallbackShape.positions.map((pos, index) => {
+        const sides = diceTypes[Math.floor(Math.random() * diceTypes.length)] || 6;
+        const color =
+          palette[sides % palette.length || 0] ||
+          palette[Math.floor(Math.random() * palette.length)];
+        return {
+          id: `p-${Date.now()}-${index}`,
+          sides,
+          number: Math.ceil(Math.random() * sides),
+          color,
+          relativePos: pos,
+        };
+      });
+      return {
+        id: `piece-${Date.now()}`,
+        shape: fallbackShape.name,
+        dice,
+        rotation: 0,
+      };
+    }
+
+    // Create dice for each position
+    const dice = shape.positions.map((pos, index) => {
+      const sides = diceTypes[Math.floor(Math.random() * diceTypes.length)] || 6;
+      const color =
+        palette[sides % palette.length || 0] || palette[Math.floor(Math.random() * palette.length)];
+      return {
+        id: `p-${Date.now()}-${index}`,
+        sides,
+        number: Math.ceil(Math.random() * sides),
+        color,
+        relativePos: pos,
+      };
+    });
+
+    return {
+      id: `piece-${Date.now()}`,
+      shape: shape.name,
+      dice,
+      rotation: 0, // 0, 90, 180, 270 degrees
+    };
+  }
+
+  private spawnPiece(): void {
+    Logger.log('spawnPiece() called');
+    const gb: any = (this as any).gameBoard;
+    if (!gb) {
+      Logger.log('ERROR: No gameBoard in spawnPiece');
+      return;
+    }
+
+    const w = gb.state.width;
+    Logger.log(`Grid width: ${w}`);
+
+    // If there's a nextPiece preview, promote it to active; otherwise generate new
+    const next = (this as any).nextPiece;
+    let pieceToUse = next || this.generateMultiDiePiece();
+
+    if (next) {
+      Logger.log(`Using next piece: ${next.shape} with ${next.dice.length} dice`);
+    } else {
+      Logger.log('Generated new piece');
+    }
+
+    // Position piece at top center
+    const x = Math.floor(w / 2) - 1; // Offset for multi-die pieces
+    const newActivePiece = {
+      ...pieceToUse,
+      x,
+      y: 0,
+    };
+    (this as any).activePiece = newActivePiece;
+    Logger.log(`Spawned active piece at x=${x}, y=0: ${newActivePiece.shape}`);
+
+    // Generate fresh nextPiece for preview
+    (this as any).nextPiece = this.generateMultiDiePiece();
+    Logger.log(`Generated next piece: ${(this as any).nextPiece.shape}`);
+
+    // render update
+    this.renderGridPlaceholder();
+    Logger.log('spawnPiece() completed');
+  }
+
+  private stepDrop(): void {
+    Logger.log('stepDrop() called');
+    const lg: any = (this as any).gameBoard;
+    if (!lg) {
+      Logger.log('ERROR: No gameBoard found');
+      return;
+    }
+
+    let active: any = (this as any).activePiece;
+    if (!active) {
+      Logger.log('No active piece, spawning new one');
+      this.spawnPiece();
+      return;
+    }
+
+    Logger.log(`Active piece at: x=${active.x}, y=${active.y}`);
+    const belowY = active.y + 1;
+    const h = lg.state.height;
+
+    // Check if piece should lock (multi-die support)
+    const shouldLock = !this.canPlacePiece(active, active.x, belowY);
+    Logger.log(
+      `Checking if piece should lock: belowY=${belowY}, height=${h}, shouldLock=${shouldLock}`
+    );
+
+    if (shouldLock) {
+      Logger.log(`Locking piece at x=${active.x}, y=${active.y}`);
+
+      // Lock all dice in the multi-die piece
+      Logger.log(`Locking ${active.dice.length} dice from piece ${active.shape}`);
+      active.dice.forEach((die: any, index: number) => {
+        const absoluteX = active.x + die.relativePos.x;
+        const absoluteY = active.y + die.relativePos.y;
+        const lockResult = lg.lockAt({ x: absoluteX, y: absoluteY }, die);
+        Logger.log(
+          `Locked die ${index} at (${absoluteX}, ${absoluteY}): matches=${lockResult.matches.length}`
+        );
+      });
+
+      // Reparent active sprites into locked cell visuals so they don't jump.
+      const l = (this as any)._layout;
+      if (l && l.activeSprites && l.activeSprites.length > 0) {
+        try {
+          // Ensure cellGroup exists
+          if (!l.cellGroup) {
+            l.cellGroup = this.add.container(0, 0);
+            l.boardContainer.add(l.cellGroup);
+          }
+
+          // Reparent each active sprite to the locked cells
+          active.dice.forEach((die: any, index: number) => {
+            const sprite = l.activeSprites[index];
+            if (sprite) {
+              const absoluteX = active.x + die.relativePos.x;
+              const absoluteY = active.y + die.relativePos.y;
+
+              // Tag with grid pos for future repositioning
+              if ((sprite as any).setData) {
+                (sprite as any).setData('__gridPos', { x: absoluteX, y: absoluteY });
+              }
+
+              // Move to cellGroup
+              l.cellGroup.add(sprite);
+              Logger.log(
+                `Reparented sprite ${index} to locked cells at (${absoluteX}, ${absoluteY})`
+              );
+            }
+          });
+
+          // Clear the activeSprites array so new ones will be created for the next piece
+          l.activeSprites = [];
+          Logger.log('Successfully reparented all sprites to locked cells');
+        } catch (e) {
+          Logger.log('Failed to reparent sprites: ' + String(e));
+        }
+      }
+
+      (this as any).activePiece = undefined;
+      Logger.log('Cleared active piece, about to spawn new one');
+
+      // re-render grid and spawn a new piece
+      this.renderGridPlaceholder();
+      this.spawnPiece();
+      return;
+    }
+
+    // otherwise advance piece down
+    Logger.log(`Moving piece down from y=${active.y} to y=${active.y + 1}`);
+    active.y += 1;
+    (this as any).activePiece = active;
+    this.renderGridPlaceholder();
+  }
+
+  create(): void {
+    const { width, height } = this.scale;
+
+    // Set background
+    this.cameras.main.setBackgroundColor('#1a1a2e');
+
+    // Root containers
+    this.registry.set('gameSceneReady', true);
+
+    // Create containers for left (board) and right (side panel)
+    const root = this.add.container(0, 0);
+
+    // Board group (left)
+    const boardContainer = this.add.container(0, 0);
+    // Score label (left) and value (right) placeholders (top of board)
+    const SCORE_LABEL_SIZE = '28px';
+    const scoreLabel = this.add
+      .text(0, 0, 'Score:', {
+        fontFamily: 'Arial Black',
+        fontSize: SCORE_LABEL_SIZE,
+        color: '#ffd700',
+        stroke: '#000000',
+        strokeThickness: 1,
+      })
+      .setOrigin(0, 0);
+
+    const scoreValue = this.add
+      .text(0, 0, '0', {
+        fontFamily: 'Arial Black',
+        fontSize: SCORE_LABEL_SIZE,
+        color: '#ffffff',
+        stroke: '#000000',
+        strokeThickness: 3,
+      })
+      .setOrigin(1, 0);
+
+    // Board area placeholder (will be resized)
+    const boardBg = this.add.graphics();
+    boardBg.fillStyle(0x0f1720, 1);
+    // initial placeholder rect; will be redrawn in updateLayout
+    boardBg.fillRect(0, 0, 400, 600);
+
+    // Border graphics for the board group
+    const boardBorder = this.add.graphics();
+
+    boardContainer.add([boardBg, boardBorder, scoreLabel, scoreValue]);
+
+    // Side panel (right) - Next Piece + Boosters
+    const sideContainer = this.add.container(0, 0);
+
+    // Next label (one size larger)
+    const nextLabel = this.add
+      .text(0, 0, 'Next Piece', {
+        fontFamily: 'Arial Black',
+        fontSize: '24px',
+        color: '#00ff88',
+        stroke: '#000000',
+        strokeThickness: 1,
+      })
+      .setOrigin(0.5, 0);
+
+    // Next piece area placeholder (4x4 grid)
+    const nextBg = this.add.graphics();
+    nextBg.fillStyle(0x071021, 1);
+    nextBg.fillRect(0, 0, 160, 160); // Larger for 4x4 grid
+    const nextBorder = this.add.graphics();
+
+    // Boosters grid container (3x3 larger slots)
+    const boostersContainer = this.add.container(0, 0);
+    const boosterSlots: Phaser.GameObjects.Rectangle[] = [];
+    const boosterSlotSize = 128; // Much larger booster icons (2x scale)
+    for (let row = 0; row < 3; row++) {
+      for (let col = 0; col < 3; col++) {
+        const slot = this.add
+          .rectangle(
+            col * (boosterSlotSize + 8),
+            row * (boosterSlotSize + 8),
+            boosterSlotSize,
+            boosterSlotSize,
+            0x000000,
+            0.0
+          )
+          .setStrokeStyle(1, 0x00ff88, 0.25)
+          .setOrigin(0, 0);
+        boostersContainer.add(slot);
+        boosterSlots.push(slot);
+      }
+    }
+
+    // Border for boosters
+    const boostersBorder = this.add.graphics();
+
+    // Control buttons grid (3x2 layout)
+    const controlsContainer = this.add.container(0, 0);
+    const controlButtons: Phaser.GameObjects.Rectangle[] = [];
+    const controlLabels: Phaser.GameObjects.Text[] = [];
+    const controlSize = 112; // Much larger control buttons (2x scale)
+    const controlGap = 12; // Slightly larger gap too
+
+    // Control button data: [row, col, symbol, action]
+    const controlData: Array<[number, number, string, string]> = [
+      [0, 0, '↺', 'rotateLeft'], // Rotate Counter-Clockwise
+      [0, 1, '⇊', 'softDrop'], // 2-Down Arrows (soft drop)
+      [0, 2, '↻', 'rotateRight'], // Rotate Clockwise
+      [1, 0, '←', 'moveLeft'], // Move Left
+      [1, 1, '⇓', 'hardDrop'], // 3-Down Arrows (hard drop)
+      [1, 2, '→', 'moveRight'], // Move Right
+    ];
+
+    controlData.forEach(([row, col, symbol, action]) => {
+      const x = col * (controlSize + controlGap);
+      const y = row * (controlSize + controlGap);
+
+      // Button background
+      const button = this.add
+        .rectangle(x, y, controlSize, controlSize, 0x1a1a2e, 1.0)
+        .setStrokeStyle(2, 0x00ff88, 0.8)
+        .setOrigin(0, 0)
+        .setInteractive({ useHandCursor: true });
+
+      // Button label
+      const label = this.add
+        .text(x + controlSize / 2, y + controlSize / 2, symbol, {
+          fontFamily: 'Arial Black',
+          fontSize: '48px', // Larger font for bigger buttons
+          color: '#00ff88',
+          stroke: '#000000',
+          strokeThickness: 2, // Thicker stroke for larger text
+        })
+        .setOrigin(0.5, 0.5);
+
+      // Store action for later use
+      (button as any).controlAction = action;
+
+      controlsContainer.add([button, label]);
+      controlButtons.push(button);
+      controlLabels.push(label);
+    });
+
+    // Border for controls
+    const controlsBorder = this.add.graphics();
+
+    // Add children to sideContainer in order
+    sideContainer.add([
+      nextLabel,
+      nextBg,
+      nextBorder,
+      boostersContainer,
+      boostersBorder,
+      controlsContainer,
+      controlsBorder,
+    ]);
+
+    // Add the two major containers to root
+    root.add([boardContainer, sideContainer]);
+
+    // Store references for layout update
+    (this as any)._layout = {
+      root,
+      boardContainer,
+      boardBg,
+      boardBorder,
+      scoreLabel,
+      scoreValue,
+      sideContainer,
+      nextLabel,
+      nextBg,
+      nextBorder,
+      nextGridLines: undefined, // Will be created in renderGridPlaceholder
+      activeSprites: [], // Array of sprites for multi-die active piece
+      nextSprites: [], // Array of sprites for multi-die next piece
+      boostersContainer,
+      boostersBorder,
+      boosterSlots,
+      controlsContainer,
+      controlsBorder,
+      controlButtons,
+      controlLabels,
+    };
+
+    // Initial layout
+    this.updateLayout(width, height);
+
+    // Listen for resize
+    this.scale.on('resize', (gameSize: Phaser.Structs.Size) => {
+      const { width, height } = gameSize;
+      this.updateLayout(width, height);
+    });
+
+    // Add escape key to return to menu
+    try {
+      const escKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
+      escKey?.on('down', () => {
+        this.scene.start('StartMenu');
+      });
+      if (!escKey) {
+        window.addEventListener('keydown', (ev) => {
+          if ((ev as KeyboardEvent).key === 'Escape') this.scene.start('StartMenu');
+        });
+      }
+    } catch (err) {
+      Logger.log('Keyboard setup failed, falling back to window listener ' + String(err));
+      window.addEventListener('keydown', (ev) => {
+        if ((ev as KeyboardEvent).key === 'Escape') this.scene.start('StartMenu');
+      });
+    }
+
+    Logger.log('Game scene: Layout initialized');
+
+    // Read selected mode from registry and apply config via GameMode factory
+    const selectedMode =
+      (this.registry.get('selectedMode') as string) || settings.get('selectedMode') || 'medium';
+    const mode = getMode(selectedMode);
+    const cfg = mode.getConfig();
+    this.registry.set('gameMode', mode.id);
+    this.registry.set('gameConfig', cfg);
+
+    // Initialize authoritative game board and render placeholder dice
+    const gameBoard = new GameBoard(10, 20);
+    // Save board reference
+    (this as any).gameBoard = gameBoard;
+
+    // Spawn an initial piece and start the timed drop according to config
+    Logger.log('About to spawn initial piece and start timer');
+    this.spawnPiece();
+    const cfgAny: any = cfg;
+    const ms = Number(cfgAny?.fallSpeed) || 800;
+    Logger.log(`Setting up drop timer with ${ms}ms delay`);
+
+    // clear previous timer if any
+    if ((this as any).dropTimer) {
+      Logger.log('Removing existing timer');
+      (this as any).dropTimer.remove(false);
+    }
+
+    (this as any).dropTimer = this.time.addEvent({
+      delay: ms,
+      callback: () => this.stepDrop(),
+      loop: true,
+    });
+    Logger.log('Drop timer created successfully');
+
+    // Set up control button handlers
+    this.setupControlHandlers();
+
+    // Render an initial empty grid placeholder (draw cell outlines)
+    this.renderGridPlaceholder();
+  }
+
+  private updateLayout(width: number, height: number): void {
+    const l = (this as any)._layout;
+    if (!l) return;
+
+    // Layout math
+    const padding = 20;
+    const leftWidth = Math.floor(width * 0.62);
+
+    // Board area
+    const boardX = padding;
+    const boardY = padding;
+    const boardW = leftWidth - padding;
+    const boardH = height - padding * 2;
+
+    // persist canonical board metrics for rendering to consume
+    if (!l.boardMetrics) l.boardMetrics = {};
+    l.boardMetrics.boardW = boardW;
+    l.boardMetrics.boardH = boardH;
+    l.boardMetrics.cols = 10;
+    l.boardMetrics.rows = 20;
+
+    l.boardContainer.setPosition(boardX, boardY);
+
+    // Score at top inside board: left label and right-aligned value
+    const scorePadding = 12;
+    const scoreLabelX = 12;
+    const scoreLabelY = 8;
+    l.scoreLabel.setPosition(scoreLabelX, scoreLabelY);
+    const scoreValueX = boardW - scorePadding;
+    l.scoreValue.setPosition(scoreValueX, scoreLabelY);
+
+    // Board background under score
+    l.boardBg.clear();
+    l.boardBg.fillStyle(0x071021, 1);
+    const boardAreaY = 48; // leave space for score
+    l.boardMetrics.boardAreaY = boardAreaY;
+    l.boardBg.fillRect(0, boardAreaY, boardW, boardH - boardAreaY);
+
+    // Board border - removed since grid lines provide sufficient visual structure
+
+    // Side container position
+    const sideX = boardX + leftWidth + padding;
+    const sideY = padding;
+    l.sideContainer.setPosition(sideX, sideY);
+
+    // Compute right panel width available for side content
+    const rightPanelWidth = Math.max(0, width - sideX - padding);
+
+    // Next label centered vertically aligned with score label; Next piece top aligns with board area top
+    const nextLabelY = scoreLabelY;
+    l.nextLabel.setPosition(rightPanelWidth / 2, nextLabelY);
+
+    // Next piece area: align top with board area Y so it lines up with grid (4x4 grid)
+    const nextY = boardAreaY;
+    l.nextBg.clear();
+    l.nextBg.fillStyle(0x071021, 1);
+    const nextW = Math.min(180, rightPanelWidth - 40); // Larger for 4x4 grid
+    const nextBgX = Math.max(0, Math.floor((rightPanelWidth - nextW) / 2));
+    l.nextBg.fillRect(nextBgX, nextY, nextW, nextW);
+    l.nextBorder.clear();
+    l.nextBorder.lineStyle(2, 0x00ff88, 0.25);
+    l.nextBorder.strokeRect(nextBgX - 4, nextY - 4, nextW + 8, nextW + 8);
+    // store next-panel metrics for renderer
+    l.nextMetrics = { nextBgX, nextW, nextY };
+
+    // Boosters group below next piece
+    const boostersY = nextY + nextW + 20;
+
+    // Calculate boosters grid sizing (larger icons)
+    const boosterCols = 3;
+    const boosterRows = 3;
+    const boosterGap = 12; // Larger gap for bigger icons
+    const boosterSlotSize = 128; // Much larger size (2x scale)
+
+    const boostersW = boosterCols * boosterSlotSize + (boosterCols - 1) * boosterGap;
+    const boostersH = boosterRows * boosterSlotSize + (boosterRows - 1) * boosterGap;
+    const boostersX = Math.max(0, Math.floor((rightPanelWidth - boostersW) / 2));
+
+    l.boostersContainer.setPosition(boostersX, boostersY);
+
+    // Update individual booster slots to new size and positions
+    l.boosterSlots.forEach((slot: Phaser.GameObjects.Rectangle, idx: number) => {
+      const col = idx % boosterCols;
+      const row = Math.floor(idx / boosterCols);
+      slot.setSize(boosterSlotSize, boosterSlotSize);
+      slot.setPosition(col * (boosterSlotSize + boosterGap), row * (boosterSlotSize + boosterGap));
+    });
+
+    // boosters border (global coords)
+    l.boostersBorder.clear();
+    l.boostersBorder.lineStyle(2, 0x00ff88, 0.25);
+    const borderGlobalX = sideX + boostersX - 4;
+    const borderGlobalY = sideY + boostersY - 4;
+    l.boostersBorder.strokeRect(borderGlobalX, borderGlobalY, boostersW + 8, boostersH + 8);
+
+    // Controls group below boosters
+    const controlsY = boostersY + boostersH + 20;
+    const controlSize = 112; // Much larger control buttons (2x scale)
+    const controlGap = 12; // Larger gap for bigger buttons
+    const controlCols = 3;
+    const controlRows = 2;
+
+    const controlsW = controlCols * controlSize + (controlCols - 1) * controlGap;
+    const controlsH = controlRows * controlSize + (controlRows - 1) * controlGap;
+    const controlsX = Math.max(0, Math.floor((rightPanelWidth - controlsW) / 2));
+
+    l.controlsContainer.setPosition(controlsX, controlsY);
+
+    // Update control button positions and sizes
+    l.controlButtons.forEach((button: Phaser.GameObjects.Rectangle, idx: number) => {
+      const col = idx % controlCols;
+      const row = Math.floor(idx / controlCols);
+      const x = col * (controlSize + controlGap);
+      const y = row * (controlSize + controlGap);
+
+      button.setSize(controlSize, controlSize);
+      button.setPosition(x, y);
+
+      // Update corresponding label position
+      const label = l.controlLabels[idx];
+      if (label) {
+        label.setPosition(x + controlSize / 2, y + controlSize / 2);
+      }
+    });
+
+    // controls border (global coords)
+    l.controlsBorder.clear();
+    l.controlsBorder.lineStyle(2, 0x00ff88, 0.25);
+    const controlBorderGlobalX = sideX + controlsX - 4;
+    const controlBorderGlobalY = sideY + controlsY - 4;
+    l.controlsBorder.strokeRect(
+      controlBorderGlobalX,
+      controlBorderGlobalY,
+      controlsW + 8,
+      controlsH + 8
+    );
+    // Update root position to (0,0) - already set
+  }
+
+  private setupControlHandlers(): void {
+    const l = (this as any)._layout;
+    if (!l || !l.controlButtons) return;
+
+    l.controlButtons.forEach((button: any) => {
+      button.on('pointerdown', () => {
+        const action = button.controlAction;
+        Logger.log(`Control button pressed: ${action}`);
+        this.handleControlAction(action);
+      });
+
+      // Visual feedback
+      button.on('pointerover', () => {
+        button.setStrokeStyle(2, 0x00ff88, 1.0);
+      });
+
+      button.on('pointerout', () => {
+        button.setStrokeStyle(2, 0x00ff88, 0.8);
+      });
     });
   }
 
-  /**
-   * Update layout when window is resized
-   */
-  private updateLayout(width: number, height: number): void {
-    console.log(`Layout update triggered: ${width}x${height}`);
+  private handleControlAction(action: string): void {
+    const active = (this as any).activePiece;
+    if (!active) return;
 
-    // Re-detect display type on resize
-    this.detectDisplayType();
+    Logger.log(`Handling control action: ${action}`);
 
-    // Recalculate layout
-    this.calculateLayout(width, height);
-
-    // Redraw the grid with new layout
-    if (this.gridGraphics) {
-      this.drawGrid();
+    switch (action) {
+      case 'moveLeft':
+        this.movePiece(-1, 0);
+        break;
+      case 'moveRight':
+        this.movePiece(1, 0);
+        break;
+      case 'softDrop':
+        this.movePiece(0, 1);
+        break;
+      case 'hardDrop':
+        this.hardDrop();
+        break;
+      case 'rotateLeft':
+        this.rotatePiece(-1);
+        break;
+      case 'rotateRight':
+        this.rotatePiece(1);
+        break;
     }
-
-    // Update grid layout for game systems
-    this.updateGridLayout();
-
-    // Update UI positions
-    this.updateUI();
-
-    // Update debug button positions
-    this.updateDebugButtons();
-
-    console.log(
-      `Layout update complete: ${this.currentDisplayType} mode, ${this.cellSize}px cells`
-    );
   }
 
-  /**
-   * Spawn the first piece to start the game
-   */
-  private spawnFirstPiece(): void {
-    if (this.nextPiece && this.pieceFactory) {
-      try {
-        // Update piece factory with current cell size
-        this.pieceFactory.setCellSize(this.cellSize);
+  private movePiece(dx: number, dy: number): void {
+    const active = (this as any).activePiece;
+    const lg = (this as any).gameBoard;
+    if (!active || !lg) return;
 
-        // Create actual piece from the preview shape
-        const actualPiece = this.pieceFactory.createPiece(
-          this,
-          this.nextPiece.shape,
-          4, // Center of 10-wide grid
-          0 // Top of grid
-        );
+    const newX = active.x + dx;
+    const newY = active.y + dy;
 
-        // Position the piece within the grid bounds
-        this.positionPieceInGrid(actualPiece);
+    // Check if the new position is valid for multi-die piece
+    if (this.canPlacePiece(active, newX, newY)) {
+      active.x = newX;
+      active.y = newY;
+      this.renderGridPlaceholder();
+      Logger.log(`Moved piece to x=${newX}, y=${newY}`);
+    } else {
+      Logger.log(`Cannot move piece to x=${newX}, y=${newY} - blocked`);
+    }
+  }
 
-        // Set as current piece
-        this.currentPiece = actualPiece;
-        this.gameStateController.setCurrentPiece(actualPiece);
+  private hardDrop(): void {
+    const active = (this as any).activePiece;
+    const lg = (this as any).gameBoard;
+    if (!active || !lg) return;
 
-        console.log(
-          `First piece spawned: ${this.currentPiece.shape} at (${this.currentPiece.gridX}, ${this.currentPiece.gridY})`
-        );
+    // Find the lowest valid position
+    let dropY = active.y;
+    while (dropY + 1 < lg.state.height && lg.isEmpty(active.x, dropY + 1)) {
+      dropY++;
+    }
 
-        // Generate new next piece preview
-        this.generateNextPiece();
-        this.renderNextPiece();
+    active.y = dropY;
+    Logger.log(`Hard dropped piece to y=${dropY}`);
 
-        // Initialize gravity timer
-        this.lastGravityTime = this.time.now;
-      } catch (error) {
-        console.error('Error spawning first piece:', error);
-        this.handleGameOver();
+    // Force immediate lock by calling stepDrop
+    this.stepDrop();
+  }
+
+  private rotateMatrix(
+    positions: Array<{ x: number; y: number }>,
+    clockwise: boolean
+  ): Array<{ x: number; y: number }> {
+    if (positions.length === 0) return positions;
+
+    // Find bounding box to determine matrix size
+    const minX = Math.min(...positions.map((p) => p.x));
+    const maxX = Math.max(...positions.map((p) => p.x));
+    const minY = Math.min(...positions.map((p) => p.y));
+    const maxY = Math.max(...positions.map((p) => p.y));
+
+    // Use largest dimension for square matrix
+    const size = Math.max(maxX - minX + 1, maxY - minY + 1);
+
+    // Normalize positions to 0-based matrix
+    const normalized = positions.map((p) => ({
+      x: p.x - minX,
+      y: p.y - minY,
+    }));
+
+    // Rotate around center of square matrix
+    const center = (size - 1) / 2;
+    const rotated = normalized.map((p) => {
+      const relX = p.x - center;
+      const relY = p.y - center;
+
+      let newX, newY;
+      if (clockwise) {
+        // 90° clockwise: (x,y) -> (-y, x)
+        newX = -relY + center;
+        newY = relX + center;
+      } else {
+        // 90° counter-clockwise: (x,y) -> (y, -x)
+        newX = relY + center;
+        newY = -relX + center;
+      }
+
+      return {
+        x: Math.round(newX),
+        y: Math.round(newY),
+      };
+    });
+
+    // Find the lowest Y position in the rotated piece
+    const rotatedMinY = Math.min(...rotated.map((p) => p.y));
+    const originalMinY = Math.min(...normalized.map((p) => p.y));
+
+    // Adjust Y positions to maintain the same lowest point
+    const yOffset = originalMinY - rotatedMinY;
+
+    // Convert back to absolute positions
+    return rotated.map((p) => ({
+      x: p.x + minX,
+      y: p.y + minY + yOffset,
+    }));
+  }
+
+  private canPlacePiece(
+    piece: any,
+    newX: number,
+    newY: number,
+    newPositions?: Array<{ x: number; y: number }>
+  ): boolean {
+    const gb = (this as any).gameBoard;
+    if (!gb) return false;
+
+    const positions =
+      newPositions ||
+      piece.dice.map((die: any) => ({
+        x: die.relativePos.x,
+        y: die.relativePos.y,
+      }));
+
+    // Check each die position
+    for (const pos of positions) {
+      const absoluteX = newX + pos.x;
+      const absoluteY = newY + pos.y;
+
+      // Check bounds
+      if (
+        absoluteX < 0 ||
+        absoluteX >= gb.state.width ||
+        absoluteY < 0 ||
+        absoluteY >= gb.state.height
+      ) {
+        return false;
+      }
+
+      // Check collision with existing pieces
+      if (!gb.isEmpty(absoluteX, absoluteY)) {
+        return false;
       }
     }
+
+    return true;
   }
 
-  /**
-   * Position a piece correctly within the game grid
-   */
-  private positionPieceInGrid(piece: Piece): void {
-    console.log(`Positioning piece ${piece.shape} with ${piece.dice.length} dice`);
-    console.log(`Piece grid position: (${piece.gridX}, ${piece.gridY})`);
-    console.log(
-      `Grid offset: (${this.gridOffsetX}, ${this.gridOffsetY}), Cell size: ${this.cellSize}`
-    );
-
-    // Use the new positioning method with grid offset
-    piece.updateDicePositionsWithOffset(this.gridOffsetX, this.gridOffsetY);
-  }
-
-  // Old lockCurrentPiece method removed - now handled by GameStateController
-
-  /**
-   * Move piece left with collision detection
-   */
-  private movePieceLeft(): void {
-    if (!this.currentPiece) return;
-
-    const grid = this.gameStateManager.getGrid();
-    const canMove = !grid.checkCollision(
-      this.currentPiece,
-      this.currentPiece.gridX - 1,
-      this.currentPiece.gridY
-    );
-
-    if (canMove) {
-      this.currentPiece.gridX--;
-      this.currentPiece.setGridOffset(this.gridOffsetX, this.gridOffsetY);
-      console.log(`Piece moved left to x=${this.currentPiece.gridX}`);
-    }
-  }
-
-  /**
-   * Move piece right with collision detection
-   */
-  private movePieceRight(): void {
-    if (!this.currentPiece) return;
-
-    const grid = this.gameStateManager.getGrid();
-    const canMove = !grid.checkCollision(
-      this.currentPiece,
-      this.currentPiece.gridX + 1,
-      this.currentPiece.gridY
-    );
-
-    if (canMove) {
-      this.currentPiece.gridX++;
-      this.currentPiece.setGridOffset(this.gridOffsetX, this.gridOffsetY);
-      console.log(`Piece moved right to x=${this.currentPiece.gridX}`);
-    }
-  }
-
-  /**
-   * Move piece down manually (soft drop)
-   */
-  private movePieceDown(): void {
-    if (!this.currentPiece) return;
-
-    const grid = this.gameStateManager.getGrid();
-    const canMove = !grid.checkCollision(
-      this.currentPiece,
-      this.currentPiece.gridX,
-      this.currentPiece.gridY + 1
-    );
-
-    if (canMove) {
-      this.currentPiece.gridY++;
-      this.currentPiece.setGridOffset(this.gridOffsetX, this.gridOffsetY);
-      console.log(`Piece soft dropped to y=${this.currentPiece.gridY}`);
-
-      // Reset gravity timer to prevent double movement
-      this.lastGravityTime = this.time.now;
-    } else {
-      // Can't move down - lock immediately
-      this.gameStateController.lockCurrentPiece();
-    }
-  }
-
-  /**
-   * Move piece down smoothly due to gravity
-   */
-  private movePieceDownSmooth(): void {
-    if (!this.currentPiece) return;
-
-    this.currentPiece.gridY++;
-    this.currentPiece.setGridOffset(this.gridOffsetX, this.gridOffsetY);
-    console.log(`Piece gravity moved to y=${this.currentPiece.gridY}`);
-  }
-
-  /**
-   * Rotate piece with collision detection
-   */
-  private rotatePiece(): void {
-    if (!this.currentPiece) return;
-
-    // Try to rotate the piece (this updates the shapeMatrix and repositions dice)
-    const success = this.currentPiece.rotatePiece();
-    if (success) {
-      // Ensure the piece uses the correct grid offset after rotation
-      this.currentPiece.setGridOffset(this.gridOffsetX, this.gridOffsetY);
-      console.log(`Piece rotated to ${this.currentPiece.rotation} degrees, dice repositioned`);
-    }
-  }
-
-  /**
-   * Hard drop piece to bottom
-   */
-  private hardDropPiece(): void {
-    if (!this.currentPiece) return;
-
-    const grid = this.gameStateManager.getGrid();
-    let dropDistance = 0;
-
-    // Find how far the piece can drop
-    while (
-      !grid.checkCollision(
-        this.currentPiece,
-        this.currentPiece.gridX,
-        this.currentPiece.gridY + dropDistance + 1
-      )
-    ) {
-      dropDistance++;
+  private rotatePiece(direction: number): void {
+    const active = (this as any).activePiece;
+    if (!active || !active.dice) {
+      Logger.log('No active multi-die piece to rotate');
+      return;
     }
 
-    if (dropDistance > 0) {
-      this.currentPiece.gridY += dropDistance;
-      this.tweenPieceToPosition(this.currentPiece, 200); // Fast hard drop
-      console.log(`Piece hard dropped ${dropDistance} cells to y=${this.currentPiece.gridY}`);
+    Logger.log(`Rotating piece ${direction > 0 ? 'clockwise' : 'counter-clockwise'}`);
 
-      // Lock the piece after hard drop
-      this.time.delayedCall(200, () => {
-        this.gameStateController.lockCurrentPiece();
+    // Get current relative positions
+    const currentPositions = active.dice.map((die: any) => die.relativePos);
+
+    // Calculate rotated positions
+    const rotatedPositions = this.rotateMatrix(currentPositions, direction > 0);
+
+    // Check if rotation is valid
+    if (this.canPlacePiece(active, active.x, active.y, rotatedPositions)) {
+      // Apply rotation
+      active.dice.forEach((die: any, index: number) => {
+        die.relativePos = rotatedPositions[index];
       });
+
+      // Update rotation angle for reference
+      active.rotation = (active.rotation + (direction > 0 ? 90 : -90) + 360) % 360;
+
+      this.renderGridPlaceholder();
+      Logger.log(`Piece rotated successfully to ${active.rotation}°`);
     } else {
-      // Already at bottom, lock immediately
-      this.gameStateController.lockCurrentPiece();
+      Logger.log('Rotation blocked - would cause collision or go out of bounds');
     }
   }
 
-  /**
-   * Smoothly tween piece to its grid position
-   */
-  private tweenPieceToPosition(piece: Piece, duration: number): void {
-    let dieIndex = 0;
-
-    for (let row = 0; row < piece.shapeMatrix.length; row++) {
-      const matrixRow = piece.shapeMatrix[row];
-      if (matrixRow) {
-        for (let col = 0; col < matrixRow.length; col++) {
-          if (matrixRow[col] === 1 && dieIndex < piece.dice.length) {
-            const die = piece.dice[dieIndex];
-            if (die) {
-              const targetX =
-                this.gridOffsetX + (piece.gridX + col) * this.cellSize + this.cellSize / 2;
-              const targetY =
-                this.gridOffsetY + (piece.gridY + row) * this.cellSize + this.cellSize / 2;
-
-              // Smooth tween to target position
-              this.tweens.add({
-                targets: die,
-                x: targetX,
-                y: targetY,
-                duration: duration,
-                ease: 'Power2',
-              });
-            }
-            dieIndex++;
-          }
-        }
-      }
-    }
-  }
-
-  /**
-   * Break piece when some dice collide but others don't
-   */
-  private async breakPieceOnCollision(collidingDice: { die: SimpleDie; x: number; y: number }[]): Promise<void> {
-    if (!this.currentPiece) return;
-
-    console.log(`Breaking piece ${this.currentPiece.shape} - ${collidingDice.length} dice colliding`);
-    
-    this.isProcessingTurn = true;
-
-    try {
-      const grid = this.gameStateManager.getGrid();
-      
-      // Place colliding dice in the grid
-      for (const { die, x, y } of collidingDice) {
-        grid.setDie(x, y, die);
-      }
-
-      // Remove colliding dice from the piece
-      const remainingDice = this.currentPiece.dice.filter(die => 
-        !collidingDice.some(colliding => colliding.die === die)
-      );
-
-      if (remainingDice.length > 0) {
-        // Create a new piece with remaining dice
-        // For now, let remaining dice fall individually
-        for (const die of remainingDice) {
-          // Find the die's current position
-          const dicePositions = this.currentPiece.getDicePositions();
-          for (let i = 0; i < dicePositions.length && i < this.currentPiece.dice.length; i++) {
-            if (this.currentPiece.dice[i] === die) {
-              const pos = dicePositions[i];
-              if (pos) {
-                grid.setDie(pos.x, pos.y, die);
-              }
-              break;
-            }
-          }
-        }
-      }
-
-      // Clear current piece and spawn next piece immediately
-      this.currentPiece = null;
-      this.spawnNextPiece();
-
-      // Enable controls immediately
-      this.isProcessingTurn = false;
-
-      // GameStateController will handle cascade processing
-
-    } catch (error) {
-      console.error('Error breaking piece on collision:', error);
-      this.handleGameOver();
-      this.isProcessingTurn = false;
-    }
-  }
-
-  /**
-   * Handle game over condition
-   */
-  private handleGameOver(): void {
-    console.log('Game Over!');
-
-    this.isGameActive = false;
-
-    // Could transition to GameOver scene here
-    // For now, just log the final score
-    const finalScore = this.gameStateManager.getScore();
-    console.log(`Final Score: ${finalScore}`);
+  override update(): void {
+    // Game loop will go here
   }
 }
