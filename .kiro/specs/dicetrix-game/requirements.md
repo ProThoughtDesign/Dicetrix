@@ -32,8 +32,9 @@ Dicetrix is a gravity-matching puzzle game that combines Tetris-style falling pi
 1. WHEN a player presses left/right arrow keys or swipes left/right, THE Dicetrix_System SHALL move the active Tetromino_Piece horizontally by one grid cell
 2. WHEN a player presses the down arrow key or swipes down, THE Dicetrix_System SHALL accelerate the Tetromino_Piece downward movement
 3. WHEN a player presses the rotation key or taps the piece, THE Dicetrix_System SHALL rotate the Tetromino_Piece by 90 degrees clockwise
-4. WHEN a Tetromino_Piece cannot move further down, THE Dicetrix_System SHALL lock the piece to the Game_Grid
-5. WHEN a piece is locked, THE Dicetrix_System SHALL generate a new Tetromino_Piece at the top of the Game_Grid
+4. WHEN any Die_Piece in a Tetromino_Piece cannot move further down due to collision, THE Dicetrix_System SHALL lock that specific Die_Piece to the Game_Grid and continue collision detection for remaining dice
+5. WHEN all Die_Pieces in a Tetromino_Piece are locked, THE Dicetrix_System SHALL generate a new Tetromino_Piece at the top of the Game_Grid
+6. WHEN collision detection occurs, THE Dicetrix_System SHALL restart collision checks until no Die_Pieces can move further
 
 ### Requirement 2
 

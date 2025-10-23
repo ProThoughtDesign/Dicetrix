@@ -206,9 +206,16 @@
   - Verify mobile and desktop compatibility
   - _Requirements: 8.1, 8.4, 8.5_
 
-- [ ] 22. Compile AI workflow impact report
+- [x] 22. Fix individual die collision detection system
 
+  - Modify stepDrop() method to check each die individually for collision
+  - Implement logic to lock only dice that cannot move further
+  - Add collision restart mechanism to continue checking remaining dice until none can move
+  - Update piece locking to handle partial piece locking scenarios
+  - Ensure proper sprite management for individually locked dice
+  - _Requirements: 1.4, 1.5, 1.6_
 
+- [ ] 23. Compile AI workflow impact report
 
   - Generate comprehensive report from AI diary entries
   - Include quantitative metrics (phases completed, iterations, time saved)

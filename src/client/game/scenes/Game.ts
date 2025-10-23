@@ -4,6 +4,7 @@ import GameBoard from '../logic/GameBoard';
 import { settings } from '../services/Settings';
 import { getMode } from '../config/GameMode';
 import { drawDie } from '../visuals/DiceRenderer';
+// import { applyIndividualGravity } from '../logic/Gravity'; // Disabled for now
 import Logger from '../../utils/Logger';
 
 export class Game extends Scene {
@@ -15,40 +16,40 @@ export class Game extends Scene {
     const l = (this as any)._layout;
     if (!l) return;
 
-    // We already draw a filled background in updateLayout; overlay cell lines
-    // read canonical metrics from layout (set in updateLayout)
+    // Use exact metrics from layout calculation
     const bm = l.boardMetrics || ({} as any);
     const cols = bm.cols || 10;
     const rows = bm.rows || 20;
-    const boardW = bm.boardW ?? Math.max(320, this.scale.width * 0.62 - 40);
-    const boardH = bm.boardH ?? Math.max(480, this.scale.height - 80);
-    const boardAreaY = bm.boardAreaY ?? 48;
+    const cellW = bm.cellW || 32;
+    const cellH = bm.cellH || 24;
+    const boardAreaY = bm.boardAreaY || 48;
 
-    const cellW = Math.floor(boardW / cols);
-    const cellH = Math.floor((boardH - boardAreaY) / rows);
-
-    // helper to compute pixel coordinates for a grid cell (top-left)
+    // helper to compute pixel coordinates for a grid cell (top-left) - no padding
     const cellToPixel = (gx: number, gy: number) => ({
-      px: gx * cellW + 8,
-      py: 48 + gy * cellH,
+      px: gx * cellW,
+      py: boardAreaY + gy * cellH,
     });
 
-    // draw grid lines on top (reuse if present)
+    // draw grid lines on top (reuse if present) - align exactly with background
     if (!l.gridLines) {
       l.gridLines = this.add.graphics();
       l.boardContainer.add(l.gridLines);
     }
     l.gridLines.clear();
     l.gridLines.lineStyle(1, 0x17f64b, 0.5); // rgb(23, 246, 75) at 50% opacity
+    
+    // Vertical lines
     for (let x = 0; x <= cols; x++) {
-      const px = x * cellW + 8;
-      l.gridLines.moveTo(px, 48);
-      l.gridLines.lineTo(px, 48 + rows * cellH);
+      const px = x * cellW;
+      l.gridLines.moveTo(px, boardAreaY);
+      l.gridLines.lineTo(px, boardAreaY + rows * cellH);
     }
+    
+    // Horizontal lines
     for (let y = 0; y <= rows; y++) {
-      const py = 48 + y * cellH;
-      l.gridLines.moveTo(0 + 8, py);
-      l.gridLines.lineTo(cols * cellW + 8, py);
+      const py = boardAreaY + y * cellH;
+      l.gridLines.moveTo(0, py);
+      l.gridLines.lineTo(cols * cellW, py);
     }
     l.gridLines.strokePath();
 
@@ -58,83 +59,43 @@ export class Game extends Scene {
       `Active piece rendering: active=${active ? `${active.shape} at x=${active.x},y=${active.y}` : 'null'}, activeSprites=${l.activeSprites ? l.activeSprites.length : 0}`
     );
 
-    if (active && active.dice) {
-      // Ensure activeSprites container exists
-      if (!l.activeSprites) {
-        l.activeSprites = [];
-      }
+    // Ensure activeSprites container exists
+    if (!l.activeSprites) {
+      l.activeSprites = [];
+    }
 
-      // Clear old sprites if count doesn't match
-      if (l.activeSprites.length !== active.dice.length) {
-        l.activeSprites.forEach((sprite: any) => {
-          try {
-            sprite.destroy();
-          } catch (e) {
-            /* ignore */
-          }
-        });
-        l.activeSprites = [];
+    // Clear all existing active sprites
+    l.activeSprites.forEach((sprite: any) => {
+      try {
+        sprite.destroy();
+      } catch (e) {
+        /* ignore */
       }
+    });
+    l.activeSprites = [];
 
-      // Create or update sprites for each die
+    if (active && active.dice && active.dice.length > 0) {
+      Logger.log(`Rendering piece with ${active.dice.length} dice`);
       active.dice.forEach((die: any, index: number) => {
         const absoluteX = active.x + die.relativePos.x;
         const absoluteY = active.y + die.relativePos.y;
         const { px, py } = cellToPixel(absoluteX, absoluteY);
 
-        if (!l.activeSprites[index]) {
-          Logger.log(`Creating new active sprite ${index} at px=${px}, py=${py}`);
-          l.activeSprites[index] = drawDie(
-            this,
-            px,
-            py,
-            cellW,
-            cellH,
-            die
-          ) as Phaser.GameObjects.Container | null;
-          if (l.activeSprites[index]) {
-            l.boardContainer.add(l.activeSprites[index]);
-            Logger.log(`Created active sprite ${index}`);
-          }
-        } else {
-          // Move existing sprite
-          try {
-            l.activeSprites[index].setPosition(px, py);
-          } catch (e) {
-            Logger.log(`Error moving active sprite ${index}: ` + String(e));
-            // Recreate if needed
-            try {
-              l.activeSprites[index].destroy();
-            } catch (e2) {
-              /* ignore */
-            }
-            l.activeSprites[index] = drawDie(
-              this,
-              px,
-              py,
-              cellW,
-              cellH,
-              die
-            ) as Phaser.GameObjects.Container | null;
-            if (l.activeSprites[index]) {
-              l.boardContainer.add(l.activeSprites[index]);
-            }
-          }
+        const sprite = drawDie(
+          this,
+          px,
+          py,
+          cellW,
+          cellH,
+          die
+        ) as Phaser.GameObjects.Container | null;
+        
+        if (sprite) {
+          l.boardContainer.add(sprite);
+          l.activeSprites.push(sprite);
+          Logger.log(`Created sprite ${index} at (${absoluteX}, ${absoluteY})`);
         }
       });
-    } else {
-      Logger.log('No active piece to render');
-      // Clear any existing active sprites
-      if (l.activeSprites) {
-        l.activeSprites.forEach((sprite: any) => {
-          try {
-            sprite.destroy();
-          } catch (e) {
-            /* ignore */
-          }
-        });
-        l.activeSprites = [];
-      }
     }
 
     // Draw locked cells from gameBoard (reuse sprite pool)
@@ -446,13 +407,25 @@ export class Game extends Scene {
 
     // Position piece at top center
     const x = Math.floor(w / 2) - 1; // Offset for multi-die pieces
+    const y = 0;
+    
+    // Create the piece object to test collision
     const newActivePiece = {
       ...pieceToUse,
       x,
-      y: 0,
+      y,
     };
+
+    // Check if the spawn position is valid (collision detection)
+    if (!this.canPlacePiece(newActivePiece, x, y)) {
+      Logger.log('GAME OVER: Cannot spawn new piece - collision detected at spawn position');
+      // Game over - transition to GameOver scene
+      this.scene.start('GameOver');
+      return;
+    }
+
     (this as any).activePiece = newActivePiece;
-    Logger.log(`Spawned active piece at x=${x}, y=0: ${newActivePiece.shape}`);
+    Logger.log(`Spawned active piece at x=${x}, y=${y}: ${newActivePiece.shape}`);
 
     // Generate fresh nextPiece for preview
     (this as any).nextPiece = this.generateMultiDiePiece();
@@ -478,82 +451,190 @@ export class Game extends Scene {
       return;
     }
 
-    Logger.log(`Active piece at: x=${active.x}, y=${active.y}`);
-    const belowY = active.y + 1;
-    const h = lg.state.height;
-
-    // Check if piece should lock (multi-die support)
-    const shouldLock = !this.canPlacePiece(active, active.x, belowY);
-    Logger.log(
-      `Checking if piece should lock: belowY=${belowY}, height=${h}, shouldLock=${shouldLock}`
-    );
-
-    if (shouldLock) {
-      Logger.log(`Locking piece at x=${active.x}, y=${active.y}`);
-
-      // Lock all dice in the multi-die piece
-      Logger.log(`Locking ${active.dice.length} dice from piece ${active.shape}`);
-      active.dice.forEach((die: any, index: number) => {
-        const absoluteX = active.x + die.relativePos.x;
-        const absoluteY = active.y + die.relativePos.y;
-        const lockResult = lg.lockAt({ x: absoluteX, y: absoluteY }, die);
-        Logger.log(
-          `Locked die ${index} at (${absoluteX}, ${absoluteY}): matches=${lockResult.matches.length}`
-        );
-      });
-
-      // Reparent active sprites into locked cell visuals so they don't jump.
-      const l = (this as any)._layout;
-      if (l && l.activeSprites && l.activeSprites.length > 0) {
-        try {
-          // Ensure cellGroup exists
-          if (!l.cellGroup) {
-            l.cellGroup = this.add.container(0, 0);
-            l.boardContainer.add(l.cellGroup);
-          }
-
-          // Reparent each active sprite to the locked cells
-          active.dice.forEach((die: any, index: number) => {
-            const sprite = l.activeSprites[index];
-            if (sprite) {
-              const absoluteX = active.x + die.relativePos.x;
-              const absoluteY = active.y + die.relativePos.y;
-
-              // Tag with grid pos for future repositioning
-              if ((sprite as any).setData) {
-                (sprite as any).setData('__gridPos', { x: absoluteX, y: absoluteY });
-              }
-
-              // Move to cellGroup
-              l.cellGroup.add(sprite);
-              Logger.log(
-                `Reparented sprite ${index} to locked cells at (${absoluteX}, ${absoluteY})`
-              );
-            }
-          });
-
-          // Clear the activeSprites array so new ones will be created for the next piece
-          l.activeSprites = [];
-          Logger.log('Successfully reparented all sprites to locked cells');
-        } catch (e) {
-          Logger.log('Failed to reparent sprites: ' + String(e));
-        }
-      }
-
-      (this as any).activePiece = undefined;
-      Logger.log('Cleared active piece, about to spawn new one');
-
-      // re-render grid and spawn a new piece
-      this.renderGridPlaceholder();
-      this.spawnPiece();
+    // If no dice remain in the piece, it's already fully locked
+    if (!active.dice || active.dice.length === 0) {
+      Logger.log('No unlocked dice remaining - finalizing piece');
+      this.finalizePieceLocking(active);
       return;
     }
 
-    // otherwise advance piece down
-    Logger.log(`Moving piece down from y=${active.y} to y=${active.y + 1}`);
-    active.y += 1;
-    (this as any).activePiece = active;
+    Logger.log(`Active piece with ${active.dice.length} unlocked dice`);
+
+    // CORRECTED COLLISION DETECTION ALGORITHM:
+    // Use a while loop to repeatedly check for collisions until all dice are either locked or moved
+    let hasUnlockedDice = true;
+    let cycleCount = 0;
+    const maxCycles = 50; // Safety limit to prevent infinite loops
+    
+    while (hasUnlockedDice && active.dice.length > 0 && cycleCount < maxCycles) {
+      cycleCount++;
+      Logger.log(`Collision cycle ${cycleCount}: checking ${active.dice.length} unlocked dice`);
+      
+      const dicesToLock: any[] = [];
+      const diceToMove: any[] = [];
+      
+      // Create array of dice with their indices and absolute positions for sorting
+      const diceWithPositions = active.dice.map((die: any, index: number) => ({
+        die,
+        index,
+        absoluteX: active.x + die.relativePos.x,
+        absoluteY: active.y + die.relativePos.y,
+      }));
+      
+      // Sort dice from bottom-left to top-right (highest Y first, then lowest X)
+      // This ensures lower dice are evaluated and locked before upper dice
+      diceWithPositions.sort((a, b) => {
+        if (a.absoluteY !== b.absoluteY) {
+          return b.absoluteY - a.absoluteY; // Higher Y values first (bottom of screen)
+        }
+        return a.absoluteX - b.absoluteX; // Lower X values first (left side)
+      });
+      
+      Logger.log(`Evaluating dice in bottom-left to top-right order: ${diceWithPositions.map(d => `(${d.absoluteX},${d.absoluteY})`).join(', ')}`);
+      
+      // Check each unlocked die individually for collision in the correct order
+      diceWithPositions.forEach(({ die, index, absoluteX, absoluteY }) => {
+        const currentX = absoluteX;
+        const currentY = absoluteY;
+        const belowY = currentY + 1;
+        
+        // Check if this die can move down
+        const isEmpty = lg.isEmpty(currentX, belowY);
+        const outOfBounds = belowY >= lg.state.height;
+        
+        // Additional safety check: if die is already at or below bottom, force lock
+        const atBottom = currentY >= lg.state.height - 1;
+        
+        Logger.log(`Die ${index} at (${currentX}, ${currentY}) checking below (${currentX}, ${belowY}): isEmpty=${isEmpty}, outOfBounds=${outOfBounds}, atBottom=${atBottom}, gridHeight=${lg.state.height}`);
+        
+        if (outOfBounds || !isEmpty || atBottom) {
+          Logger.log(`Die ${index} cannot move - will be locked (outOfBounds=${outOfBounds}, !isEmpty=${!isEmpty}, atBottom=${atBottom})`);
+          // Ensure die is locked at a valid position (clamp to grid bounds)
+          const lockX = Math.max(0, Math.min(currentX, lg.state.width - 1));
+          const lockY = Math.max(0, Math.min(currentY, lg.state.height - 1));
+          dicesToLock.push({ die, index, x: lockX, y: lockY });
+        } else {
+          Logger.log(`Die ${index} can move - will continue falling`);
+          diceToMove.push({ die, index });
+        }
+      });
+      
+      // Lock dice that cannot move
+      if (dicesToLock.length > 0) {
+        Logger.log(`Locking ${dicesToLock.length} dice to grid`);
+        dicesToLock.forEach(({ die, index, x, y }) => {
+          const lockResult = lg.lockAt({ x, y }, die);
+          Logger.log(`Locked die ${index} at (${x}, ${y}): matches=${lockResult.matches.length}`);
+        });
+        
+        // Remove locked dice from active piece (sort indices descending to avoid index shifting)
+        const lockedIndices = dicesToLock.map(d => d.index).sort((a, b) => b - a);
+        lockedIndices.forEach(index => {
+          active.dice.splice(index, 1);
+        });
+        
+        Logger.log(`Removed ${dicesToLock.length} locked dice, ${active.dice.length} dice remaining`);
+        
+        // Continue the while loop to check remaining dice again
+        continue;
+      }
+      
+      // If no dice were locked, we can move the remaining dice and exit the loop
+      if (diceToMove.length > 0) {
+        Logger.log(`Moving ${diceToMove.length} unlocked dice down by 1`);
+        diceToMove.forEach(({ die, index }) => {
+          const newAbsoluteY = active.y + die.relativePos.y + 1;
+          // Safety check: don't move dice outside grid bounds
+          if (newAbsoluteY < lg.state.height) {
+            die.relativePos.y += 1;
+            Logger.log(`Moved die ${index} relativePos to (${die.relativePos.x}, ${die.relativePos.y}) -> absolute (${active.x + die.relativePos.x}, ${active.y + die.relativePos.y})`);
+          } else {
+            Logger.log(`WARNING: Prevented die ${index} from moving outside grid bounds (would be at Y=${newAbsoluteY}, max=${lg.state.height - 1})`);
+          }
+        });
+        hasUnlockedDice = false; // Exit the while loop - dice have moved, wait for next timer tick
+      } else {
+        // No dice to move and no dice to lock - shouldn't happen, but exit to prevent infinite loop
+        Logger.log('Warning: No dice to move or lock - exiting collision loop');
+        hasUnlockedDice = false;
+      }
+    }
+    
+    if (cycleCount >= maxCycles) {
+      Logger.log(`Warning: Collision detection hit maximum cycles (${maxCycles}), forcing exit`);
+    }
+    
+    // Update visuals after all collision cycles
     this.renderGridPlaceholder();
+    
+    // Update the active piece
+    (this as any).activePiece = active;
+    
+    // If all dice are now locked, finalize the piece
+    if (active.dice.length === 0) {
+      Logger.log('All dice locked - finalizing piece');
+      this.finalizePieceLocking(active);
+    } else {
+      Logger.log(`Collision step complete - ${active.dice.length} dice still falling, waiting for next timer tick`);
+    }
+  }
+
+
+
+  private finalizePieceLocking(_active: any): void {
+    Logger.log('Finalizing piece locking - all dice settled');
+
+    // Handle sprite cleanup for any remaining active sprites
+    const l = (this as any)._layout;
+    if (l && l.activeSprites && l.activeSprites.length > 0) {
+      try {
+        // Ensure cellGroup exists
+        if (!l.cellGroup) {
+          l.cellGroup = this.add.container(0, 0);
+          l.boardContainer.add(l.cellGroup);
+        }
+
+        // Clean up any remaining active sprites (should be none if all dice were locked individually)
+        l.activeSprites.forEach((sprite: any) => {
+          try {
+            sprite.destroy();
+          } catch (e) {
+            /* ignore */
+          }
+        });
+
+        l.activeSprites = [];
+        Logger.log('Cleaned up remaining active sprites');
+      } catch (e) {
+        Logger.log('Failed to clean up sprites: ' + String(e));
+      }
+    }
+
+    // Clear active piece and spawn new one
+    (this as any).activePiece = undefined;
+    Logger.log('Cleared active piece, about to spawn new one');
+
+    // Re-render grid to show final locked state and spawn a new piece
+    this.renderGridPlaceholder();
+    this.spawnPiece();
+  }
+
+  private stepGravity(): void {
+    // Disabled for now - individual gravity conflicts with piece-based falling
+    // This will be re-enabled when we implement match clearing
+    return;
+    
+    // const lg: any = (this as any).gameBoard;
+    // if (!lg) return;
+
+    // // Apply individual gravity to make dice fall independently
+    // const gravityResult = applyIndividualGravity(lg.state);
+    
+    // if (gravityResult.changed) {
+    //   Logger.log('Individual gravity applied - dice fell');
+    //   // Re-render the grid to show the updated positions
+    //   this.renderGridPlaceholder();
+    // }
   }
 
   create(): void {
@@ -743,6 +824,8 @@ export class Game extends Scene {
     this.scale.on('resize', (gameSize: Phaser.Structs.Size) => {
       const { width, height } = gameSize;
       this.updateLayout(width, height);
+      // Re-render grid and pieces after layout change
+      this.renderGridPlaceholder();
     });
 
     // Add escape key to return to menu
@@ -798,6 +881,30 @@ export class Game extends Scene {
     });
     Logger.log('Drop timer created successfully');
 
+    // Set up gravity timer for individual dice falling (if gravity is enabled)
+    const allowGravity = (cfgAny?.allowGravity !== false); // Default to true unless explicitly false
+    
+    // clear previous gravity timer if any
+    if ((this as any).gravityTimer) {
+      Logger.log('Removing existing gravity timer');
+      (this as any).gravityTimer.remove(false);
+      (this as any).gravityTimer = null;
+    }
+
+    if (allowGravity) {
+      const gravityMs = Math.max(100, Math.floor(ms / 4)); // Gravity 4x faster than piece drops
+      Logger.log(`Setting up gravity timer with ${gravityMs}ms delay`);
+
+      (this as any).gravityTimer = this.time.addEvent({
+        delay: gravityMs,
+        callback: () => this.stepGravity(),
+        loop: true,
+      });
+      Logger.log('Gravity timer created successfully');
+    } else {
+      Logger.log('Gravity disabled for this mode (Zen mode)');
+    }
+
     // Set up control button handlers
     this.setupControlHandlers();
 
@@ -819,12 +926,29 @@ export class Game extends Scene {
     const boardW = leftWidth - padding;
     const boardH = height - padding * 2;
 
+    // Calculate grid dimensions to ensure perfect alignment
+    const cols = 10;
+    const rows = 20;
+    const scoreAreaHeight = 48;
+    const availableGridHeight = boardH - scoreAreaHeight;
+    
+    // Calculate cell size to fit exactly in available space
+    const cellW = Math.floor(boardW / cols);
+    const cellH = Math.floor(availableGridHeight / rows);
+    
+    // Recalculate actual grid dimensions based on cell size
+    const actualGridW = cellW * cols;
+    const actualGridH = cellH * rows;
+
     // persist canonical board metrics for rendering to consume
     if (!l.boardMetrics) l.boardMetrics = {};
-    l.boardMetrics.boardW = boardW;
-    l.boardMetrics.boardH = boardH;
-    l.boardMetrics.cols = 10;
-    l.boardMetrics.rows = 20;
+    l.boardMetrics.boardW = actualGridW;
+    l.boardMetrics.boardH = actualGridH + scoreAreaHeight;
+    l.boardMetrics.cols = cols;
+    l.boardMetrics.rows = rows;
+    l.boardMetrics.cellW = cellW;
+    l.boardMetrics.cellH = cellH;
+    l.boardMetrics.boardAreaY = scoreAreaHeight;
 
     l.boardContainer.setPosition(boardX, boardY);
 
@@ -833,17 +957,13 @@ export class Game extends Scene {
     const scoreLabelX = 12;
     const scoreLabelY = 8;
     l.scoreLabel.setPosition(scoreLabelX, scoreLabelY);
-    const scoreValueX = boardW - scorePadding;
+    const scoreValueX = actualGridW - scorePadding;
     l.scoreValue.setPosition(scoreValueX, scoreLabelY);
 
-    // Board background under score
+    // Board background - exactly match the grid area with no padding
     l.boardBg.clear();
     l.boardBg.fillStyle(0x071021, 1);
-    const boardAreaY = 48; // leave space for score
-    l.boardMetrics.boardAreaY = boardAreaY;
-    l.boardBg.fillRect(0, boardAreaY, boardW, boardH - boardAreaY);
-
-    // Board border - removed since grid lines provide sufficient visual structure
+    l.boardBg.fillRect(0, scoreAreaHeight, actualGridW, actualGridH);
 
     // Side container position
     const sideX = boardX + leftWidth + padding;
@@ -853,15 +973,18 @@ export class Game extends Scene {
     // Compute right panel width available for side content
     const rightPanelWidth = Math.max(0, width - sideX - padding);
 
-    // Next label centered vertically aligned with score label; Next piece top aligns with board area top
+    // Responsive scaling based on available space
+    const baseSize = Math.min(rightPanelWidth / 4, height / 12); // Responsive base unit
+    
+    // Next label centered vertically aligned with score label
     const nextLabelY = scoreLabelY;
     l.nextLabel.setPosition(rightPanelWidth / 2, nextLabelY);
 
     // Next piece area: align top with board area Y so it lines up with grid (4x4 grid)
-    const nextY = boardAreaY;
+    const nextY = scoreAreaHeight;
     l.nextBg.clear();
     l.nextBg.fillStyle(0x071021, 1);
-    const nextW = Math.min(180, rightPanelWidth - 40); // Larger for 4x4 grid
+    const nextW = Math.min(baseSize * 4, rightPanelWidth - 20);
     const nextBgX = Math.max(0, Math.floor((rightPanelWidth - nextW) / 2));
     l.nextBg.fillRect(nextBgX, nextY, nextW, nextW);
     l.nextBorder.clear();
@@ -870,14 +993,12 @@ export class Game extends Scene {
     // store next-panel metrics for renderer
     l.nextMetrics = { nextBgX, nextW, nextY };
 
-    // Boosters group below next piece
+    // Boosters group below next piece - responsive sizing
     const boostersY = nextY + nextW + 20;
-
-    // Calculate boosters grid sizing (larger icons)
     const boosterCols = 3;
     const boosterRows = 3;
-    const boosterGap = 12; // Larger gap for bigger icons
-    const boosterSlotSize = 128; // Much larger size (2x scale)
+    const boosterGap = Math.max(4, Math.floor(baseSize / 8));
+    const boosterSlotSize = Math.max(32, Math.floor(baseSize * 0.8));
 
     const boostersW = boosterCols * boosterSlotSize + (boosterCols - 1) * boosterGap;
     const boostersH = boosterRows * boosterSlotSize + (boosterRows - 1) * boosterGap;
@@ -900,10 +1021,10 @@ export class Game extends Scene {
     const borderGlobalY = sideY + boostersY - 4;
     l.boostersBorder.strokeRect(borderGlobalX, borderGlobalY, boostersW + 8, boostersH + 8);
 
-    // Controls group below boosters
+    // Controls group below boosters - responsive sizing
     const controlsY = boostersY + boostersH + 20;
-    const controlSize = 112; // Much larger control buttons (2x scale)
-    const controlGap = 12; // Larger gap for bigger buttons
+    const controlSize = Math.max(48, Math.floor(baseSize * 1.2));
+    const controlGap = Math.max(4, Math.floor(baseSize / 8));
     const controlCols = 3;
     const controlRows = 2;
 
@@ -923,10 +1044,12 @@ export class Game extends Scene {
       button.setSize(controlSize, controlSize);
       button.setPosition(x, y);
 
-      // Update corresponding label position
+      // Update corresponding label position and font size
       const label = l.controlLabels[idx];
       if (label) {
         label.setPosition(x + controlSize / 2, y + controlSize / 2);
+        const fontSize = Math.max(16, Math.floor(controlSize / 3));
+        label.setFontSize(fontSize);
       }
     });
 
@@ -941,7 +1064,6 @@ export class Game extends Scene {
       controlsW + 8,
       controlsH + 8
     );
-    // Update root position to (0,0) - already set
   }
 
   private setupControlHandlers(): void {
@@ -999,10 +1121,16 @@ export class Game extends Scene {
     const lg = (this as any).gameBoard;
     if (!active || !lg) return;
 
+    // If no dice remain in the piece, it's already fully locked
+    if (!active.dice || active.dice.length === 0) {
+      Logger.log('Cannot move piece - no dice remaining (all locked)');
+      return;
+    }
+
     const newX = active.x + dx;
     const newY = active.y + dy;
 
-    // Check if the new position is valid for multi-die piece
+    // Check if the new position is valid for remaining dice in the piece
     if (this.canPlacePiece(active, newX, newY)) {
       active.x = newX;
       active.y = newY;
@@ -1018,16 +1146,22 @@ export class Game extends Scene {
     const lg = (this as any).gameBoard;
     if (!active || !lg) return;
 
-    // Find the lowest valid position
+    // If no dice remain in the piece, it's already fully locked
+    if (!active.dice || active.dice.length === 0) {
+      Logger.log('Cannot hard drop - no dice remaining (all locked)');
+      return;
+    }
+
+    // Find the lowest valid position for the remaining dice in the piece
     let dropY = active.y;
-    while (dropY + 1 < lg.state.height && lg.isEmpty(active.x, dropY + 1)) {
+    while (this.canPlacePiece(active, active.x, dropY + 1)) {
       dropY++;
     }
 
     active.y = dropY;
     Logger.log(`Hard dropped piece to y=${dropY}`);
 
-    // Force immediate lock by calling stepDrop
+    // Force immediate collision detection by calling stepDrop
     this.stepDrop();
   }
 
@@ -1037,56 +1171,40 @@ export class Game extends Scene {
   ): Array<{ x: number; y: number }> {
     if (positions.length === 0) return positions;
 
-    // Find bounding box to determine matrix size
-    const minX = Math.min(...positions.map((p) => p.x));
-    const maxX = Math.max(...positions.map((p) => p.x));
-    const minY = Math.min(...positions.map((p) => p.y));
-    const maxY = Math.max(...positions.map((p) => p.y));
+    Logger.log(`Rotating ${positions.length} positions ${clockwise ? 'clockwise' : 'counter-clockwise'}`);
+    Logger.log(`Input positions: ${JSON.stringify(positions)}`);
 
-    // Use largest dimension for square matrix
-    const size = Math.max(maxX - minX + 1, maxY - minY + 1);
+    // Simple rotation around origin (0,0)
+    const rotated = positions.map((p) => {
+      let newX, newY;
+      if (clockwise) {
+        // 90° clockwise: (x,y) -> (-y, x)
+        newX = -p.y;
+        newY = p.x;
+      } else {
+        // 90° counter-clockwise: (x,y) -> (y, -x)
+        newX = p.y;
+        newY = -p.x;
+      }
+      return { x: newX, y: newY };
+    });
 
-    // Normalize positions to 0-based matrix
-    const normalized = positions.map((p) => ({
+    Logger.log(`After rotation: ${JSON.stringify(rotated)}`);
+
+    // Find the minimum X and Y to normalize back to positive coordinates
+    const xValues = rotated.map((p) => p.x);
+    const yValues = rotated.map((p) => p.y);
+    const minX = Math.min(...xValues);
+    const minY = Math.min(...yValues);
+
+    // Normalize to ensure all coordinates are >= 0
+    const normalized = rotated.map((p) => ({
       x: p.x - minX,
       y: p.y - minY,
     }));
 
-    // Rotate around center of square matrix
-    const center = (size - 1) / 2;
-    const rotated = normalized.map((p) => {
-      const relX = p.x - center;
-      const relY = p.y - center;
-
-      let newX, newY;
-      if (clockwise) {
-        // 90° clockwise: (x,y) -> (-y, x)
-        newX = -relY + center;
-        newY = relX + center;
-      } else {
-        // 90° counter-clockwise: (x,y) -> (y, -x)
-        newX = relY + center;
-        newY = -relX + center;
-      }
-
-      return {
-        x: Math.round(newX),
-        y: Math.round(newY),
-      };
-    });
-
-    // Find the lowest Y position in the rotated piece
-    const rotatedMinY = Math.min(...rotated.map((p) => p.y));
-    const originalMinY = Math.min(...normalized.map((p) => p.y));
-
-    // Adjust Y positions to maintain the same lowest point
-    const yOffset = originalMinY - rotatedMinY;
-
-    // Convert back to absolute positions
-    return rotated.map((p) => ({
-      x: p.x + minX,
-      y: p.y + minY + yOffset,
-    }));
+    Logger.log(`After normalization: ${JSON.stringify(normalized)}`);
+    return normalized;
   }
 
   private canPlacePiece(
@@ -1096,7 +1214,15 @@ export class Game extends Scene {
     newPositions?: Array<{ x: number; y: number }>
   ): boolean {
     const gb = (this as any).gameBoard;
-    if (!gb) return false;
+    if (!gb) {
+      Logger.log('canPlacePiece: No gameBoard available');
+      return false;
+    }
+
+    if (!piece || !piece.dice || piece.dice.length === 0) {
+      Logger.log('canPlacePiece: Invalid piece or no dice remaining');
+      return false;
+    }
 
     const positions =
       newPositions ||
@@ -1105,8 +1231,9 @@ export class Game extends Scene {
         y: die.relativePos.y,
       }));
 
-    // Check each die position
-    for (const pos of positions) {
+    // Check each remaining die position
+    for (let i = 0; i < positions.length; i++) {
+      const pos = positions[i];
       const absoluteX = newX + pos.x;
       const absoluteY = newY + pos.y;
 
@@ -1117,37 +1244,41 @@ export class Game extends Scene {
         absoluteY < 0 ||
         absoluteY >= gb.state.height
       ) {
+        Logger.log(`canPlacePiece: Die ${i} out of bounds at (${absoluteX}, ${absoluteY})`);
         return false;
       }
 
       // Check collision with existing pieces
       if (!gb.isEmpty(absoluteX, absoluteY)) {
+        Logger.log(`canPlacePiece: Die ${i} collision detected at (${absoluteX}, ${absoluteY})`);
         return false;
       }
     }
-
     return true;
   }
 
   private rotatePiece(direction: number): void {
     const active = (this as any).activePiece;
-    if (!active || !active.dice) {
-      Logger.log('No active multi-die piece to rotate');
+    if (!active || !active.dice || active.dice.length === 0) {
+      Logger.log('No active dice to rotate - piece fully locked');
       return;
     }
 
-    Logger.log(`Rotating piece ${direction > 0 ? 'clockwise' : 'counter-clockwise'}`);
+    Logger.log(`Rotating piece ${direction > 0 ? 'clockwise' : 'counter-clockwise'} with ${active.dice.length} remaining dice`);
 
-    // Get current relative positions
+    // Get current relative positions of remaining dice
     const currentPositions = active.dice.map((die: any) => die.relativePos);
+    Logger.log(`Current positions before rotation: ${JSON.stringify(currentPositions)}`);
 
     // Calculate rotated positions
     const rotatedPositions = this.rotateMatrix(currentPositions, direction > 0);
+    Logger.log(`Rotated positions: ${JSON.stringify(rotatedPositions)}`);
 
-    // Check if rotation is valid
+    // Check if rotation is valid for remaining dice
     if (this.canPlacePiece(active, active.x, active.y, rotatedPositions)) {
-      // Apply rotation
+      // Apply rotation to remaining dice
       active.dice.forEach((die: any, index: number) => {
+        Logger.log(`Die ${index}: ${JSON.stringify(die.relativePos)} -> ${JSON.stringify(rotatedPositions[index])}`);
         die.relativePos = rotatedPositions[index];
       });
 
@@ -1156,6 +1287,9 @@ export class Game extends Scene {
 
       this.renderGridPlaceholder();
       Logger.log(`Piece rotated successfully to ${active.rotation}°`);
+      
+      // Verify the positions after rotation
+      Logger.log(`Final positions after rotation: ${JSON.stringify(active.dice.map((die: any) => die.relativePos))}`);
     } else {
       Logger.log('Rotation blocked - would cause collision or go out of bounds');
     }
@@ -1163,5 +1297,20 @@ export class Game extends Scene {
 
   override update(): void {
     // Game loop will go here
+  }
+
+  shutdown(): void {
+    // Clean up timers when scene shuts down
+    if ((this as any).dropTimer) {
+      (this as any).dropTimer.remove(false);
+      (this as any).dropTimer = null;
+    }
+    
+    if ((this as any).gravityTimer) {
+      (this as any).gravityTimer.remove(false);
+      (this as any).gravityTimer = null;
+    }
+    
+    Logger.log('Game scene: Timers cleaned up');
   }
 }

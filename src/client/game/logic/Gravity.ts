@@ -27,3 +27,40 @@ export function applyGravity(grid: GridState): { grid: GridState; changed: boole
 
   return { grid, changed };
 }
+
+// Apply individual die gravity: each die falls one step if there's empty space below
+export function applyIndividualGravity(grid: GridState): { grid: GridState; changed: boolean } {
+  const { width, height } = grid;
+  let changed = false;
+
+  // Check each die from bottom to top, left to right
+  for (let y = height - 2; y >= 0; y--) { // Start from second-to-bottom row
+    for (let x = 0; x < width; x++) {
+      const currentRow = grid.cells[y];
+      const die = currentRow ? currentRow[x] : null;
+      
+      if (die) {
+        // Check if there's empty space below
+        const belowRow = grid.cells[y + 1];
+        const spaceBelow = belowRow ? belowRow[x] : null;
+        
+        if (!spaceBelow) {
+          // Move die down one cell
+          if (!grid.cells[y + 1]) {
+            grid.cells[y + 1] = new Array(width).fill(null);
+          }
+          grid.cells[y + 1]![x] = die;
+          
+          if (!grid.cells[y]) {
+            grid.cells[y] = new Array(width).fill(null);
+          }
+          grid.cells[y]![x] = null;
+          
+          changed = true;
+        }
+      }
+    }
+  }
+
+  return { grid, changed };
+}
