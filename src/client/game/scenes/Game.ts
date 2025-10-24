@@ -437,233 +437,162 @@ export class Game extends Scene {
       Logger.log('POST-RECOVERY VALIDATION: Successful - continuing with stepDrop');
     }
 
-    // Check each die individually for collision
-    const dicesToLock: Array<{die: any, index: number, x: number, y: number, collisionReason: string}> = [];
-    const diceToContinue: Array<{die: any, index: number}> = [];
-    
-    Logger.log(`INDIVIDUAL DIE ANALYSIS: Processing ${active.dice.length} dice for collision detection`);
-    
-    active.dice.forEach((die: any, index: number) => {
-      const currentX = active.x + die.relativePos.x;
-      const currentY = active.y + die.relativePos.y;
-      const attemptedX = currentX; // X doesn't change during fall
-      const attemptedY = currentY + GAME_CONSTANTS.FALL_STEP; // FALL_STEP is -1, so this decreases Y
-      
+    // Bottom-up per-die collision processing to ensure dice above detect newly locked dice below.
+    // Build list of absolute positions for remaining dice and sort by Y ascending (bottom first).
+    const diceInfos: Array<{ die: any; index: number; absX: number; absY: number }> = [];
+    for (let i = 0; i < active.dice.length; i++) {
+      const die = active.dice[i];
+      const absX = active.x + die.relativePos.x;
+      const absY = active.y + die.relativePos.y;
+      diceInfos.push({ die, index: i, absX, absY });
+    }
+
+    // Sort bottom (low Y) first so that locking a lower die updates the grid for upper dice
+    diceInfos.sort((a, b) => a.absY - b.absY || a.absX - b.absX);
+
+    Logger.log(`INDIVIDUAL DIE ANALYSIS (BOTTOM-UP): Processing ${diceInfos.length} dice for collision/locking`);
+
+    const successfullyLocked: number[] = [];
+    const lockingErrors: Array<{ index: number; error: string }> = [];
+    const diceToContinue: Array<{ die: any; index: number }> = [];
+
+    for (const info of diceInfos) {
+      const { die, index, absX, absY } = info;
+      const attemptedX = absX;
+      const attemptedY = absY + GAME_CONSTANTS.FALL_STEP; // -1 step
+
       Logger.log(`DIE ${index} POSITION ANALYSIS:`);
       Logger.log(`  - Die ID: ${die.id}, Color: ${die.color}, Sides: ${die.sides}, Number: ${die.number}`);
       Logger.log(`  - Relative position: (${die.relativePos.x}, ${die.relativePos.y})`);
-      Logger.log(`  - Current absolute position: (${currentX}, ${currentY})`);
+      Logger.log(`  - Current absolute position: (${absX}, ${absY})`);
       Logger.log(`  - Attempted position after fall: (${attemptedX}, ${attemptedY})`);
-      Logger.log(`  - Movement vector: (${attemptedX - currentX}, ${attemptedY - currentY})`);
-      
-      // Check collision conditions for bottom-left coordinate system
-      const hitBottom = attemptedY < GAME_CONSTANTS.GROUND_Y; // Would go below Y=0
-      const outOfBounds = currentX < 0 || currentX >= this.gameBoard.state.width;
-      const hitPiece = attemptedY >= GAME_CONSTANTS.GROUND_Y && 
-                       attemptedY <= GAME_CONSTANTS.MAX_VALID_Y && 
+
+      const hitBottom = attemptedY < GAME_CONSTANTS.GROUND_Y;
+      const outOfBounds = absX < 0 || absX >= this.gameBoard.state.width;
+      // Important: check against the authoritative grid so any previously locked dice in this same loop are taken into account
+      const hitPiece = attemptedY >= GAME_CONSTANTS.GROUND_Y &&
+                       attemptedY <= GAME_CONSTANTS.MAX_VALID_Y &&
                        !this.gameBoard.isEmpty(attemptedX, attemptedY);
-      
-      Logger.log(`DIE ${index} COLLISION CHECKS:`);
-      Logger.log(`  - Hit bottom (Y < ${GAME_CONSTANTS.GROUND_Y}): ${hitBottom} (attemptedY=${attemptedY})`);
-      Logger.log(`  - Out of bounds (X < 0 or X >= ${this.gameBoard.state.width}): ${outOfBounds} (currentX=${currentX})`);
-      Logger.log(`  - Hit existing piece: ${hitPiece} (checking position ${attemptedX}, ${attemptedY})`);
-      
-      // Determine collision reason and outcome
-      let collisionReason = '';
-      let hasCollision = false;
-      
-      if (hitBottom) {
-        collisionReason = `hit bottom boundary (Y=${attemptedY} < ${GAME_CONSTANTS.GROUND_Y})`;
-        hasCollision = true;
-      } else if (outOfBounds) {
-        collisionReason = `out of X bounds (X=${currentX}, valid range: 0-${this.gameBoard.state.width - 1})`;
-        hasCollision = true;
-      } else if (hitPiece) {
-        collisionReason = `collision with existing piece at (${attemptedX}, ${attemptedY})`;
-        hasCollision = true;
-      }
-      
-      if (hasCollision) {
-        // This die needs to be locked at its current position
-        const lockX = Math.max(0, Math.min(currentX, this.gameBoard.state.width - 1));
-        const lockY = Math.max(GAME_CONSTANTS.MIN_VALID_Y, Math.min(currentY, GAME_CONSTANTS.MAX_VALID_Y));
-        
-        Logger.log(`DIE ${index} COLLISION RESULT: WILL LOCK`);
-        Logger.log(`  - Collision reason: ${collisionReason}`);
-        Logger.log(`  - Lock position: (${lockX}, ${lockY}) ${lockX !== currentX || lockY !== currentY ? '(clamped)' : '(unchanged)'}`);
-        
-        dicesToLock.push({ die, index, x: lockX, y: lockY, collisionReason });
-      } else {
-        // This die can continue falling
-        Logger.log(`DIE ${index} COLLISION RESULT: CONTINUE FALLING`);
-        Logger.log(`  - No collision detected - die can move to (${attemptedX}, ${attemptedY})`);
-        diceToContinue.push({ die, index });
-      }
-      
-      Logger.log(`DIE ${index} ANALYSIS COMPLETE\n`);
-    });
 
-    // Log collision detection summary
-    Logger.log(`COLLISION DETECTION SUMMARY:`);
-    Logger.log(`  - Total dice processed: ${active.dice.length}`);
-    Logger.log(`  - Dice to lock: ${dicesToLock.length}`);
-    Logger.log(`  - Dice to continue falling: ${diceToContinue.length}`);
-    Logger.log(`  - Collision scenario: ${this.getCollisionScenarioName(dicesToLock.length, diceToContinue.length)}`);
-    
-    if (dicesToLock.length > 0) {
-      Logger.log(`DICE LOCKING DETAILS:`);
-      dicesToLock.forEach(({ die, index, x, y, collisionReason }) => {
-        Logger.log(`  - Die ${index} (ID: ${die.id}): ${collisionReason} -> lock at (${x}, ${y})`);
-      });
-    }
-    
-    if (diceToContinue.length > 0) {
-      Logger.log(`DICE CONTINUING DETAILS:`);
-      diceToContinue.forEach(({ die, index }) => {
-        Logger.log(`  - Die ${index} (ID: ${die.id}): no collision, will continue falling`);
-      });
-    }
+      Logger.log(`DIE ${index} COLLISION CHECKS: hitBottom=${hitBottom}, outOfBounds=${outOfBounds}, hitPiece=${hitPiece}`);
 
-    // Process dice that hit obstacles
-    if (dicesToLock.length > 0) {
-      Logger.log(`\nDICE LOCKING PROCESS: Processing ${dicesToLock.length} dice that hit obstacles`);
-      
-      // Track active piece state before locking
-      const preLockDiceCount = active.dice.length;
-      Logger.log(`ACTIVE PIECE STATE BEFORE LOCKING: ${preLockDiceCount} dice`);
-      
-      // Lock each die to the grid with validation
-      const successfullyLocked: number[] = [];
-      const lockingErrors: Array<{index: number, error: string}> = [];
-      
-      dicesToLock.forEach(({ die, index, x, y, collisionReason }) => {
-        Logger.log(`LOCKING DIE ${index}: Attempting to lock at (${x}, ${y}) due to ${collisionReason}`);
-        
+      if (hitBottom || outOfBounds || hitPiece) {
+        // Immediately lock this die into the grid so that upper dice will see it as an obstacle
+        let finalX = Math.max(0, Math.min(absX, this.gameBoard.state.width - 1));
+        let finalY = Math.max(GAME_CONSTANTS.MIN_VALID_Y, Math.min(absY, GAME_CONSTANTS.MAX_VALID_Y));
+        let positionClamped = false;
+
+        // Use GridBoundaryValidator to clamp if needed
+        const isValidPosition = GridBoundaryValidator.validatePosition(finalX, finalY, this.gameBoard.state.width, this.gameBoard.state.height);
+        if (!isValidPosition) {
+          const clamped = GridBoundaryValidator.clampPosition(finalX, finalY, this.gameBoard.state.width, this.gameBoard.state.height);
+          finalX = clamped.x;
+          finalY = clamped.y;
+          positionClamped = true;
+          Logger.log(`POSITION CLAMPING: (${absX}, ${absY}) -> (${finalX}, ${finalY})`);
+        }
+
         try {
-          // Enhanced coordinate validation and clamping using GridBoundaryValidator
-          const isValidPosition = GridBoundaryValidator.validatePosition(x, y, this.gameBoard.state.width, this.gameBoard.state.height);
-          let finalX = x;
-          let finalY = y;
-          let positionClamped = false;
-          
-          if (!isValidPosition) {
-            Logger.log(`POSITION VALIDATION: Invalid lock position for die ${index}: (${x}, ${y}) - applying enhanced bounds clamping`);
-            
-            // Use GridBoundaryValidator for robust coordinate clamping
-            const clampedPos = GridBoundaryValidator.clampPosition(x, y, this.gameBoard.state.width, this.gameBoard.state.height);
-            finalX = clampedPos.x;
-            finalY = clampedPos.y;
-            positionClamped = true;
-            
-            Logger.log(`POSITION CLAMPING: Enhanced clamping from (${x}, ${y}) to (${finalX}, ${finalY})`);
-            Logger.log(`POSITION CLAMPING: Boundary checks - isAtBottom: ${GridBoundaryValidator.isAtBottom(y)}, isBelowGrid: ${GridBoundaryValidator.isBelowGrid(y)}`);
-          }
-          
-          // Additional safety check for edge cases
-          if (finalX < 0 || finalX >= this.gameBoard.state.width || finalY < 0 || finalY >= this.gameBoard.state.height) {
-            Logger.log(`POSITION SAFETY CHECK: Final position still invalid (${finalX}, ${finalY}) - applying emergency clamping`);
-            finalX = Math.max(0, Math.min(finalX, this.gameBoard.state.width - 1));
-            finalY = Math.max(0, Math.min(finalY, this.gameBoard.state.height - 1));
-            positionClamped = true;
-            Logger.log(`EMERGENCY CLAMPING: Final position set to (${finalX}, ${finalY})`);
-          }
-          
-          // Attempt to lock the die
-          const lockResult = this.gameBoard.lockAt({ x: finalX, y: finalY }, die);
-          Logger.log(`LOCK SUCCESS: Die ${index} locked at (${finalX}, ${finalY})${positionClamped ? ' (clamped)' : ''}`);
-          Logger.log(`LOCK RESULT: Generated ${lockResult.matches.length} matches`);
-          
-          if (lockResult.matches.length > 0) {
-            Logger.log(`MATCHES DETECTED: Die ${index} created matches: ${JSON.stringify(lockResult.matches.map(m => `${m.size} dice`))}`);
-          }
-          
+          Logger.log(`LOCKING DIE ${index}: locking immediately at (${finalX}, ${finalY})`);
+          // Use batched lock: write to grid but defer match detection until after the batch
+          this.gameBoard.lockCell({ x: finalX, y: finalY }, die);
+          Logger.log(`LOCK SUCCESS: Die ${index} provisionally locked at (${finalX}, ${finalY})${positionClamped ? ' (clamped)' : ''}`);
           successfullyLocked.push(index);
-        } catch (error) {
-          const errorMsg = `Failed to lock die ${index} at (${x}, ${y}): ${error}`;
+        } catch (err) {
+          const errorMsg = `Failed to lock die ${index} at (${finalX}, ${finalY}): ${err}`;
           Logger.log(`LOCK ERROR: ${errorMsg}`);
           lockingErrors.push({ index, error: errorMsg });
-          // Continue with other dice even if one fails
-        }
-      });
-      
-      // Log locking operation summary
-      Logger.log(`LOCKING OPERATION SUMMARY:`);
-      Logger.log(`  - Attempted to lock: ${dicesToLock.length} dice`);
-      Logger.log(`  - Successfully locked: ${successfullyLocked.length} dice`);
-      Logger.log(`  - Locking errors: ${lockingErrors.length} dice`);
-      
-      if (lockingErrors.length > 0) {
-        Logger.log(`LOCKING ERRORS DETAILS:`);
-        lockingErrors.forEach(({ index, error }) => {
-          Logger.log(`  - Die ${index}: ${error}`);
-        });
-      }
-      
-      // Only remove dice that were successfully locked, using safe removal method
-      if (successfullyLocked.length > 0) {
-        Logger.log(`DICE REMOVAL: Removing ${successfullyLocked.length} successfully locked dice from active piece`);
-        
-        const removedCount = this.safeRemoveDiceByIndices(successfullyLocked);
-        
-        Logger.log(`DICE REMOVAL RESULT: Expected to remove ${successfullyLocked.length}, actually removed ${removedCount}`);
-        
-        if (removedCount !== successfullyLocked.length) {
-          Logger.log(`WARNING: Dice removal count mismatch - this may indicate an array manipulation error`);
-        }
-        
-        // Log active piece state after removal
-        const postRemovalDiceCount = active.dice ? active.dice.length : 0;
-        Logger.log(`ACTIVE PIECE STATE AFTER REMOVAL: ${postRemovalDiceCount} dice remaining (was ${preLockDiceCount})`);
-        Logger.log(`DICE COUNT CHANGE: ${preLockDiceCount} -> ${postRemovalDiceCount} (removed ${preLockDiceCount - postRemovalDiceCount})`);
-        
-        // Enhanced validation and error handling after dice removal
-        const postRemovalValidation = this.validateActivePieceState();
-        Logger.log(`POST-REMOVAL VALIDATION: ${postRemovalValidation ? 'PASSED' : 'FAILED'}`);
-        
-        if (!postRemovalValidation) {
-          Logger.log('POST-REMOVAL VALIDATION FAILED: Attempting comprehensive error recovery');
-          const recoverySuccess = this.handleActivePieceErrors('stepDrop post-removal validation');
-          if (!recoverySuccess) {
-            Logger.log('POST-REMOVAL RECOVERY FAILED: Critical error detected - aborting stepDrop');
-            return;
-          }
-          
-          // Final validation after recovery
-          const finalValidation = this.validateActivePieceState();
-          if (!finalValidation) {
-            Logger.log('FINAL VALIDATION FAILED: Unrecoverable error - emergency piece finalization');
-            this.activePiece.dice = []; // Force empty to trigger finalization
-          } else {
-            Logger.log('POST-REMOVAL RECOVERY: Successful - continuing with stepDrop');
-          }
         }
       } else {
-        Logger.log(`WARNING: No dice were successfully locked - active piece state unchanged`);
+        // No collision for this die at this time; it can continue falling
+        Logger.log(`DIE ${index} COLLISION RESULT: CONTINUE FALLING -> will attempt to move to (${attemptedX}, ${attemptedY})`);
+        diceToContinue.push({ die, index });
+      }
+    }
+
+    // Summary
+    Logger.log(`COLLISION DETECTION SUMMARY:`);
+    Logger.log(`  - Total dice processed: ${diceInfos.length}`);
+    Logger.log(`  - Dice locked this step: ${successfullyLocked.length}`);
+    Logger.log(`  - Dice to continue falling: ${diceToContinue.length}`);
+    Logger.log(`  - Collision scenario: ${this.getCollisionScenarioName(successfullyLocked.length, diceToContinue.length)}`);
+
+    if (lockingErrors.length > 0) {
+      Logger.log(`LOCKING ERRORS (${lockingErrors.length}):`);
+      lockingErrors.forEach(le => Logger.log(`  - Index ${le.index}: ${le.error}`));
+    }
+
+    // Remove successfully locked dice from the active piece using safe removal
+    if (successfullyLocked.length > 0) {
+      Logger.log(`DICE REMOVAL: Removing ${successfullyLocked.length} successfully locked dice from active piece`);
+      const removedCount = this.safeRemoveDiceByIndices(successfullyLocked);
+      Logger.log(`DICE REMOVAL RESULT: Expected to remove ${successfullyLocked.length}, actually removed ${removedCount}`);
+      if (removedCount !== successfullyLocked.length) {
+        Logger.log(`WARNING: Dice removal count mismatch - expected ${successfullyLocked.length}, removed ${removedCount}`);
+      }
+
+      // Validate post-removal state
+      const postRemovalValidation = this.validateActivePieceState();
+      Logger.log(`POST-REMOVAL VALIDATION: ${postRemovalValidation ? 'PASSED' : 'FAILED'}`);
+      if (!postRemovalValidation) {
+        Logger.log('POST-REMOVAL VALIDATION FAILED: Attempting recovery');
+        const recoverySuccess = this.handleActivePieceErrors('stepDrop post-removal validation');
+        if (!recoverySuccess) {
+          Logger.log('POST-REMOVAL RECOVERY FAILED: Aborting stepDrop');
+          return;
+        }
+        const finalValidation = this.validateActivePieceState();
+        if (!finalValidation) {
+          Logger.log('FINAL VALIDATION FAILED: Forcing piece finalization');
+          this.activePiece.dice = [];
+        }
+      }
+    }
+
+    // After batching locks, finalize match detection and gravity once
+    if (successfullyLocked.length > 0) {
+      try {
+        const finalizeResult: any = this.gameBoard.finalizeLocks();
+        if (finalizeResult && finalizeResult.matches && finalizeResult.matches.length > 0) {
+          Logger.log(`BATCH MATCHES DETECTED: ${finalizeResult.matches.length} groups`);
+          // Update UI footer for matches
+          const msgs: string[] = [];
+          for (const m of finalizeResult.matches) {
+            const size = m.size || (m.positions ? m.positions.length : 0);
+            const num = m.matchedNumber ?? '?';
+            const msg = `Matched: ${size} dice with value ${num}`;
+            msgs.push(msg);
+          }
+          const footerText = msgs.join(' | ');
+          try { this.gameUI?.updateMatchFooter(footerText); } catch (e) { /* ignore UI errors */ }
+        }
+      } catch (e) {
+        Logger.log(`ERROR: finalizeLocks failed: ${e}`);
       }
     }
 
     // Handle piece movement based on collision scenarios
     Logger.log(`\nPIECE MOVEMENT LOGIC:`);
-    const scenarioName = this.getCollisionScenarioName(dicesToLock.length, diceToContinue.length);
+    const scenarioName = this.getCollisionScenarioName(successfullyLocked.length, diceToContinue.length);
     Logger.log(`MOVEMENT SCENARIO: ${scenarioName}`);
     
-    if (diceToContinue.length > 0 && dicesToLock.length === 0) {
+    if (diceToContinue.length > 0 && successfullyLocked.length === 0) {
       // Scenario 1: No collisions - move entire piece down
       const oldY = active.y;
       active.y += GAME_CONSTANTS.FALL_STEP; // FALL_STEP is -1, so this decreases Y (moves down)
       Logger.log(`NO COLLISIONS: Moving entire piece from Y=${oldY} to Y=${active.y} (${Math.abs(GAME_CONSTANTS.FALL_STEP)} units down)`);
       Logger.log(`PIECE MOVEMENT: All ${diceToContinue.length} dice continue falling together`);
-    } else if (diceToContinue.length > 0 && dicesToLock.length > 0) {
+    } else if (diceToContinue.length > 0 && successfullyLocked.length > 0) {
       // Scenario 3: Mixed collisions - some dice lock, others continue falling
       // The remaining dice should continue falling, so move the piece down
       const oldY = active.y;
       active.y += GAME_CONSTANTS.FALL_STEP; // FALL_STEP is -1, so this decreases Y (moves down)
-      Logger.log(`MIXED COLLISION: ${dicesToLock.length} dice locked, ${diceToContinue.length} dice continue falling`);
+      Logger.log(`MIXED COLLISION: ${successfullyLocked.length} dice locked, ${diceToContinue.length} dice continue falling`);
       Logger.log(`PIECE MOVEMENT: Moving piece from Y=${oldY} to Y=${active.y} for remaining dice`);
       Logger.log(`CONTINUING DICE: ${diceToContinue.map(d => `Die ${d.index} (ID: ${d.die.id})`).join(', ')}`);
-    } else if (diceToContinue.length === 0 && dicesToLock.length > 0) {
+    } else if (diceToContinue.length === 0 && successfullyLocked.length > 0) {
       // Scenario 2: All collisions - all dice locked, no movement needed
-      Logger.log(`ALL COLLISIONS: ${dicesToLock.length} dice locked, no remaining dice to move`);
+      Logger.log(`ALL COLLISIONS: ${successfullyLocked.length} dice locked, no remaining dice to move`);
       Logger.log(`PIECE MOVEMENT: No movement - piece will be finalized`);
     } else {
       // Edge case: no dice in either category (shouldn't happen)

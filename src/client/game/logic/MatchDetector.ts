@@ -67,7 +67,24 @@ export function detectMatches(grid: GridState, minMatch = 3): MatchGroup[] {
           if (!d) continue;
           colors[d.color] = (colors[d.color] || 0) + 1;
         }
-        matches.push({ positions: group, size: group.length, colors });
+        // matchedNumber: pick the number of the starting cell (representative)
+        // convert starting array coords x,y -> grid coords used in `group` were already converted, but we still have `cell` above
+        // find a representative number from one of the group's positions
+        let matchedNumber: number | undefined = undefined;
+        for (const p of group) {
+          const arrayY = converter.gridToArrayY(p.y);
+          const r = grid.cells[arrayY];
+          if (!r) continue;
+          const d = r[p.x] as Die | null;
+          if (d && typeof d.number === 'number') {
+            matchedNumber = d.number;
+            break;
+          }
+        }
+
+        const match: MatchGroup = { positions: group, size: group.length, colors };
+        if (matchedNumber !== undefined) (match as any).matchedNumber = matchedNumber;
+        matches.push(match);
       }
     }
   }

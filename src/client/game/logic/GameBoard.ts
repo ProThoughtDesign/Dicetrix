@@ -68,6 +68,26 @@ export class GameBoard {
 
     return { matches, cleared: toClear, gravityApplied: gravityResult.changed };
   }
+
+  // Low-level lock that only writes the cell into the grid without running match detection
+  lockCell(pos: GridPosition, die: Die): void {
+    if (!this.isValidPosition(pos.x, pos.y)) return;
+    this.grid.setCell(pos, die);
+  }
+
+  // After a batch of lockCell() calls, call finalizeLocks() to perform match detection, clearing, and gravity once.
+  finalizeLocks(minMatch = 3): LockResult {
+    const matches = detectMatches(this.state, minMatch);
+    const toClear: GridPosition[] = [];
+    for (const m of matches) {
+      for (const p of m.positions) toClear.push(p);
+    }
+
+    if (toClear.length) this.grid.clearCells(toClear);
+
+    const gravityResult = applyGravity(this.state);
+    return { matches, cleared: toClear, gravityApplied: gravityResult.changed };
+  }
 }
 
 export default GameBoard;

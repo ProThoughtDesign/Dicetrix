@@ -19,6 +19,7 @@ export class GameUI extends BaseUI {
   // Left Column Elements
   private scoreLabel: Phaser.GameObjects.Text;
   private scoreValue: Phaser.GameObjects.Text;
+  private matchFooter: Phaser.GameObjects.Text;
   private boardContainer: Phaser.GameObjects.Container;
   private boardBackground: Phaser.GameObjects.Graphics;
   private boardBorder: Phaser.GameObjects.Graphics;
@@ -129,7 +130,18 @@ export class GameUI extends BaseUI {
       })
       .setOrigin(1, 0);
 
+    this.matchFooter = this.scene.add
+      .text(0, 0, '', {
+        fontFamily: 'Arial',
+        fontSize: '16px',
+        color: '#ffffff',
+        stroke: '#000000',
+        strokeThickness: 2,
+      })
+      .setOrigin(0, 0);
+
     this.leftColumn.add([this.scoreLabel, this.scoreValue]);
+    this.leftColumn.add(this.matchFooter);
   }
 
   private createBoardElements(): void {
@@ -266,6 +278,8 @@ export class GameUI extends BaseUI {
     const scorePadding = 12;
     this.scoreLabel.setPosition(scorePadding, 8);
     this.scoreValue.setPosition(leftColumnWidth - scorePadding, 8);
+  // Position match footer below score
+  this.matchFooter.setPosition(scorePadding, 40);
 
     // Board calculations
     const scoreAreaHeight = 48;
@@ -576,6 +590,12 @@ export class GameUI extends BaseUI {
 
   public updateScore(score: number): void {
     this.scoreValue.setText(score.toString());
+  }
+
+  public updateMatchFooter(text: string): void {
+    if (this.matchFooter) {
+      this.matchFooter.setText(text);
+    }
   }
 
   public update(): void {
