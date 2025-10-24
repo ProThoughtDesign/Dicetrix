@@ -32,11 +32,15 @@ export class GameUI extends BaseUI {
   private nextGridLines: Phaser.GameObjects.Graphics;
   private controlsContainer: Phaser.GameObjects.Container;
   private boostersContainer: Phaser.GameObjects.Container;
+  private boostersBackground: Phaser.GameObjects.Graphics;
+  private boostersBorder: Phaser.GameObjects.Graphics;
   private leaderboardContainer: Phaser.GameObjects.Container; // Desktop only
 
   // Control buttons
   private controlButtons: Phaser.GameObjects.Rectangle[] = [];
   private controlLabels: Phaser.GameObjects.Text[] = [];
+  // Booster slots (only the slot rectangles)
+  private boosterSlots: Phaser.GameObjects.Rectangle[] = [];
 
   // Board metrics for external access
   public boardMetrics: {
@@ -56,8 +60,8 @@ export class GameUI extends BaseUI {
     boardH: 0,
     cellW: 0,
     cellH: 0,
-    cols: 10,
-    rows: 20,
+  cols: 8,
+  rows: 16,
     boardAreaY: 0,
   };
 
@@ -82,7 +86,7 @@ export class GameUI extends BaseUI {
     super(scene);
 
     // Initialize coordinate converter for 20-row grid
-    this.coordinateConverter = new CoordinateConverter(20);
+    this.coordinateConverter = new CoordinateConverter(16);
 
     this.createUIElements();
     this.setupInputHandlers(callbacks);
@@ -221,16 +225,23 @@ export class GameUI extends BaseUI {
 
   private createBoosterElements(): void {
     this.boostersContainer = this.scene.add.container(0, 0);
+    this.boostersBackground = this.scene.add.graphics();
+    this.boostersBorder = this.scene.add.graphics();
 
-    // Create 3x3 booster grid
+    // add background & border first so slots render above
+    this.boostersContainer.add([this.boostersBackground, this.boostersBorder]);
+
+    // Create 3x3 booster grid (keep slot rectangles in boosterSlots array)
+    this.boosterSlots = [];
     for (let row = 0; row < 3; row++) {
       for (let col = 0; col < 3; col++) {
         const slot = this.scene.add
           .rectangle(0, 0, 64, 64, 0x000000, 0.0)
           .setStrokeStyle(1, 0x00ff88, 0.25)
-          .setOrigin(0, 0);
+          .setOrigin(0, 0) as Phaser.GameObjects.Rectangle;
 
         this.boostersContainer.add(slot);
+        this.boosterSlots.push(slot);
       }
     }
 
@@ -258,76 +269,66 @@ export class GameUI extends BaseUI {
   }
 
   protected updateLayout(): void {
-    const { padding, leftColumnWidth, rightColumnWidth, isMobile, screenWidth, screenHeight } =
-      this.layout;
+  const { screenWidth } = this.layout;
 
-    // Position main columns
-    this.leftColumn.setPosition(padding, padding);
-    this.rightColumn.setPosition(padding * 2 + leftColumnWidth, padding);
+    // We will position elements absolutely across the screen. Reset containers to origin.
+    this.leftColumn.setPosition(0, 0);
+    this.rightColumn.setPosition(0, 0);
 
     this.updateLeftColumnLayout();
     this.updateRightColumnLayout();
 
-    Logger.log(`Layout updated: ${isMobile ? 'Mobile' : 'Desktop'} ${screenWidth}x${screenHeight}`);
+    Logger.log(`Layout updated: ${screenWidth}x${this.layout.screenHeight}`);
   }
 
   private updateLeftColumnLayout(): void {
-    const { leftColumnWidth, screenHeight, padding, isMobile } = this.layout;
+  const { screenWidth, padding } = this.layout;
 
-    // Score positioning
-    const scorePadding = 12;
-    this.scoreLabel.setPosition(scorePadding, 8);
-    this.scoreValue.setPosition(leftColumnWidth - scorePadding, 8);
-  // Position match footer below score
-  this.matchFooter.setPosition(scorePadding, 40);
+    // Header full width
+    const headerHeight = 80;
+    const headerY = padding;
+    const headerInnerY = headerY + 12;
 
-    // Board calculations
-    const scoreAreaHeight = 48;
-    const bottomPadding = padding; // Add bottom padding to prevent dice from going below screen
-    const availableHeight = screenHeight - padding * 2 - scoreAreaHeight - bottomPadding;
-    const cols = 10;
-    const rows = 20;
+    // Score label left aligned, score value right aligned (full width)
+    this.scoreLabel.setPosition(padding + 12, headerInnerY);
+    this.scoreValue.setPosition(screenWidth - padding - 12, headerInnerY);
+    // hide match footer for now
+    if (this.matchFooter) this.matchFooter.setVisible(false);
 
-    // Calculate cell size to fit in available space
-    const maxCellW = Math.floor(leftColumnWidth / cols);
-    const maxCellH = Math.floor(availableHeight / rows);
-    const cellSize = Math.min(maxCellW, maxCellH);
-
-    const cellW = cellSize;
-    const cellH = cellSize;
-    const boardW = cellW * cols;
+  // Board should take up 60% of the screen width
+  const cols = this.boardMetrics.cols;
+  const rows = this.boardMetrics.rows;
+    const boardW = Math.floor(screenWidth * 0.6);
+    // compute cell width from boardW
+    const cellW = Math.floor(boardW / cols);
+    const cellH = cellW;
     const boardH = cellH * rows;
 
-    // Center board horizontally in left column
-    const boardX = Math.floor((leftColumnWidth - boardW) / 2);
-    const boardY = scoreAreaHeight;
+    // Position board on the left side, below header
+    const boardX = padding;
+    const boardY = headerY + headerHeight + 12; // small gap
 
-    // Ensure the board doesn't extend beyond the screen bottom
-    const maxBoardY = screenHeight - padding - boardH - bottomPadding;
-    const finalBoardY = Math.min(boardY, maxBoardY);
-
-    // Update board metrics
+    // Update board metrics (boardX/Y are absolute screen coordinates)
     this.boardMetrics = {
-      boardX: padding + boardX,
-      boardY: padding + finalBoardY,
+      boardX,
+      boardY,
       boardW,
       boardH,
       cellW,
       cellH,
       cols,
       rows,
-      boardAreaY: scoreAreaHeight,
+      boardAreaY: headerHeight,
     };
 
-    // Position board container
-    this.boardContainer.setPosition(boardX, finalBoardY);
+    // Position board container (use absolute coordinates)
+    this.boardContainer.setPosition(boardX, boardY);
 
-    // Draw board background
+    // Draw board background / border
     this.boardBackground.clear();
     this.boardBackground.fillStyle(0x071021, 1);
     this.boardBackground.fillRect(0, 0, boardW, boardH);
 
-    // Draw board border
     this.boardBorder.clear();
     this.boardBorder.lineStyle(2, 0x00ff88, 0.5);
     this.boardBorder.strokeRect(-2, -2, boardW + 4, boardH + 4);
@@ -337,34 +338,41 @@ export class GameUI extends BaseUI {
   }
 
   private updateRightColumnLayout(): void {
-    const { rightColumnWidth, isMobile, screenHeight, padding } = this.layout;
+    const { screenWidth, padding } = this.layout;
 
-    let currentY = 0;
     const elementSpacing = 20;
+    // Right column sits to the right of the board
+    const board = this.boardMetrics;
+    const rightX = board.boardX + board.boardW + padding;
+    const rightWidth = Math.max(0, screenWidth - rightX - padding);
 
-    // Next piece section
-    this.nextLabel.setPosition(rightColumnWidth / 2, currentY);
-    currentY += 35;
+    let currentY = board.boardY; // start aligned with top of board
 
-    // Next piece box (4x4 grid)
-    const nextSize = Math.min(rightColumnWidth * 0.8, 160);
-    const nextX = Math.floor((rightColumnWidth - nextSize) / 2);
+    // Position right column container to the right of the board so internal coords are local
+    this.rightColumn.setPosition(rightX, 0);
+
+    // Next piece label centered in right column (local coords)
+    this.nextLabel.setPosition(rightWidth / 2, currentY);
+    currentY += 36;
+
+    // Next piece box (4x4 grid) - size related to board cell size
+    const nextSize = Math.min(rightWidth * 0.9, board.cellW * 4, 160);
+    const nextX = Math.floor((rightWidth - nextSize) / 2);
 
     this.nextMetrics = {
-      nextX: padding * 2 + this.layout.leftColumnWidth + nextX,
-      nextY: padding + currentY,
+      nextX,
+      nextY: currentY,
       nextW: nextSize,
       nextH: nextSize,
       cellW: nextSize / 4,
       cellH: nextSize / 4,
     };
 
-    // Draw next piece background
+    // Draw next piece background and border (local coords)
     this.nextBackground.clear();
     this.nextBackground.fillStyle(0x071021, 1);
     this.nextBackground.fillRect(nextX, currentY, nextSize, nextSize);
 
-    // Draw next piece border
     this.nextBorder.clear();
     this.nextBorder.lineStyle(2, 0x00ff88, 0.25);
     this.nextBorder.strokeRect(nextX - 2, currentY - 2, nextSize + 4, nextSize + 4);
@@ -372,38 +380,36 @@ export class GameUI extends BaseUI {
     this.drawNextGridLines(nextX, currentY, nextSize);
     currentY += nextSize + elementSpacing;
 
-    // Controls section
-    this.updateControlsLayout(currentY, rightColumnWidth);
-    currentY += this.getControlsHeight() + elementSpacing;
+    // Controls: 3x2 grid (scaled up 10%)
+    this.updateControlsLayout(currentY, 0, rightWidth);
+    const controlSizeScaled = Math.round(96 * 1.1);
+    currentY += (controlSizeScaled * 2) + 8 + elementSpacing;
 
-    // Boosters section
-    this.updateBoostersLayout(currentY, rightColumnWidth);
-    currentY += this.getBoostersHeight() + elementSpacing;
+    // Boosters: 3x3 grid of 96x96 (rendered inside a bordered box)
+    this.updateBoostersLayout(currentY, 0, rightWidth);
+    currentY += (96 * 3) + 2 * 6 + elementSpacing;
 
-    // Leaderboard section (desktop only)
-    if (!isMobile) {
-      this.updateLeaderboardLayout(currentY, rightColumnWidth, screenHeight - padding - currentY);
-    } else {
-      this.leaderboardContainer.setVisible(false);
-    }
+    // Hide leaderboard for now
+    this.leaderboardContainer.setVisible(false);
   }
 
-  private updateControlsLayout(startY: number, columnWidth: number): void {
-    const controlSize = Math.min(columnWidth / 3.5, 80);
+  // New signature: position controls within right column area specified by startX and width
+  private updateControlsLayout(startY: number, startX: number, columnWidth: number): void {
+    const controlSize = Math.round(96 * 1.1); // scaled up 10%
     const controlGap = 8;
     const controlsWidth = 3 * controlSize + 2 * controlGap;
-    const controlsX = Math.floor((columnWidth - controlsWidth) / 2);
+    const controlsX = Math.floor(startX + (columnWidth - controlsWidth) / 2);
 
     this.controlsContainer.setPosition(controlsX, startY);
 
     this.controlButtons.forEach((button, index) => {
       const row = (button as any).controlRow;
       const col = (button as any).controlCol;
-      const x = col * (controlSize + controlGap);
-      const y = row * (controlSize + controlGap);
+  const x = col * (controlSize + controlGap);
+  const y = row * (controlSize + controlGap);
 
-      button.setSize(controlSize, controlSize);
-      button.setPosition(x, y);
+  button.setSize(controlSize, controlSize);
+  button.setPosition(x, y);
 
       const label = this.controlLabels[index];
       if (label) {
@@ -414,15 +420,26 @@ export class GameUI extends BaseUI {
     });
   }
 
-  private updateBoostersLayout(startY: number, columnWidth: number): void {
-    const boosterSize = Math.min(columnWidth / 4, 64);
+  private updateBoostersLayout(startY: number, startX: number, columnWidth: number): void {
+    const boosterSize = 96; // fixed per spec
     const boosterGap = 6;
     const boostersWidth = 3 * boosterSize + 2 * boosterGap;
-    const boostersX = Math.floor((columnWidth - boostersWidth) / 2);
+    const boostersX = Math.floor(startX + (columnWidth - boostersWidth) / 2);
 
     this.boostersContainer.setPosition(boostersX, startY);
 
-    this.boostersContainer.each((slot: any, index: number) => {
+    // Draw background & border for the boosters area (local coords)
+    if (this.boostersBackground && this.boostersBorder) {
+      this.boostersBackground.clear();
+      this.boostersBackground.fillStyle(0x071021, 1);
+      this.boostersBackground.fillRect(0, 0, boostersWidth, 3 * boosterSize + 2 * boosterGap);
+
+      this.boostersBorder.clear();
+      this.boostersBorder.lineStyle(2, 0x00ff88, 0.25);
+      this.boostersBorder.strokeRect(-2, -2, boostersWidth + 4, 3 * boosterSize + 2 * boosterGap + 4);
+    }
+
+    this.boosterSlots.forEach((slot, index) => {
       const row = Math.floor(index / 3);
       const col = index % 3;
       const x = col * (boosterSize + boosterGap);
@@ -433,32 +450,7 @@ export class GameUI extends BaseUI {
     });
   }
 
-  private updateLeaderboardLayout(
-    startY: number,
-    columnWidth: number,
-    availableHeight: number
-  ): void {
-    this.leaderboardContainer.setVisible(true);
-    this.leaderboardContainer.setPosition(0, startY);
-
-    const leaderboardHeight = Math.max(150, availableHeight - 20);
-    const leaderboardWidth = columnWidth;
-
-    // Get title and graphics from container
-    const title = this.leaderboardContainer.getAt(2) as Phaser.GameObjects.Text;
-    const bg = this.leaderboardContainer.getAt(0) as Phaser.GameObjects.Graphics;
-    const border = this.leaderboardContainer.getAt(1) as Phaser.GameObjects.Graphics;
-
-    title.setPosition(leaderboardWidth / 2, 10);
-
-    bg.clear();
-    bg.fillStyle(0x071021, 1);
-    bg.fillRect(0, 30, leaderboardWidth, leaderboardHeight - 30);
-
-    border.clear();
-    border.lineStyle(2, 0x00ff88, 0.25);
-    border.strokeRect(-2, 28, leaderboardWidth + 4, leaderboardHeight - 26);
-  }
+  
 
   private drawGridLines(): void {
     const { cellW, cellH, cols, rows } = this.boardMetrics;
@@ -506,15 +498,7 @@ export class GameUI extends BaseUI {
     this.nextGridLines.strokePath();
   }
 
-  private getControlsHeight(): number {
-    const controlSize = Math.min(this.layout.rightColumnWidth / 3.5, 80);
-    return 2 * controlSize + 8; // 2 rows + gap
-  }
-
-  private getBoostersHeight(): number {
-    const boosterSize = Math.min(this.layout.rightColumnWidth / 4, 64);
-    return 3 * boosterSize + 2 * 6; // 3 rows + gaps
-  }
+  
 
   public setupInputHandlers(callbacks: GameUICallbacks = {}): void {
     // Create input handler with callbacks

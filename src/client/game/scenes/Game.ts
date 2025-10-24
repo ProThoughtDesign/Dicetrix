@@ -18,6 +18,8 @@ export class Game extends Scene {
   private phase: 'Idle' | 'Dropping' | 'Cascading' | 'Animating' | 'Spawning' = 'Idle';
   private gameUI: GameUI;
   private gameBoard: GameBoard;
+  private score: number = 0;
+  private cascadeMultiplier: number = 1;
   private coordinateConverter: CoordinateConverter;
   private activePiece: any;
   private nextPiece: any;
@@ -570,6 +572,8 @@ export class Game extends Scene {
           // Build footer messages
           const msgs: string[] = [];
           const allPositions: Array<{ x: number; y: number }> = [];
+          // Scoring: accumulate score for this cascade iteration
+          let cascadeIterationScore = 0;
           for (const m of cascadeMatches) {
             const size = m.size || (m.positions ? m.positions.length : 0);
             const num = m.matchedNumber ?? '?';
@@ -595,20 +599,49 @@ export class Game extends Scene {
           // Clear matched positions from authoritative grid
           try {
             const clearPositions = allPositions.map(p => ({ x: p.x, y: p.y }));
+            // Before clearing, compute score for each match group using authoritative grid
+            for (const m of cascadeMatches) {
+              const positions = (m.positions || []) as Array<{ x: number; y: number }>;
+              const size = m.size || positions.length;
+              const matchedNumber = m.matchedNumber ?? 0;
+
+              // Sum of sides (total possible die faces) for this match
+              let facesTotal = 0;
+              for (const p of positions) {
+                const die = this.gameBoard.getCell(p as any);
+                if (die) facesTotal += (die.sides || 0);
+              }
+
+              const base = size * (matchedNumber as number);
+              const groupScore = (base + facesTotal) * this.cascadeMultiplier;
+              cascadeIterationScore += groupScore;
+
+              // Increase multiplier for next match (per-match increase)
+              this.cascadeMultiplier++;
+            }
+
+            // Clear cells
             this.gameBoard.clearCells(clearPositions);
           } catch (e) {
             Logger.log(`ERROR: clearCells failed: ${e}`);
           }
 
-          // Apply gravity once after clears
+          // Apply gravity once after clears and animate falling pieces
           try {
-            applyGravity(this.gameBoard.state);
+            // animateGravityMovements will apply gravity and animate moved dice, then re-render
+            await this.animateGravityMovements(boardMetrics);
           } catch (e) {
-            Logger.log(`ERROR: applyGravity failed: ${e}`);
+            Logger.log(`ERROR: applyGravity/animate failed: ${e}`);
+            // As fallback, apply gravity and re-render
+            try { applyGravity(this.gameBoard.state); } catch (ee) { /* ignore */ }
+            this.renderGameState();
           }
 
-          // Re-render after gravity so players see falling pieces
-          this.renderGameState();
+          // Update score for this cascade iteration and propagate to UI
+          if (cascadeIterationScore > 0) {
+            this.score += cascadeIterationScore;
+            try { this.gameUI?.updateScore(this.score); } catch (e) { /* ignore UI */ }
+          }
 
           // Detect again for potential cascades
           cascadeMatches = detectMatches(this.gameBoard.state);
@@ -750,6 +783,118 @@ export class Game extends Scene {
       // Safety timeout in case tweens never call complete
       this.time.delayedCall(400, () => {
         if (completed < positions.length) resolve();
+      });
+    });
+  }
+
+  // Animate gravity movements: apply gravity to grid state, animate dice that moved from their
+  // previous positions to new positions, then re-render the locked pieces. Returns after
+  // animations complete and grid is up-to-date.
+  private animateGravityMovements(boardMetrics: any): Promise<void> {
+    return new Promise((resolve) => {
+      if (!this.gameBoard) return resolve();
+
+      const beforeMap: Record<string, { gridX: number; gridY: number; screenX: number; screenY: number; die: any }> = {};
+      const { width, height, cells } = this.gameBoard.state;
+
+      // Capture before positions
+      for (let gridY = 0; gridY < height; gridY++) {
+        const arrayY = this.coordinateConverter.gridToArrayY(gridY);
+        const row = cells[arrayY];
+        if (!row) continue;
+        for (let gridX = 0; gridX < width; gridX++) {
+          const die = row[gridX];
+          if (!die) continue;
+          const screenPos = this.coordinateConverter.gridToScreen(gridX, gridY, boardMetrics);
+          if (die.id) {
+            beforeMap[die.id] = { gridX, gridY, screenX: screenPos.x, screenY: screenPos.y, die };
+          }
+        }
+      }
+
+      // Apply gravity to authoritative grid (mutates state)
+      try {
+        applyGravity(this.gameBoard.state);
+      } catch (e) {
+        Logger.log(`animateGravityMovements: applyGravity failed: ${e}`);
+        // Still attempt to render
+        this.renderGameState();
+        return resolve();
+      }
+
+      // Capture after positions and determine moved dice
+      const moved: Array<{ id: string; die: any; from: { x: number; y: number }; to: { x: number; y: number } }> = [];
+
+      for (let gridY = 0; gridY < height; gridY++) {
+        const arrayY = this.coordinateConverter.gridToArrayY(gridY);
+        const row = this.gameBoard.state.cells[arrayY];
+        if (!row) continue;
+        for (let gridX = 0; gridX < width; gridX++) {
+          const die = row[gridX];
+          if (!die || !die.id) continue;
+          const before = beforeMap[die.id];
+          const screenPos = this.coordinateConverter.gridToScreen(gridX, gridY, boardMetrics);
+          if (before) {
+            if (before.screenX !== screenPos.x || before.screenY !== screenPos.y) {
+              moved.push({ id: die.id, die, from: { x: before.screenX, y: before.screenY }, to: { x: screenPos.x, y: screenPos.y } });
+            }
+          }
+        }
+      }
+
+      if (moved.length === 0) {
+        // Nothing moved; just render and resolve
+        this.renderGameState();
+        return resolve();
+      }
+
+      // Create temporary sprites for moved dice and tween them
+      const tweens: Phaser.Tweens.Tween[] = [];
+      const tempSprites: Phaser.GameObjects.Container[] = [];
+      let completed = 0;
+
+      const onComplete = () => {
+        completed++;
+        if (completed >= moved.length) {
+          // destroy temp sprites and re-render authoritative locked pieces
+          tempSprites.forEach(s => { try { s.destroy(); } catch (e) {} });
+          this.renderGameState();
+          resolve();
+        }
+      };
+
+      for (const mv of moved) {
+        try {
+          const spr = drawDie(this, mv.from.x, mv.from.y, boardMetrics.cellW, boardMetrics.cellH, mv.die) as Phaser.GameObjects.Container | null;
+          if (!spr) { onComplete(); continue; }
+          tempSprites.push(spr);
+          this.add.existing(spr);
+
+          const tw = this.tweens.add({
+            targets: spr,
+            x: mv.to.x,
+            y: mv.to.y,
+            duration: 300,
+            ease: 'Cubic.easeOut',
+            onComplete: () => {
+              try { spr.destroy(); } catch (e) {}
+              onComplete();
+            }
+          });
+
+          tweens.push(tw);
+        } catch (e) {
+          onComplete();
+        }
+      }
+
+      // Safety timeout
+      this.time.delayedCall(500, () => {
+        if (completed < moved.length) {
+          tempSprites.forEach(s => { try { s.destroy(); } catch (e) {} });
+          this.renderGameState();
+          resolve();
+        }
       });
     });
   }

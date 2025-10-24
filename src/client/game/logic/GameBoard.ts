@@ -2,6 +2,7 @@ import { Grid } from './Grid';
 import { GridState, GridPosition, Die, MatchGroup } from './types';
 import { detectMatches } from './MatchDetector';
 import { applyGravity } from './Gravity';
+import { GAME_CONSTANTS } from '../../../shared/constants/GameConstants';
 
 export type LockResult = {
   matches: MatchGroup[];
@@ -14,7 +15,7 @@ export type LockResult = {
 export class GameBoard {
   private grid: Grid;
 
-  constructor(width = 10, height = 20) {
+  constructor(width = GAME_CONSTANTS.GRID_WIDTH, height = GAME_CONSTANTS.GRID_HEIGHT) {
     this.grid = new Grid(width, height);
   }
 
