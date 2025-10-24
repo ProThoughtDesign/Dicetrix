@@ -73,6 +73,8 @@ export class GameUI extends BaseUI {
     nextH: number;
     cellW: number;
     cellH: number;
+    globalNextX: number;
+    globalNextY: number;
   } = {
     nextX: 0,
     nextY: 0,
@@ -80,6 +82,8 @@ export class GameUI extends BaseUI {
     nextH: 0,
     cellW: 0,
     cellH: 0,
+    globalNextX: 0,
+    globalNextY: 0,
   };
 
   constructor(scene: Phaser.Scene, callbacks: GameUICallbacks = {}) {
@@ -366,6 +370,9 @@ export class GameUI extends BaseUI {
       nextH: nextSize,
       cellW: nextSize / 4,
       cellH: nextSize / 4,
+      // Add global coordinates for sprite positioning
+      globalNextX: rightX + nextX,
+      globalNextY: currentY,
     };
 
     // Draw next piece background and border (local coords)

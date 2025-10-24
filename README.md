@@ -6,7 +6,7 @@ A revolutionary puzzle game that combines Tetris-style piece mechanics with dice
 
 Dicetrix is an innovative puzzle game that merges three distinct gaming mechanics into one unique experience:
 
-1. **Tetris-Style Pieces**: Multi-die pieces (8 different shapes) fall down a 10x20 grid
+1. **Tetris-Style Pieces**: Multi-die pieces (8 different shapes) fall down an 8x16 grid
 2. **Dice Matching**: Create groups of 3+ adjacent dice with matching numbers to clear them  
 3. **Individual Die Collision Physics**: Revolutionary system where each die in a multi-piece can collide and lock independently
 
@@ -31,7 +31,7 @@ The game's signature innovation is its **individual die collision detection syst
 - Comprehensive error handling with graceful recovery from invalid states
 - Extensive logging system for debugging collision detection and piece state changes
 
-**Bottom-Left Coordinate System**: Uses Y=0 at bottom, Y=19 at top with intuitive physics where pieces fall by decreasing Y coordinates (Y=21→20→19→...→0)
+**Bottom-Left Coordinate System**: Uses Y=0 at bottom, Y=15 at top with intuitive physics where pieces fall by decreasing Y coordinates (Y=17→16→15→...→0)
 
 **Strategic Depth**: This system adds strategic complexity as players must consider:
 - Traditional piece placement and spatial reasoning  
@@ -43,8 +43,8 @@ The game's signature innovation is its **individual die collision detection syst
 
 - **8 Piece Types**: Single die, Line2-4, L3-4, Square, T-shape containing 1-4 dice each
 - **Dice Variety**: Each die shows a random number (1 to max sides) and is colored based on die type using a palette system
-- **Bottom-Left Coordinate System**: Uses Y=0 at bottom, Y=19 at top for intuitive physics where pieces fall by decreasing Y
-- **Intelligent Spawning**: Pieces spawn at Y=21 (above grid) so lowest die enters at Y=20, then Y=19 (top of visible grid)
+- **Bottom-Left Coordinate System**: Uses Y=0 at bottom, Y=15 at top for intuitive physics where pieces fall by decreasing Y
+- **Intelligent Spawning**: Pieces spawn at Y=17 (close to grid) so pieces enter the visible grid quickly
 - **Multi-Input Controls**: Responsive on-screen 3x2 button grid, keyboard (WASD/arrows), and touch input
 - **Advanced Match Detection**: Flood-fill algorithm finds connected groups of 3+ matching dice numbers
 - **Cascade Chain Reactions**: After clearing matches, remaining dice fall creating potential chain combos
@@ -67,7 +67,7 @@ Dicetrix successfully merges three distinct gaming mechanics that have never bee
 
 The game implements a sophisticated collision detection algorithm that handles each die in multi-die pieces independently:
 
-- **Bottom-Left Coordinate System**: Uses Y=0 at bottom, Y=19 at top with FALL_STEP (-1) for intuitive downward movement
+- **Bottom-Left Coordinate System**: Uses Y=0 at bottom, Y=15 at top with FALL_STEP (-1) for intuitive downward movement
 - **Independent Die Movement**: Each die in a piece is checked for collision individually during each game tick
 - **Selective Locking**: Only dice that hit obstacles lock to the grid, while others continue falling
 - **Dynamic Piece Fragmentation**: Multi-die pieces naturally break apart as individual dice encounter obstacles
@@ -78,7 +78,7 @@ The game implements a sophisticated collision detection algorithm that handles e
 **Enhanced Safety & Validation Systems**:
 
 - **Robust Error Handling**: Try-catch blocks around die locking operations with graceful failure recovery
-- **Boundary Validation**: Multiple validation layers ensure dice never escape the 10x20 grid (columns 0-9, rows 0-19)
+- **Boundary Validation**: Multiple validation layers ensure dice never escape the 8x16 grid (columns 0-7, rows 0-15)
 - **Position Clamping**: Out-of-bounds dice are automatically clamped to valid positions during locking using GridBoundaryValidator
 - **Array Integrity Checks**: Validates dice indices before removal and handles duplicate/invalid indices
 - **State Consistency Validation**: Comprehensive active piece state validation with automatic recovery
@@ -122,26 +122,39 @@ The game implements a sophisticated collision detection algorithm that handles e
    - 🟣 **Zen** (d4-d10 dice, 1200ms fall speed, 0.9x score multiplier, no gravity) - Relaxed mode
 4. **Start Playing**: Click "START GAME" to begin your Dicetrix adventure
 
+### 🎮 Game Flow & Scenes
+
+The game follows a complete scene progression:
+
+1. **Boot Scene**: Initializes Phaser and loads essential assets
+2. **Preloader Scene**: Loads game assets and shows loading progress
+3. **Start Menu Scene**: 
+   - Features the stylized "DICETRIX" title using custom fonts
+   - Difficulty selection dropdown with color-coded modes
+   - Large "START GAME" button to begin playing
+4. **Game Scene**: The main gameplay experience with individual die physics
+5. **Game Over Scene**: End game results and restart options
+
 ### 🎮 Step-by-Step Gameplay Guide
 
 #### Understanding the Game Interface
 
-**Left Column (Main Game Area)**:
+**Left Side (Main Game Area)**:
 - **Score Display**: Current score shown at the top in gold text with black stroke for visibility
-- **Main Grid**: 10x20 playing field with green grid lines and dark blue background (#071021)
-- **Bottom-Left Coordinates**: Y=0 is at the bottom, Y=19 is at the top of the visible grid
+- **Main Grid**: 8x16 playing field with green grid lines and dark blue background (#071021)
+- **Bottom-Left Coordinates**: Y=0 is at the bottom, Y=15 is at the top of the visible grid
 - **Visual Feedback**: Dice are rendered with colors based on type and show their face numbers clearly
 
-**Right Column (Controls & Info)**:
-- **Next Piece Preview**: 4x4 grid showing your upcoming piece with green border and centered positioning
+**Right Side (Controls & Info)**:
+- **Next Piece Preview**: 4x4 grid showing your upcoming piece with green border and grid-aligned positioning
 - **Control Panel**: 3x2 grid of interactive control buttons with symbols (↺ ⇊ ↻ / ← ⇓ →)
 - **Booster Slots**: 3x3 grid for future power-ups (currently placeholder with green borders)
-- **Leaderboard**: Shows on desktop only (mobile hides for space optimization)
+- **Leaderboard**: Hidden on mobile for space optimization
 
 #### Basic Gameplay Steps
 
 1. **Piece Spawning**: 
-   - Multi-die pieces automatically appear at the top center (X=4, Y=21)
+   - Multi-die pieces automatically appear at the top center (X=4, Y=17)
    - 8 different shapes: Single die, Line2-4, L3-4, Square, T-shape
    - Each piece contains 1-4 dice with random numbers based on difficulty
    - Dice colors are determined by a palette system for visual variety
@@ -152,7 +165,7 @@ The game implements a sophisticated collision detection algorithm that handles e
    - Rotate with ↺ ↻ buttons or Q/R keys (matrix-based rotation with wall kicks)
    - Soft drop with ⇊ button or S key (moves down one step)
    - Hard drop with ⇓ button or Space key (drops to lowest position)
-   - Touch the board directly for grid coordinate conversion
+   - Touch the board directly for precise grid coordinate interaction
 
 3. **Individual Die Physics** (The Innovation):
    - Pieces fall automatically based on difficulty timing (400-1200ms)
@@ -160,7 +173,7 @@ The game implements a sophisticated collision detection algorithm that handles e
    - **Each timer tick checks every die individually for collision**
    - **Only dice that hit obstacles lock to the grid immediately**
    - **Remaining dice continue falling as a smaller active piece**
-   - Pieces fall by decreasing Y coordinates (Y=21→20→19→...→0)
+   - Pieces fall by decreasing Y coordinates (Y=17→16→15→...→0)
    - Safe array management removes locked dice in reverse index order
 
 4. **Creating Matches**:
@@ -183,7 +196,7 @@ The game implements a sophisticated collision detection algorithm that handles e
 - **Master Individual Die Physics**: Understand how pieces fragment as individual dice hit obstacles
 - **Use Next Piece Preview**: Plan positioning using the 4x4 preview grid in the right panel
 - **Triple Strategy Balance**: Consider spatial piece fitting + number positioning + fragmentation prediction
-- **Height Management**: Keep top rows clear to prevent spawn collision game over
+- **Height Management**: Keep top rows clear to prevent spawn collision game over at Y=17
 - **Fragmentation Planning**: Anticipate how pieces will break apart when hitting terrain
 - **Cascade Setup**: Position pieces to create chain reactions (except in Zen mode)
 - **Rotation Mastery**: Use matrix-based rotation with wall kicks for complex maneuvers
@@ -193,7 +206,7 @@ The game implements a sophisticated collision detection algorithm that handles e
 
 **Responsive On-Screen Control Grid (3x2 layout)**:
 
-- **Top Row**: ↺ (rotate left) | ⇊ (soft drop) | ↻ (rotate right)  
+- **Top Row**: ↺ (rotate clockwise) | ⇊ (soft drop) | ↻ (rotate counter-clockwise)  
 - **Bottom Row**: ← (move left) | ⇓ (hard drop) | → (move right)
 - **Visual Feedback**: Green borders brighten on hover, buttons scale based on screen size
 - **Mobile Optimized**: Control size adapts automatically for optimal touch experience
@@ -227,7 +240,7 @@ The game implements a sophisticated collision detection algorithm that handles e
    - 8 different piece shapes: Single, Line2-4, L3-4, Square, T-shape
    - Each piece contains 1-4 dice with random numbers based on difficulty mode
    - Dice colors determined by palette mapping system for visual variety
-   - Pieces spawn at Y=21 with lowest die positioned to enter grid at Y=20
+   - Pieces spawn at Y=17 with lowest die positioned to enter the visible grid quickly
    - Game Over occurs if spawn position is blocked by existing dice
 
 2. **Active Control Phase**: While the piece remains active and controllable
@@ -242,7 +255,7 @@ The game implements a sophisticated collision detection algorithm that handles e
    - **Timer-Based Falling**: Automatic dropping with intervals based on difficulty (400-1200ms)
    - **Individual Die Movement**: Each tick checks every die in the active piece for collision independently
    - **Selective Collision**: Only dice that would collide lock to the grid, others continue falling
-   - **Bottom-Left Coordinate System**: Pieces fall by decreasing Y (Y=21→20→19→...→0), with Y=0 as ground
+   - **Bottom-Left Coordinate System**: Pieces fall by decreasing Y (Y=17→16→15→...→0), with Y=0 as ground
    - **Comprehensive Per-Die Collision Detection**: Each die checked against bottom boundary, grid boundaries, and existing pieces
    - **Position Clamping**: Out-of-bounds dice are clamped to valid positions during individual locking
    - **Dynamic State Transitions**: Pieces transition from "multi-die active" to "partially locked" to "fully locked"
@@ -274,7 +287,7 @@ The game implements a sophisticated collision detection algorithm that handles e
 - **Master Individual Die Physics**: Understand how pieces fragment as individual dice hit obstacles
 - **Utilize Next Piece Preview**: Plan positioning using the 4x4 preview grid in the right panel
 - **Triple Strategy Balance**: Consider spatial piece fitting + number positioning + fragmentation prediction
-- **Height Management**: Keep top rows clear to prevent spawn collision game over at Y=20
+- **Height Management**: Keep top rows clear to prevent spawn collision game over at Y=17
 - **Fragmentation Planning**: Anticipate how pieces will break apart when hitting terrain
 - **Cascade Setup**: Position pieces to create chain reactions (except in Zen mode)
 - **Rotation Mastery**: Use matrix-based rotation with wall kicks for complex maneuvers
@@ -293,8 +306,8 @@ The game implements a sophisticated collision detection algorithm that handles e
 ### 🎲 Advanced Game Systems
 
 - **8 Piece Shapes**: Single, Line2-4, L3-4, Square, T-shape with procedural generation
-- **Atomic Unified Physics**: Revolutionary collision detection with all-or-nothing atomic piece locking
-- **Bottom-Left Coordinate System**: Y=0 at bottom, Y=19 at top with CoordinateConverter for screen mapping
+- **Individual Die Collision Physics**: Revolutionary collision detection where each die can lock independently
+- **Bottom-Left Coordinate System**: Y=0 at bottom, Y=15 at top with CoordinateConverter for screen mapping
 - **Flood-Fill Match Detection**: Advanced algorithm finds connected groups with wild dice support (isWild property)
 - **Cascade System**: Column-based gravity with chain reaction detection (disabled in Zen mode)
 - **5 Difficulty Modes**: Progressive dice types (d4-d20), fall speeds (400-1200ms), score multipliers (0.9x-1.5x)
@@ -304,7 +317,7 @@ The game implements a sophisticated collision detection algorithm that handles e
 
 - **Authoritative GameBoard**: Grid-based state management with comprehensive collision detection
 - **Matrix-Based Rotation**: Sophisticated piece rotation with wall kicks and boundary validation
-- **Asset Management**: Preloaded dice images (d4-d20) with procedural fallback rendering using graphics
+- **Procedural Dice Rendering**: Dynamic dice generation using Phaser graphics with color-coded die types
 - **Performance Optimized**: Container-based sprite management with efficient rendering pipeline
 - **Input Abstraction**: InputHandler class with callback system and cross-platform compatibility
 - **Coordinate Conversion**: CoordinateConverter class handles bottom-left to screen coordinate mapping
@@ -326,6 +339,7 @@ Dicetrix is a **complete, production-ready puzzle game** with all core systems i
 
 ### Recent Updates
 
+- **First Piece Visual Fix Implementation**: Added comprehensive diagnostic timing metrics and validation systems to resolve first piece rendering issues
 - **Enhanced Individual Die Collision System**: Implemented robust per-die collision detection with comprehensive error handling and detailed logging
 - **Advanced Safety Mechanisms**: Added try-catch blocks, boundary validation, and position clamping using GridBoundaryValidator for production stability
 - **Improved Array Management**: Enhanced safe dice removal with duplicate detection and index validation in reverse order
@@ -333,7 +347,8 @@ Dicetrix is a **complete, production-ready puzzle game** with all core systems i
 - **Extensive Logging System**: Detailed collision event tracking and state change logging for debugging collision scenarios
 - **Bottom-Left Coordinate System**: Proper Y=0 at bottom coordinate system with FALL_STEP (-1) for intuitive downward movement
 - **Enhanced Rendering System**: CoordinateConverter handles accurate grid-to-screen coordinate mapping for precise dice positioning
-- **UI Polish**: Responsive layout system with adaptive column sizing and mobile-optimized touch controls
+- **Responsive UI System**: Adaptive layout with 60/40 split for game board and controls, mobile-optimized touch interface
+- **Next Piece Rendering**: Re-enabled next piece preview with grid-aligned positioning in 4x4 display area
 - **Comprehensive Test Suite**: Added extensive test coverage for coordinate conversion, spawning, rotation, and collision systems
 - **Mixed Collision Handling**: Implemented sophisticated logic to handle scenarios where some dice lock while others continue falling
 

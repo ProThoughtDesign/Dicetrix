@@ -1,8 +1,8 @@
 // Basic game configuration constants
 
 export const GAME_CONSTANTS = {
-  GRID_WIDTH: 10,
-  GRID_HEIGHT: 20,
+  GRID_WIDTH: 8,
+  GRID_HEIGHT: 16,
   DEFAULT_CELL_SIZE: 32,
 };
 

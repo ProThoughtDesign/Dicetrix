@@ -5,7 +5,7 @@ export class Grid {
   state: GridState;
   private coordinateConverter: CoordinateConverter;
 
-  constructor(width = 10, height = 20) {
+  constructor(width = 8, height = 16) {
     const cells: Cell[][] = [];
     for (let y = 0; y < height; y++) {
       const row: Cell[] = new Array(width).fill(null);

@@ -4,16 +4,16 @@
  */
 export const GAME_CONSTANTS = {
   // Grid dimensions
-  GRID_WIDTH: 10,
-  GRID_HEIGHT: 20,
+  GRID_WIDTH: 8,
+  GRID_HEIGHT: 16,
   
   // Coordinate system boundaries
   GROUND_Y: 0,        // Bottom of the grid (Y = 0)
-  TOP_Y: 19,          // Top of the visible grid (Y = 19)
-  SPAWN_Y: 21,        // Pieces spawn above the grid (Y = 21 for bottom piece)
+  TOP_Y: 15,          // Top of the visible grid (Y = 15)
+  SPAWN_Y: 13,        // Pieces spawn closer to the grid (Y = 13 for bottom piece)
   
   // Spawn positions
-  SPAWN_X_CENTER: 4,  // Center X position for spawning (grid width / 2 - 1)
+  SPAWN_X_CENTER: 3,  // Center X position for spawning (grid width / 2 - 1)
   
   // Movement constants
   FALL_STEP: -1,      // Y change when falling (decrease Y to move down)
@@ -21,7 +21,7 @@ export const GAME_CONSTANTS = {
   
   // Collision detection
   MIN_VALID_Y: 0,     // Minimum valid Y coordinate
-  MAX_VALID_Y: 19,    // Maximum valid Y coordinate in visible grid
+  MAX_VALID_Y: 15,    // Maximum valid Y coordinate in visible grid
   
   // Visual rendering
   SCREEN_ORIGIN_BOTTOM: true,  // Screen coordinates have bottom-left origin

@@ -29,31 +29,317 @@ export class Game extends Scene {
   private nextSprites: Phaser.GameObjects.Container[] = [];
   private lockedSprites: Phaser.GameObjects.Container[] = [];
 
+  // Diagnostic timing metrics for initialization debugging
+  private initializationMetrics = {
+    sceneCreateStart: 0,
+    backgroundSetComplete: 0,
+    registrySetupComplete: 0,
+    gameBoardInitComplete: 0,
+    coordinateConverterInitComplete: 0,
+    gameUICreateStart: 0,
+    gameUICreateComplete: 0,
+    firstPieceGenerationStart: 0,
+    firstPieceGenerationComplete: 0,
+    firstPieceSpawnStart: 0,
+    firstPieceSpawnComplete: 0,
+    timersSetupComplete: 0,
+    initialRenderStart: 0,
+    initialRenderComplete: 0,
+    sceneCreateEnd: 0,
+  };
+
   constructor() {
     super('Game');
   }
 
+  /**
+   * Validates UI system readiness after GameUI creation
+   */
+  private validateUISystemReadiness(): void {
+    Logger.log('VALIDATION: Checking UI system readiness');
+
+    if (!this.gameUI) {
+      Logger.log('VALIDATION ERROR: GameUI not created');
+      return;
+    }
+
+    // Check if board metrics are available and valid
+    const boardMetrics = (this.gameUI as any).boardMetrics;
+    if (!boardMetrics) {
+      Logger.log('VALIDATION WARNING: Board metrics not available in GameUI');
+    } else {
+      Logger.log(
+        `VALIDATION: Board metrics available - cellW: ${boardMetrics.cellW}, cellH: ${boardMetrics.cellH}`
+      );
+      Logger.log(
+        `VALIDATION: Board dimensions - boardW: ${boardMetrics.boardW}, boardH: ${boardMetrics.boardH}`
+      );
+      Logger.log(
+        `VALIDATION: Board position - boardX: ${boardMetrics.boardX}, boardY: ${boardMetrics.boardY}`
+      );
+
+      if (boardMetrics.cellW <= 0 || boardMetrics.cellH <= 0) {
+        Logger.log('VALIDATION ERROR: Invalid cell dimensions in board metrics');
+      }
+    }
+
+    // Check if next piece metrics are available
+    const nextMetrics = (this.gameUI as any).nextMetrics;
+    if (!nextMetrics) {
+      Logger.log('VALIDATION WARNING: Next piece metrics not available in GameUI');
+    } else {
+      Logger.log(
+        `VALIDATION: Next piece metrics available - cellW: ${nextMetrics.cellW}, cellH: ${nextMetrics.cellH}`
+      );
+    }
+
+    // Check if Phaser scene is ready for sprite creation
+    if (!this.scene || !this.add) {
+      Logger.log('VALIDATION ERROR: Phaser scene or add manager not ready');
+    } else {
+      Logger.log('VALIDATION: Phaser scene and add manager ready');
+    }
+
+    Logger.log('VALIDATION: UI system readiness check complete');
+  }
+
+  /**
+   * Validates the result of first piece spawn
+   */
+  private validateFirstPieceSpawn(): void {
+    Logger.log('VALIDATION: Checking first piece spawn result');
+
+    if (!this.activePiece) {
+      Logger.log('VALIDATION ERROR: No active piece after spawn attempt');
+      return;
+    }
+
+    Logger.log(
+      `VALIDATION: Active piece created - ID: ${this.activePiece.id}, shape: ${this.activePiece.shape}`
+    );
+    Logger.log(`VALIDATION: Active piece position: (${this.activePiece.x}, ${this.activePiece.y})`);
+    Logger.log(`VALIDATION: Active piece rotation: ${this.activePiece.rotation}°`);
+
+    if (!this.activePiece.dice || !Array.isArray(this.activePiece.dice)) {
+      Logger.log('VALIDATION ERROR: Active piece has no dice array');
+      return;
+    }
+
+    Logger.log(`VALIDATION: Active piece has ${this.activePiece.dice.length} dice`);
+
+    this.activePiece.dice.forEach((die: any, index: number) => {
+      Logger.log(
+        `VALIDATION: Die ${index} - ID: ${die.id}, color: ${die.color}, sides: ${die.sides}, number: ${die.number}`
+      );
+      Logger.log(
+        `VALIDATION: Die ${index} relative position: (${die.relativePos.x}, ${die.relativePos.y})`
+      );
+
+      const absoluteX = this.activePiece.x + die.relativePos.x;
+      const absoluteY = this.activePiece.y + die.relativePos.y;
+      Logger.log(`VALIDATION: Die ${index} absolute position: (${absoluteX}, ${absoluteY})`);
+    });
+
+    Logger.log('VALIDATION: First piece spawn validation complete');
+  }
+
+  /**
+   * Validates the result of initial render
+   */
+  private validateInitialRender(): void {
+    Logger.log('VALIDATION: Checking initial render result');
+
+    Logger.log(`VALIDATION: Active sprites count: ${this.activeSprites.length}`);
+    Logger.log(`VALIDATION: Next sprites count: ${this.nextSprites.length}`);
+    Logger.log(`VALIDATION: Locked sprites count: ${this.lockedSprites.length}`);
+
+    if (this.activePiece && this.activePiece.dice) {
+      const expectedActiveSprites = this.activePiece.dice.length;
+      const actualActiveSprites = this.activeSprites.length;
+
+      Logger.log(
+        `VALIDATION: Expected ${expectedActiveSprites} active sprites, got ${actualActiveSprites}`
+      );
+
+      if (expectedActiveSprites !== actualActiveSprites) {
+        Logger.log('VALIDATION ERROR: Mismatch between expected and actual active sprites');
+        Logger.log(
+          'VALIDATION ERROR: This indicates a sprite creation failure for the first piece'
+        );
+      }
+    }
+
+    // Check sprite visibility and properties
+    this.activeSprites.forEach((sprite, index) => {
+      if (sprite) {
+        Logger.log(
+          `VALIDATION: Active sprite ${index} - visible: ${sprite.visible}, alpha: ${sprite.alpha}, x: ${sprite.x}, y: ${sprite.y}`
+        );
+      } else {
+        Logger.log(`VALIDATION ERROR: Active sprite ${index} is null or undefined`);
+      }
+    });
+
+    Logger.log('VALIDATION: Initial render validation complete');
+  }
+
+  /**
+   * Logs a comprehensive summary of the initialization process
+   */
+  private logInitializationSummary(): void {
+    const totalTime =
+      this.initializationMetrics.sceneCreateEnd - this.initializationMetrics.sceneCreateStart;
+
+    Logger.log('=== INITIALIZATION SUMMARY ===');
+    Logger.log(`TOTAL INITIALIZATION TIME: ${totalTime.toFixed(2)}ms`);
+    Logger.log('');
+    Logger.log('TIMING BREAKDOWN:');
+    Logger.log(
+      `  Background setup: ${(this.initializationMetrics.backgroundSetComplete - this.initializationMetrics.sceneCreateStart).toFixed(2)}ms`
+    );
+    Logger.log(
+      `  Registry setup: ${(this.initializationMetrics.registrySetupComplete - this.initializationMetrics.backgroundSetComplete).toFixed(2)}ms`
+    );
+    Logger.log(
+      `  GameBoard init: ${(this.initializationMetrics.gameBoardInitComplete - this.initializationMetrics.registrySetupComplete).toFixed(2)}ms`
+    );
+    Logger.log(
+      `  CoordinateConverter init: ${(this.initializationMetrics.coordinateConverterInitComplete - this.initializationMetrics.gameBoardInitComplete).toFixed(2)}ms`
+    );
+    Logger.log(
+      `  GameUI creation: ${(this.initializationMetrics.gameUICreateComplete - this.initializationMetrics.gameUICreateStart).toFixed(2)}ms`
+    );
+    Logger.log(
+      `  First piece generation: ${(this.initializationMetrics.firstPieceGenerationComplete - this.initializationMetrics.firstPieceGenerationStart).toFixed(2)}ms`
+    );
+    Logger.log(
+      `  First piece spawn: ${(this.initializationMetrics.firstPieceSpawnComplete - this.initializationMetrics.firstPieceSpawnStart).toFixed(2)}ms`
+    );
+    Logger.log(
+      `  Timers setup: ${(this.initializationMetrics.timersSetupComplete - this.initializationMetrics.firstPieceSpawnComplete).toFixed(2)}ms`
+    );
+    Logger.log(
+      `  Initial render: ${(this.initializationMetrics.initialRenderComplete - this.initializationMetrics.initialRenderStart).toFixed(2)}ms`
+    );
+    Logger.log('');
+    Logger.log('CRITICAL TIMING ANALYSIS:');
+
+    const uiCreationTime =
+      this.initializationMetrics.gameUICreateComplete -
+      this.initializationMetrics.gameUICreateStart;
+    const firstSpawnTime =
+      this.initializationMetrics.firstPieceSpawnComplete -
+      this.initializationMetrics.firstPieceSpawnStart;
+    const initialRenderTime =
+      this.initializationMetrics.initialRenderComplete -
+      this.initializationMetrics.initialRenderStart;
+
+    if (uiCreationTime > 100) {
+      Logger.log(
+        `  WARNING: GameUI creation took ${uiCreationTime.toFixed(2)}ms (>100ms threshold)`
+      );
+    }
+
+    if (firstSpawnTime > 50) {
+      Logger.log(
+        `  WARNING: First piece spawn took ${firstSpawnTime.toFixed(2)}ms (>50ms threshold)`
+      );
+    }
+
+    if (initialRenderTime > 100) {
+      Logger.log(
+        `  WARNING: Initial render took ${initialRenderTime.toFixed(2)}ms (>100ms threshold)`
+      );
+    }
+
+    Logger.log('=== END INITIALIZATION SUMMARY ===');
+  }
+
   private renderGameState(): void {
-    if (!this.gameUI) return;
+    const renderStartTime = performance.now();
+    Logger.log('=== RENDER STATE DIAGNOSTIC: Starting renderGameState() ===');
+
+    if (!this.gameUI) {
+      Logger.log('RENDER ERROR: No gameUI available for rendering');
+      return;
+    }
 
     const { boardMetrics, nextMetrics } = this.gameUI;
-    
+
+    // Validate metrics before rendering
+    Logger.log('RENDER METRICS: Validating UI metrics');
+    Logger.log(`RENDER METRICS: Board metrics available: ${!!boardMetrics}`);
+    Logger.log(`RENDER METRICS: Next metrics available: ${!!nextMetrics}`);
+
+    if (boardMetrics) {
+      Logger.log(
+        `RENDER METRICS: Board - cellW: ${boardMetrics.cellW}, cellH: ${boardMetrics.cellH}`
+      );
+      Logger.log(
+        `RENDER METRICS: Board - position: (${boardMetrics.boardX}, ${boardMetrics.boardY})`
+      );
+      Logger.log(
+        `RENDER METRICS: Board - dimensions: ${boardMetrics.boardW}x${boardMetrics.boardH}`
+      );
+      Logger.log(`RENDER METRICS: Board - grid: ${boardMetrics.cols}x${boardMetrics.rows}`);
+    } else {
+      Logger.log('RENDER ERROR: Board metrics not available');
+    }
+
+    if (nextMetrics) {
+      Logger.log(`RENDER METRICS: Next - cellW: ${nextMetrics.cellW}, cellH: ${nextMetrics.cellH}`);
+      Logger.log(`RENDER METRICS: Next - position: (${nextMetrics.nextX}, ${nextMetrics.nextY})`);
+    } else {
+      Logger.log('RENDER WARNING: Next metrics not available');
+    }
+
     // Clear existing sprites
+    const clearStartTime = performance.now();
+    Logger.log('RENDER CLEAR: Clearing existing sprites');
     this.clearSprites();
+    const clearEndTime = performance.now();
+    Logger.log(
+      `RENDER CLEAR: Sprite clearing took ${(clearEndTime - clearStartTime).toFixed(2)}ms`
+    );
 
     // Render active piece
+    const activeRenderStart = performance.now();
+    Logger.log('RENDER ACTIVE: Starting active piece render');
     this.renderActivePiece(boardMetrics);
-    
+    const activeRenderEnd = performance.now();
+    Logger.log(
+      `RENDER ACTIVE: Active piece render took ${(activeRenderEnd - activeRenderStart).toFixed(2)}ms`
+    );
+
     // Render next piece
+    const nextRenderStart = performance.now();
+    Logger.log('RENDER NEXT: Starting next piece render');
     this.renderNextPiece(nextMetrics);
-    
+    const nextRenderEnd = performance.now();
+    Logger.log(
+      `RENDER NEXT: Next piece render took ${(nextRenderEnd - nextRenderStart).toFixed(2)}ms`
+    );
+
     // Render locked pieces
+    const lockedRenderStart = performance.now();
+    Logger.log('RENDER LOCKED: Starting locked pieces render');
     this.renderLockedPieces(boardMetrics);
+    const lockedRenderEnd = performance.now();
+    Logger.log(
+      `RENDER LOCKED: Locked pieces render took ${(lockedRenderEnd - lockedRenderStart).toFixed(2)}ms`
+    );
+
+    const totalRenderTime = performance.now() - renderStartTime;
+    Logger.log(`RENDER COMPLETE: Total renderGameState() time: ${totalRenderTime.toFixed(2)}ms`);
+    Logger.log(
+      `RENDER SUMMARY: Active sprites: ${this.activeSprites.length}, Next sprites: ${this.nextSprites.length}, Locked sprites: ${this.lockedSprites.length}`
+    );
+    Logger.log('=== RENDER STATE DIAGNOSTIC: renderGameState() completed ===');
   }
 
   private clearSprites(): void {
     // Clear active piece sprites
-    this.activeSprites.forEach(sprite => {
+    this.activeSprites.forEach((sprite) => {
       try {
         sprite.destroy();
       } catch (e) {
@@ -63,7 +349,7 @@ export class Game extends Scene {
     this.activeSprites = [];
 
     // Clear next piece sprites
-    this.nextSprites.forEach(sprite => {
+    this.nextSprites.forEach((sprite) => {
       try {
         sprite.destroy();
       } catch (e) {
@@ -75,74 +361,233 @@ export class Game extends Scene {
 
   private renderActivePiece(boardMetrics: any): void {
     if (!this.activePiece || !this.activePiece.dice || this.activePiece.dice.length === 0) {
+      Logger.log('RENDER ACTIVE: No active piece or dice to render');
       return;
     }
 
-    Logger.log(`Rendering active piece with ${this.activePiece.dice.length} dice`);
+    Logger.log(
+      `RENDER ACTIVE: Starting render of active piece with ${this.activePiece.dice.length} dice`
+    );
+    Logger.log(
+      `RENDER ACTIVE: Piece position: (${this.activePiece.x}, ${this.activePiece.y}), shape: ${this.activePiece.shape}`
+    );
+    Logger.log(
+      `RENDER ACTIVE: Board metrics available: ${!!boardMetrics}, cellW: ${boardMetrics?.cellW}, cellH: ${boardMetrics?.cellH}`
+    );
+
+    let successfulSprites = 0;
+    let failedSprites = 0;
 
     this.activePiece.dice.forEach((die: any, index: number) => {
+      const renderStartTime = performance.now();
       const gridX = this.activePiece.x + die.relativePos.x;
       const gridY = this.activePiece.y + die.relativePos.y;
-      
+
+      Logger.log(
+        `RENDER ACTIVE DIE ${index}: Starting render for die ID=${die.id}, color=${die.color}, sides=${die.sides}`
+      );
+      Logger.log(
+        `RENDER ACTIVE DIE ${index}: Relative pos=(${die.relativePos.x}, ${die.relativePos.y}), absolute grid pos=(${gridX}, ${gridY})`
+      );
+
+      // Validate coordinate conversion inputs
+      if (!this.coordinateConverter) {
+        Logger.log(`RENDER ACTIVE DIE ${index}: ERROR - CoordinateConverter not available`);
+        failedSprites++;
+        return;
+      }
+
+      if (
+        !boardMetrics ||
+        typeof boardMetrics.cellW !== 'number' ||
+        typeof boardMetrics.cellH !== 'number'
+      ) {
+        Logger.log(
+          `RENDER ACTIVE DIE ${index}: ERROR - Invalid board metrics: ${JSON.stringify(boardMetrics)}`
+        );
+        failedSprites++;
+        return;
+      }
+
       // Convert grid coordinates to screen pixel coordinates using CoordinateConverter
       const screenPos = this.coordinateConverter.gridToScreen(gridX, gridY, boardMetrics);
+      Logger.log(
+        `RENDER ACTIVE DIE ${index}: Coordinate conversion: grid(${gridX}, ${gridY}) -> screen(${screenPos.x}, ${screenPos.y})`
+      );
 
-      const sprite = drawDie(
-        this,
-        screenPos.x,
-        screenPos.y,
-        boardMetrics.cellW,
-        boardMetrics.cellH,
-        die
-      ) as Phaser.GameObjects.Container | null;
-      
-      if (sprite) {
-        this.activeSprites.push(sprite);
-        Logger.log(`Created active sprite ${index} at bottom-left grid(${gridX}, ${gridY}) -> screen(${screenPos.x}, ${screenPos.y})`);
+      // Validate screen position
+      if (
+        typeof screenPos.x !== 'number' ||
+        typeof screenPos.y !== 'number' ||
+        !isFinite(screenPos.x) ||
+        !isFinite(screenPos.y)
+      ) {
+        Logger.log(
+          `RENDER ACTIVE DIE ${index}: ERROR - Invalid screen position: (${screenPos.x}, ${screenPos.y})`
+        );
+        failedSprites++;
+        return;
+      }
+
+      // Attempt sprite creation with detailed logging
+      Logger.log(
+        `RENDER ACTIVE DIE ${index}: Attempting sprite creation at screen(${screenPos.x}, ${screenPos.y}) with size(${boardMetrics.cellW}, ${boardMetrics.cellH})`
+      );
+
+      try {
+        const sprite = drawDie(
+          this,
+          screenPos.x,
+          screenPos.y,
+          boardMetrics.cellW,
+          boardMetrics.cellH,
+          die
+        ) as Phaser.GameObjects.Container | null;
+
+        const renderEndTime = performance.now();
+        const renderDuration = renderEndTime - renderStartTime;
+
+        if (sprite) {
+          this.activeSprites.push(sprite);
+          successfulSprites++;
+          Logger.log(
+            `RENDER ACTIVE DIE ${index}: SUCCESS - Created sprite in ${renderDuration.toFixed(2)}ms at screen(${screenPos.x}, ${screenPos.y})`
+          );
+          Logger.log(
+            `RENDER ACTIVE DIE ${index}: Sprite properties: visible=${sprite.visible}, alpha=${sprite.alpha}, scale=${sprite.scale}`
+          );
+        } else {
+          failedSprites++;
+          Logger.log(
+            `RENDER ACTIVE DIE ${index}: FAILED - drawDie returned null after ${renderDuration.toFixed(2)}ms`
+          );
+        }
+      } catch (error) {
+        failedSprites++;
+        const renderEndTime = performance.now();
+        const renderDuration = renderEndTime - renderStartTime;
+        Logger.log(
+          `RENDER ACTIVE DIE ${index}: ERROR - Exception during sprite creation after ${renderDuration.toFixed(2)}ms: ${error}`
+        );
       }
     });
+
+    Logger.log(
+      `RENDER ACTIVE: Completed - ${successfulSprites} successful, ${failedSprites} failed sprites`
+    );
+    Logger.log(`RENDER ACTIVE: Total active sprites now: ${this.activeSprites.length}`);
   }
 
   private renderNextPiece(nextMetrics: any): void {
     if (!this.nextPiece || !this.nextPiece.dice) {
+      Logger.log('RENDER NEXT: No next piece or dice to render');
       return;
     }
 
-    Logger.log(`Rendering next piece with ${this.nextPiece.dice.length} dice`);
+    Logger.log(
+      `RENDER NEXT: Starting render of next piece with ${this.nextPiece.dice.length} dice`
+    );
+    Logger.log(`RENDER NEXT: Piece shape: ${this.nextPiece.shape}, ID: ${this.nextPiece.id}`);
+    Logger.log(
+      `RENDER NEXT: Next metrics available: ${!!nextMetrics}, cellW: ${nextMetrics?.cellW}, cellH: ${nextMetrics?.cellH}`
+    );
+    Logger.log(
+      `RENDER NEXT: Local coords - nextX: ${nextMetrics?.nextX}, nextY: ${nextMetrics?.nextY}`
+    );
+    Logger.log(
+      `RENDER NEXT: Global coords - globalNextX: ${nextMetrics?.globalNextX}, globalNextY: ${nextMetrics?.globalNextY}`
+    );
 
-    // Find bounding box to center the piece
+    // Find the minimum coordinates to align piece to bottom-left of display area
     const minX = Math.min(...this.nextPiece.dice.map((die: any) => die.relativePos.x));
-    const maxX = Math.max(...this.nextPiece.dice.map((die: any) => die.relativePos.x));
     const minY = Math.min(...this.nextPiece.dice.map((die: any) => die.relativePos.y));
-    const maxY = Math.max(...this.nextPiece.dice.map((die: any) => die.relativePos.y));
 
-    const pieceWidth = maxX - minX + 1;
-    const pieceHeight = maxY - minY + 1;
+    Logger.log(`RENDER NEXT: Piece bounds - minX: ${minX}, minY: ${minY}`);
 
-    // Center in 4x4 grid
-    const offsetX = (4 - pieceWidth) / 2 - minX;
-    const offsetY = (4 - pieceHeight) / 2 - minY;
+    // Align piece to bottom-left of next piece display (grid-aligned, not centered)
+    // Offset to normalize the piece so its bottom-left die starts at (0,0) in the display
+    const offsetX = -minX;
+    const offsetY = -minY;
+
+    Logger.log(
+      `RENDER NEXT: Using grid-aligned positioning - offsetX: ${offsetX}, offsetY: ${offsetY}`
+    );
+
+    let successfulSprites = 0;
+    let failedSprites = 0;
 
     this.nextPiece.dice.forEach((die: any, index: number) => {
+      const renderStartTime = performance.now();
+
+      // Apply offset to align piece to grid
       const gridX = die.relativePos.x + offsetX;
       const gridY = die.relativePos.y + offsetY;
-      const px = nextMetrics.nextX + gridX * nextMetrics.cellW;
-      const py = nextMetrics.nextY + gridY * nextMetrics.cellH;
 
-      const sprite = drawDie(
-        this,
-        px,
-        py,
-        nextMetrics.cellW,
-        nextMetrics.cellH,
-        die
-      ) as Phaser.GameObjects.Container | null;
-      
-      if (sprite) {
-        this.nextSprites.push(sprite);
-        Logger.log(`Created next sprite ${index} at bottom-left grid(${gridX}, ${gridY})`);
+      // Calculate global pixel position for sprite rendering
+      // Use global coordinates since sprites are added to the main scene, not the right column container
+      const px = nextMetrics.globalNextX + gridX * nextMetrics.cellW;
+      const py = nextMetrics.globalNextY + gridY * nextMetrics.cellH;
+
+      Logger.log(
+        `RENDER NEXT DIE ${index}: Die ID=${die.id}, color=${die.color}, sides=${die.sides}`
+      );
+      Logger.log(
+        `RENDER NEXT DIE ${index}: Relative pos=(${die.relativePos.x}, ${die.relativePos.y}), grid pos=(${gridX}, ${gridY})`
+      );
+      Logger.log(`RENDER NEXT DIE ${index}: Pixel position=(${px}, ${py})`);
+
+      // Validate pixel position
+      if (typeof px !== 'number' || typeof py !== 'number' || !isFinite(px) || !isFinite(py)) {
+        Logger.log(`RENDER NEXT DIE ${index}: ERROR - Invalid pixel position: (${px}, ${py})`);
+        failedSprites++;
+        return;
+      }
+
+      try {
+        const sprite = drawDie(
+          this,
+          px,
+          py,
+          nextMetrics.cellW,
+          nextMetrics.cellH,
+          die
+        ) as Phaser.GameObjects.Container | null;
+
+        const renderEndTime = performance.now();
+        const renderDuration = renderEndTime - renderStartTime;
+
+        if (sprite) {
+          this.nextSprites.push(sprite);
+          successfulSprites++;
+          Logger.log(
+            `RENDER NEXT DIE ${index}: SUCCESS - Created sprite in ${renderDuration.toFixed(2)}ms at pixel(${px}, ${py})`
+          );
+          Logger.log(
+            `RENDER NEXT DIE ${index}: Sprite properties: visible=${sprite.visible}, alpha=${sprite.alpha}, scale=${sprite.scale}`
+          );
+        } else {
+          failedSprites++;
+          Logger.log(
+            `RENDER NEXT DIE ${index}: FAILED - drawDie returned null after ${renderDuration.toFixed(2)}ms`
+          );
+        }
+      } catch (error) {
+        failedSprites++;
+        const renderEndTime = performance.now();
+        const renderDuration = renderEndTime - renderStartTime;
+        Logger.log(
+          `RENDER NEXT DIE ${index}: ERROR - Exception during sprite creation after ${renderDuration.toFixed(2)}ms: ${error}`
+        );
       }
     });
+
+    Logger.log(
+      `RENDER NEXT: Completed - ${successfulSprites} successful, ${failedSprites} failed sprites`
+    );
+    Logger.log(`RENDER NEXT: Total next sprites now: ${this.nextSprites.length}`);
+    Logger.log(
+      `RENDER NEXT: Next piece positioned with grid alignment (bottom-left aligned, not centered)`
+    );
   }
 
   private renderLockedPieces(boardMetrics: any): void {
@@ -151,7 +596,7 @@ export class Game extends Scene {
     const { height, width, cells } = this.gameBoard.state;
 
     // Clear old locked sprites
-    this.lockedSprites.forEach(sprite => {
+    this.lockedSprites.forEach((sprite) => {
       try {
         sprite.destroy();
       } catch (e) {
@@ -166,7 +611,7 @@ export class Game extends Scene {
       const arrayY = this.coordinateConverter.gridToArrayY(gridY);
       const row = cells[arrayY];
       if (!row) continue;
-      
+
       for (let gridX = 0; gridX < width; gridX++) {
         const die = row[gridX];
         if (!die) continue;
@@ -182,7 +627,7 @@ export class Game extends Scene {
           boardMetrics.cellH,
           die
         ) as Phaser.GameObjects.Container | null;
-        
+
         if (sprite) {
           this.lockedSprites.push(sprite);
         }
@@ -318,37 +763,87 @@ export class Game extends Scene {
   }
 
   private spawnPiece(): void {
-    Logger.log('spawnPiece() called');
+    const spawnStartTime = performance.now();
+    Logger.log('=== SPAWN PIECE DIAGNOSTIC: Starting spawnPiece() ===');
+    Logger.log(`SPAWN TIMING: spawnPiece() called at ${spawnStartTime}ms`);
+
+    // Validate system readiness before spawning
     if (!this.gameBoard) {
-      Logger.log('ERROR: No gameBoard in spawnPiece');
+      Logger.log('SPAWN ERROR: No gameBoard available in spawnPiece');
+      return;
+    }
+
+    if (!this.coordinateConverter) {
+      Logger.log('SPAWN ERROR: No coordinateConverter available in spawnPiece');
+      return;
+    }
+
+    if (!this.gameUI) {
+      Logger.log('SPAWN ERROR: No gameUI available in spawnPiece');
       return;
     }
 
     const w = this.gameBoard.state.width;
-    Logger.log(`Grid width: ${w}`);
+    Logger.log(`SPAWN STATE: Grid width: ${w}, height: ${this.gameBoard.state.height}`);
+    Logger.log(`SPAWN STATE: CoordinateConverter ready: ${!!this.coordinateConverter}`);
+    Logger.log(`SPAWN STATE: GameUI ready: ${!!this.gameUI}`);
+
+    // Check UI metrics availability
+    const boardMetrics = (this.gameUI as any).boardMetrics;
+    const nextMetrics = (this.gameUI as any).nextMetrics;
+    Logger.log(`SPAWN STATE: Board metrics available: ${!!boardMetrics}`);
+    Logger.log(`SPAWN STATE: Next metrics available: ${!!nextMetrics}`);
+
+    if (boardMetrics) {
+      Logger.log(
+        `SPAWN STATE: Board metrics - cellW: ${boardMetrics.cellW}, cellH: ${boardMetrics.cellH}`
+      );
+      Logger.log(
+        `SPAWN STATE: Board metrics - boardX: ${boardMetrics.boardX}, boardY: ${boardMetrics.boardY}`
+      );
+    }
 
     // If there's a nextPiece preview, promote it to active; otherwise generate new
     const next = this.nextPiece;
     let pieceToUse = next || this.generateMultiDiePiece();
 
     if (next) {
-      Logger.log(`Using next piece: ${next.shape} with ${next.dice.length} dice`);
+      Logger.log(
+        `SPAWN PIECE: Using existing next piece: ${next.shape} with ${next.dice.length} dice`
+      );
+      Logger.log(`SPAWN PIECE: Next piece ID: ${next.id}, rotation: ${next.rotation}°`);
     } else {
-      Logger.log('Generated new piece');
+      Logger.log('SPAWN PIECE: No next piece available, generated new piece');
+      Logger.log(
+        `SPAWN PIECE: Generated piece: ${pieceToUse.shape} with ${pieceToUse.dice.length} dice`
+      );
     }
+
+    // Log piece dice details
+    pieceToUse.dice.forEach((die: any, index: number) => {
+      Logger.log(
+        `SPAWN PIECE DIE ${index}: ID=${die.id}, color=${die.color}, sides=${die.sides}, relativePos=(${die.relativePos.x}, ${die.relativePos.y})`
+      );
+    });
 
     // Position piece ABOVE the grid using bottom-left coordinate system
     const x = GAME_CONSTANTS.SPAWN_X_CENTER; // Use constant for spawn X position
-    
+
     // Find the lowest die in the piece (smallest Y in relative coordinates)
     const minRelativeY = Math.min(...pieceToUse.dice.map((die: any) => die.relativePos.y));
-    
-    // Calculate spawn Y position using constants: spawn so the lowest die starts above visible grid
-    // When it falls one step, lowest die will be at Y=20, then Y=19 (top of grid)
+
+    // Calculate spawn Y position using constants: spawn so the lowest die starts closer to visible grid
+    // When it falls one step, lowest die will be at Y=16, then Y=15, etc.
     const spawnY = SPAWN_POSITIONS.calculateSpawnY(minRelativeY);
-    
-    Logger.log(`Spawning piece with bottom-left coordinates: minRelativeY=${minRelativeY}, spawnY=${spawnY}, so lowest die starts at Y=${spawnY + minRelativeY} (should be 21)`);
-    
+
+    Logger.log(`SPAWN POSITION: Calculated spawn position with bottom-left coordinates:`);
+    Logger.log(`SPAWN POSITION: - Spawn X: ${x} (center of grid)`);
+    Logger.log(`SPAWN POSITION: - Min relative Y: ${minRelativeY}`);
+    Logger.log(`SPAWN POSITION: - Calculated spawn Y: ${spawnY}`);
+    Logger.log(
+      `SPAWN POSITION: - Lowest die absolute Y: ${spawnY + minRelativeY} (should be 17 for closer spawn)`
+    );
+
     // Create the piece object to test collision
     const newActivePiece = {
       ...pieceToUse,
@@ -356,26 +851,61 @@ export class Game extends Scene {
       y: spawnY,
     };
 
+    Logger.log(`SPAWN COLLISION: Testing piece placement at (${x}, ${spawnY})`);
+
     // Check if the piece can enter the grid (game over condition)
-    // Try to move the piece down one step to see if it can enter the grid from Y=21 to Y=20
+    // Try to move the piece down one step to see if it can enter the grid from Y=17 to Y=16
     const enterGridY = spawnY - 1; // Moving down means decreasing Y in bottom-left system
+    Logger.log(`SPAWN COLLISION: Testing grid entry from Y=${spawnY} to Y=${enterGridY}`);
+
     if (!this.canPlacePiece(newActivePiece, x, enterGridY)) {
-      Logger.log(`GAME OVER: Cannot enter grid - collision detected when trying to move from Y=${spawnY} to Y=${enterGridY}`);
+      Logger.log(
+        `SPAWN GAME OVER: Cannot enter grid - collision detected when trying to move from Y=${spawnY} to Y=${enterGridY}`
+      );
       // Game over - transition to GameOver scene
       this.scene.start('GameOver');
       return;
     }
 
+    Logger.log(`SPAWN COLLISION: Grid entry test passed - piece can spawn safely`);
+
     this.activePiece = newActivePiece;
-    Logger.log(`Spawned active piece at bottom-left coordinates x=${x}, Y=${spawnY}: ${newActivePiece.shape}`);
+    const spawnCompleteTime = performance.now();
+    Logger.log(
+      `SPAWN SUCCESS: Active piece created at bottom-left coordinates (${x}, ${spawnY}): ${newActivePiece.shape}`
+    );
+    Logger.log(
+      `SPAWN SUCCESS: Piece spawn took ${(spawnCompleteTime - spawnStartTime).toFixed(2)}ms`
+    );
+
+    // Log final active piece state
+    Logger.log(`SPAWN RESULT: Active piece final state:`);
+    Logger.log(`SPAWN RESULT: - ID: ${this.activePiece.id}`);
+    Logger.log(`SPAWN RESULT: - Shape: ${this.activePiece.shape}`);
+    Logger.log(`SPAWN RESULT: - Position: (${this.activePiece.x}, ${this.activePiece.y})`);
+    Logger.log(`SPAWN RESULT: - Rotation: ${this.activePiece.rotation}°`);
+    Logger.log(`SPAWN RESULT: - Dice count: ${this.activePiece.dice.length}`);
 
     // Generate fresh nextPiece for preview
+    const nextGenStartTime = performance.now();
     this.nextPiece = this.generateMultiDiePiece();
-    Logger.log(`Generated next piece: ${this.nextPiece.shape}`);
+    const nextGenEndTime = performance.now();
+    Logger.log(
+      `SPAWN NEXT: Generated next piece: ${this.nextPiece.shape} in ${(nextGenEndTime - nextGenStartTime).toFixed(2)}ms`
+    );
 
-    // render update
+    // Render update with timing
+    const renderStartTime = performance.now();
+    Logger.log('SPAWN RENDER: Starting renderGameState() call');
     this.renderGameState();
-    Logger.log('spawnPiece() completed');
+    const renderEndTime = performance.now();
+    Logger.log(
+      `SPAWN RENDER: renderGameState() completed in ${(renderEndTime - renderStartTime).toFixed(2)}ms`
+    );
+
+    const totalSpawnTime = performance.now() - spawnStartTime;
+    Logger.log(`SPAWN COMPLETE: Total spawnPiece() time: ${totalSpawnTime.toFixed(2)}ms`);
+    Logger.log('=== SPAWN PIECE DIAGNOSTIC: spawnPiece() completed ===');
   }
 
   /**
@@ -419,13 +949,15 @@ export class Game extends Scene {
     }
 
     // Log initial active piece state for debugging
-    Logger.log(`COLLISION DETECTION: Active piece "${active.shape || 'unknown'}" at bottom-left coordinates (${active.x}, ${active.y}) with ${active.dice.length} unlocked dice`);
+    Logger.log(
+      `COLLISION DETECTION: Active piece "${active.shape || 'unknown'}" at bottom-left coordinates (${active.x}, ${active.y}) with ${active.dice.length} unlocked dice`
+    );
     Logger.log(`PIECE STATE: ID=${active.id}, rotation=${active.rotation}°`);
 
     // Enhanced validation and error handling before processing
     const preProcessValidation = this.validateActivePieceState();
     Logger.log(`PRE-PROCESS VALIDATION: ${preProcessValidation ? 'PASSED' : 'FAILED'}`);
-    
+
     if (!preProcessValidation) {
       Logger.log('PRE-PROCESS VALIDATION FAILED: Attempting error recovery');
       const recoverySuccess = this.handleActivePieceErrors('stepDrop pre-process validation');
@@ -433,7 +965,7 @@ export class Game extends Scene {
         Logger.log('ERROR RECOVERY FAILED: Aborting stepDrop operation');
         return;
       }
-      
+
       // Re-validate after recovery
       const postRecoveryValidation = this.validateActivePieceState();
       if (!postRecoveryValidation) {
@@ -457,7 +989,9 @@ export class Game extends Scene {
     // Sort bottom (low Y) first so that locking a lower die updates the grid for upper dice
     diceInfos.sort((a, b) => a.absY - b.absY || a.absX - b.absX);
 
-    Logger.log(`INDIVIDUAL DIE ANALYSIS (BOTTOM-UP): Processing ${diceInfos.length} dice for collision/locking`);
+    Logger.log(
+      `INDIVIDUAL DIE ANALYSIS (BOTTOM-UP): Processing ${diceInfos.length} dice for collision/locking`
+    );
 
     const successfullyLocked: number[] = [];
     const lockingErrors: Array<{ index: number; error: string }> = [];
@@ -469,7 +1003,9 @@ export class Game extends Scene {
       const attemptedY = absY + GAME_CONSTANTS.FALL_STEP; // -1 step
 
       Logger.log(`DIE ${index} POSITION ANALYSIS:`);
-      Logger.log(`  - Die ID: ${die.id}, Color: ${die.color}, Sides: ${die.sides}, Number: ${die.number}`);
+      Logger.log(
+        `  - Die ID: ${die.id}, Color: ${die.color}, Sides: ${die.sides}, Number: ${die.number}`
+      );
       Logger.log(`  - Relative position: (${die.relativePos.x}, ${die.relativePos.y})`);
       Logger.log(`  - Current absolute position: (${absX}, ${absY})`);
       Logger.log(`  - Attempted position after fall: (${attemptedX}, ${attemptedY})`);
@@ -477,22 +1013,38 @@ export class Game extends Scene {
       const hitBottom = attemptedY < GAME_CONSTANTS.GROUND_Y;
       const outOfBounds = absX < 0 || absX >= this.gameBoard.state.width;
       // Important: check against the authoritative grid so any previously locked dice in this same loop are taken into account
-      const hitPiece = attemptedY >= GAME_CONSTANTS.GROUND_Y &&
-                       attemptedY <= GAME_CONSTANTS.MAX_VALID_Y &&
-                       !this.gameBoard.isEmpty(attemptedX, attemptedY);
+      const hitPiece =
+        attemptedY >= GAME_CONSTANTS.GROUND_Y &&
+        attemptedY <= GAME_CONSTANTS.MAX_VALID_Y &&
+        !this.gameBoard.isEmpty(attemptedX, attemptedY);
 
-      Logger.log(`DIE ${index} COLLISION CHECKS: hitBottom=${hitBottom}, outOfBounds=${outOfBounds}, hitPiece=${hitPiece}`);
+      Logger.log(
+        `DIE ${index} COLLISION CHECKS: hitBottom=${hitBottom}, outOfBounds=${outOfBounds}, hitPiece=${hitPiece}`
+      );
 
       if (hitBottom || outOfBounds || hitPiece) {
         // Immediately lock this die into the grid so that upper dice will see it as an obstacle
         let finalX = Math.max(0, Math.min(absX, this.gameBoard.state.width - 1));
-        let finalY = Math.max(GAME_CONSTANTS.MIN_VALID_Y, Math.min(absY, GAME_CONSTANTS.MAX_VALID_Y));
+        let finalY = Math.max(
+          GAME_CONSTANTS.MIN_VALID_Y,
+          Math.min(absY, GAME_CONSTANTS.MAX_VALID_Y)
+        );
         let positionClamped = false;
 
         // Use GridBoundaryValidator to clamp if needed
-        const isValidPosition = GridBoundaryValidator.validatePosition(finalX, finalY, this.gameBoard.state.width, this.gameBoard.state.height);
+        const isValidPosition = GridBoundaryValidator.validatePosition(
+          finalX,
+          finalY,
+          this.gameBoard.state.width,
+          this.gameBoard.state.height
+        );
         if (!isValidPosition) {
-          const clamped = GridBoundaryValidator.clampPosition(finalX, finalY, this.gameBoard.state.width, this.gameBoard.state.height);
+          const clamped = GridBoundaryValidator.clampPosition(
+            finalX,
+            finalY,
+            this.gameBoard.state.width,
+            this.gameBoard.state.height
+          );
           finalX = clamped.x;
           finalY = clamped.y;
           positionClamped = true;
@@ -503,7 +1055,9 @@ export class Game extends Scene {
           Logger.log(`LOCKING DIE ${index}: locking immediately at (${finalX}, ${finalY})`);
           // Use batched lock: write to grid but defer match detection until after the batch
           this.gameBoard.lockCell({ x: finalX, y: finalY }, die);
-          Logger.log(`LOCK SUCCESS: Die ${index} provisionally locked at (${finalX}, ${finalY})${positionClamped ? ' (clamped)' : ''}`);
+          Logger.log(
+            `LOCK SUCCESS: Die ${index} provisionally locked at (${finalX}, ${finalY})${positionClamped ? ' (clamped)' : ''}`
+          );
           successfullyLocked.push(index);
         } catch (err) {
           const errorMsg = `Failed to lock die ${index} at (${finalX}, ${finalY}): ${err}`;
@@ -512,7 +1066,9 @@ export class Game extends Scene {
         }
       } else {
         // No collision for this die at this time; it can continue falling
-        Logger.log(`DIE ${index} COLLISION RESULT: CONTINUE FALLING -> will attempt to move to (${attemptedX}, ${attemptedY})`);
+        Logger.log(
+          `DIE ${index} COLLISION RESULT: CONTINUE FALLING -> will attempt to move to (${attemptedX}, ${attemptedY})`
+        );
         diceToContinue.push({ die, index });
       }
     }
@@ -522,20 +1078,28 @@ export class Game extends Scene {
     Logger.log(`  - Total dice processed: ${diceInfos.length}`);
     Logger.log(`  - Dice locked this step: ${successfullyLocked.length}`);
     Logger.log(`  - Dice to continue falling: ${diceToContinue.length}`);
-    Logger.log(`  - Collision scenario: ${this.getCollisionScenarioName(successfullyLocked.length, diceToContinue.length)}`);
+    Logger.log(
+      `  - Collision scenario: ${this.getCollisionScenarioName(successfullyLocked.length, diceToContinue.length)}`
+    );
 
     if (lockingErrors.length > 0) {
       Logger.log(`LOCKING ERRORS (${lockingErrors.length}):`);
-      lockingErrors.forEach(le => Logger.log(`  - Index ${le.index}: ${le.error}`));
+      lockingErrors.forEach((le) => Logger.log(`  - Index ${le.index}: ${le.error}`));
     }
 
     // Remove successfully locked dice from the active piece using safe removal
     if (successfullyLocked.length > 0) {
-      Logger.log(`DICE REMOVAL: Removing ${successfullyLocked.length} successfully locked dice from active piece`);
+      Logger.log(
+        `DICE REMOVAL: Removing ${successfullyLocked.length} successfully locked dice from active piece`
+      );
       const removedCount = this.safeRemoveDiceByIndices(successfullyLocked);
-      Logger.log(`DICE REMOVAL RESULT: Expected to remove ${successfullyLocked.length}, actually removed ${removedCount}`);
+      Logger.log(
+        `DICE REMOVAL RESULT: Expected to remove ${successfullyLocked.length}, actually removed ${removedCount}`
+      );
       if (removedCount !== successfullyLocked.length) {
-        Logger.log(`WARNING: Dice removal count mismatch - expected ${successfullyLocked.length}, removed ${removedCount}`);
+        Logger.log(
+          `WARNING: Dice removal count mismatch - expected ${successfullyLocked.length}, removed ${removedCount}`
+        );
       }
 
       // Validate post-removal state
@@ -584,7 +1148,11 @@ export class Game extends Scene {
           }
 
           const footerText = msgs.join(' | ');
-          try { this.gameUI?.updateMatchFooter(footerText); } catch (e) { /* ignore UI errors */ }
+          try {
+            this.gameUI?.updateMatchFooter(footerText);
+          } catch (e) {
+            /* ignore UI errors */
+          }
 
           // Animate matched positions before clearing
           try {
@@ -598,7 +1166,7 @@ export class Game extends Scene {
 
           // Clear matched positions from authoritative grid
           try {
-            const clearPositions = allPositions.map(p => ({ x: p.x, y: p.y }));
+            const clearPositions = allPositions.map((p) => ({ x: p.x, y: p.y }));
             // Before clearing, compute score for each match group using authoritative grid
             for (const m of cascadeMatches) {
               const positions = (m.positions || []) as Array<{ x: number; y: number }>;
@@ -609,7 +1177,7 @@ export class Game extends Scene {
               let facesTotal = 0;
               for (const p of positions) {
                 const die = this.gameBoard.getCell(p as any);
-                if (die) facesTotal += (die.sides || 0);
+                if (die) facesTotal += die.sides || 0;
               }
 
               const base = size * (matchedNumber as number);
@@ -633,14 +1201,22 @@ export class Game extends Scene {
           } catch (e) {
             Logger.log(`ERROR: applyGravity/animate failed: ${e}`);
             // As fallback, apply gravity and re-render
-            try { applyGravity(this.gameBoard.state); } catch (ee) { /* ignore */ }
+            try {
+              applyGravity(this.gameBoard.state);
+            } catch (ee) {
+              /* ignore */
+            }
             this.renderGameState();
           }
 
           // Update score for this cascade iteration and propagate to UI
           if (cascadeIterationScore > 0) {
             this.score += cascadeIterationScore;
-            try { this.gameUI?.updateScore(this.score); } catch (e) { /* ignore UI */ }
+            try {
+              this.gameUI?.updateScore(this.score);
+            } catch (e) {
+              /* ignore UI */
+            }
           }
 
           // Detect again for potential cascades
@@ -656,26 +1232,37 @@ export class Game extends Scene {
 
     // Handle piece movement based on collision scenarios
     Logger.log(`\nPIECE MOVEMENT LOGIC:`);
-    const scenarioName = this.getCollisionScenarioName(successfullyLocked.length, diceToContinue.length);
+    const scenarioName = this.getCollisionScenarioName(
+      successfullyLocked.length,
+      diceToContinue.length
+    );
     Logger.log(`MOVEMENT SCENARIO: ${scenarioName}`);
-    
+
     if (diceToContinue.length > 0 && successfullyLocked.length === 0) {
       // Scenario 1: No collisions - move entire piece down
       const oldY = active.y;
       active.y += GAME_CONSTANTS.FALL_STEP; // FALL_STEP is -1, so this decreases Y (moves down)
-      Logger.log(`NO COLLISIONS: Moving entire piece from Y=${oldY} to Y=${active.y} (${Math.abs(GAME_CONSTANTS.FALL_STEP)} units down)`);
+      Logger.log(
+        `NO COLLISIONS: Moving entire piece from Y=${oldY} to Y=${active.y} (${Math.abs(GAME_CONSTANTS.FALL_STEP)} units down)`
+      );
       Logger.log(`PIECE MOVEMENT: All ${diceToContinue.length} dice continue falling together`);
     } else if (diceToContinue.length > 0 && successfullyLocked.length > 0) {
       // Scenario 3: Mixed collisions - some dice lock, others continue falling
       // The remaining dice should continue falling, so move the piece down
       const oldY = active.y;
       active.y += GAME_CONSTANTS.FALL_STEP; // FALL_STEP is -1, so this decreases Y (moves down)
-      Logger.log(`MIXED COLLISION: ${successfullyLocked.length} dice locked, ${diceToContinue.length} dice continue falling`);
+      Logger.log(
+        `MIXED COLLISION: ${successfullyLocked.length} dice locked, ${diceToContinue.length} dice continue falling`
+      );
       Logger.log(`PIECE MOVEMENT: Moving piece from Y=${oldY} to Y=${active.y} for remaining dice`);
-      Logger.log(`CONTINUING DICE: ${diceToContinue.map(d => `Die ${d.index} (ID: ${d.die.id})`).join(', ')}`);
+      Logger.log(
+        `CONTINUING DICE: ${diceToContinue.map((d) => `Die ${d.index} (ID: ${d.die.id})`).join(', ')}`
+      );
     } else if (diceToContinue.length === 0 && successfullyLocked.length > 0) {
       // Scenario 2: All collisions - all dice locked, no movement needed
-      Logger.log(`ALL COLLISIONS: ${successfullyLocked.length} dice locked, no remaining dice to move`);
+      Logger.log(
+        `ALL COLLISIONS: ${successfullyLocked.length} dice locked, no remaining dice to move`
+      );
       Logger.log(`PIECE MOVEMENT: No movement - piece will be finalized`);
     } else {
       // Edge case: no dice in either category (shouldn't happen)
@@ -685,34 +1272,38 @@ export class Game extends Scene {
 
     // Log final active piece state
     const finalDiceCount = active.dice ? active.dice.length : 0;
-    Logger.log(`FINAL ACTIVE PIECE STATE: ${finalDiceCount} dice at position (${active.x}, ${active.y})`);
-    
+    Logger.log(
+      `FINAL ACTIVE PIECE STATE: ${finalDiceCount} dice at position (${active.x}, ${active.y})`
+    );
+
     // Update visuals to show current state
     Logger.log(`RENDERING: Updating visual representation`);
     this.renderGameState();
-    
+
     // Check if piece is completely locked and log the decision
     if (finalDiceCount === 0) {
-      Logger.log(`PIECE FINALIZATION: All dice locked - finalizing piece "${active.shape || 'unknown'}"`);
+      Logger.log(
+        `PIECE FINALIZATION: All dice locked - finalizing piece "${active.shape || 'unknown'}"`
+      );
       this.finalizePieceLocking(active);
     } else {
       Logger.log(`STEP COMPLETION: ${finalDiceCount} dice still falling - step complete`);
-      
+
       // Log remaining dice details for next step
       if (active.dice && active.dice.length > 0) {
         Logger.log(`REMAINING DICE FOR NEXT STEP:`);
         active.dice.forEach((die: any, index: number) => {
           const absX = active.x + die.relativePos.x;
           const absY = active.y + die.relativePos.y;
-          Logger.log(`  - Die ${index} (ID: ${die.id}): relative (${die.relativePos.x}, ${die.relativePos.y}) -> absolute (${absX}, ${absY})`);
+          Logger.log(
+            `  - Die ${index} (ID: ${die.id}): relative (${die.relativePos.x}, ${die.relativePos.y}) -> absolute (${absX}, ${absY})`
+          );
         });
       }
     }
-    
+
     Logger.log('=== stepDrop() END ===\n');
   }
-
-
 
   private finalizePieceLocking(_active: any): void {
     Logger.log('Finalizing piece locking - all dice settled');
@@ -728,7 +1319,10 @@ export class Game extends Scene {
   }
 
   // Animate matched positions (fade out) and return a Promise that resolves when animations complete
-  private animateMatchPositions(positions: Array<{ x: number; y: number }>, boardMetrics: any): Promise<void> {
+  private animateMatchPositions(
+    positions: Array<{ x: number; y: number }>,
+    boardMetrics: any
+  ): Promise<void> {
     return new Promise((resolve) => {
       if (!positions || positions.length === 0) return resolve();
       const tweens: Phaser.Tweens.Tween[] = [];
@@ -769,9 +1363,13 @@ export class Game extends Scene {
             duration: 300,
             ease: 'Cubic.easeIn',
             onComplete: () => {
-              try { sprite.destroy(); } catch (e) { /* ignore */ }
+              try {
+                sprite.destroy();
+              } catch (e) {
+                /* ignore */
+              }
               onComplete();
-            }
+            },
           });
 
           tweens.push(tw);
@@ -794,7 +1392,10 @@ export class Game extends Scene {
     return new Promise((resolve) => {
       if (!this.gameBoard) return resolve();
 
-      const beforeMap: Record<string, { gridX: number; gridY: number; screenX: number; screenY: number; die: any }> = {};
+      const beforeMap: Record<
+        string,
+        { gridX: number; gridY: number; screenX: number; screenY: number; die: any }
+      > = {};
       const { width, height, cells } = this.gameBoard.state;
 
       // Capture before positions
@@ -823,7 +1424,12 @@ export class Game extends Scene {
       }
 
       // Capture after positions and determine moved dice
-      const moved: Array<{ id: string; die: any; from: { x: number; y: number }; to: { x: number; y: number } }> = [];
+      const moved: Array<{
+        id: string;
+        die: any;
+        from: { x: number; y: number };
+        to: { x: number; y: number };
+      }> = [];
 
       for (let gridY = 0; gridY < height; gridY++) {
         const arrayY = this.coordinateConverter.gridToArrayY(gridY);
@@ -836,7 +1442,12 @@ export class Game extends Scene {
           const screenPos = this.coordinateConverter.gridToScreen(gridX, gridY, boardMetrics);
           if (before) {
             if (before.screenX !== screenPos.x || before.screenY !== screenPos.y) {
-              moved.push({ id: die.id, die, from: { x: before.screenX, y: before.screenY }, to: { x: screenPos.x, y: screenPos.y } });
+              moved.push({
+                id: die.id,
+                die,
+                from: { x: before.screenX, y: before.screenY },
+                to: { x: screenPos.x, y: screenPos.y },
+              });
             }
           }
         }
@@ -857,7 +1468,11 @@ export class Game extends Scene {
         completed++;
         if (completed >= moved.length) {
           // destroy temp sprites and re-render authoritative locked pieces
-          tempSprites.forEach(s => { try { s.destroy(); } catch (e) {} });
+          tempSprites.forEach((s) => {
+            try {
+              s.destroy();
+            } catch (e) {}
+          });
           this.renderGameState();
           resolve();
         }
@@ -865,8 +1480,18 @@ export class Game extends Scene {
 
       for (const mv of moved) {
         try {
-          const spr = drawDie(this, mv.from.x, mv.from.y, boardMetrics.cellW, boardMetrics.cellH, mv.die) as Phaser.GameObjects.Container | null;
-          if (!spr) { onComplete(); continue; }
+          const spr = drawDie(
+            this,
+            mv.from.x,
+            mv.from.y,
+            boardMetrics.cellW,
+            boardMetrics.cellH,
+            mv.die
+          ) as Phaser.GameObjects.Container | null;
+          if (!spr) {
+            onComplete();
+            continue;
+          }
           tempSprites.push(spr);
           this.add.existing(spr);
 
@@ -877,9 +1502,11 @@ export class Game extends Scene {
             duration: 300,
             ease: 'Cubic.easeOut',
             onComplete: () => {
-              try { spr.destroy(); } catch (e) {}
+              try {
+                spr.destroy();
+              } catch (e) {}
               onComplete();
-            }
+            },
           });
 
           tweens.push(tw);
@@ -891,7 +1518,11 @@ export class Game extends Scene {
       // Safety timeout
       this.time.delayedCall(500, () => {
         if (completed < moved.length) {
-          tempSprites.forEach(s => { try { s.destroy(); } catch (e) {} });
+          tempSprites.forEach((s) => {
+            try {
+              s.destroy();
+            } catch (e) {}
+          });
           this.renderGameState();
           resolve();
         }
@@ -903,13 +1534,13 @@ export class Game extends Scene {
     // Disabled for now - individual gravity conflicts with piece-based falling
     // This will be re-enabled when we implement match clearing
     return;
-    
+
     // const lg: any = (this as any).gameBoard;
     // if (!lg) return;
 
     // // Apply individual gravity to make dice fall independently
     // const gravityResult = applyIndividualGravity(lg.state);
-    
+
     // if (gravityResult.changed) {
     //   Logger.log('Individual gravity applied - dice fell');
     //   // Re-render the grid to show the updated positions
@@ -918,23 +1549,63 @@ export class Game extends Scene {
   }
 
   create(): void {
+    // DIAGNOSTIC: Start timing the initialization sequence
+    this.initializationMetrics.sceneCreateStart = performance.now();
+    Logger.log('=== INITIALIZATION DIAGNOSTIC: Scene create() started ===');
+    Logger.log(
+      `INIT TIMING: Scene create start at ${this.initializationMetrics.sceneCreateStart}ms`
+    );
+
     // Set background
+    Logger.log('INIT STEP 1: Setting background and registry');
     this.cameras.main.setBackgroundColor('#1a1a2e');
     this.registry.set('gameSceneReady', true);
+    this.initializationMetrics.backgroundSetComplete = performance.now();
+    Logger.log(
+      `INIT TIMING: Background setup complete at ${this.initializationMetrics.backgroundSetComplete}ms (took ${this.initializationMetrics.backgroundSetComplete - this.initializationMetrics.sceneCreateStart}ms)`
+    );
 
     // Read selected mode from registry and apply config
+    Logger.log('INIT STEP 2: Reading game mode configuration');
     const selectedMode =
       (this.registry.get('selectedMode') as string) || settings.get('selectedMode') || 'medium';
     const mode = getMode(selectedMode);
     const cfg = mode.getConfig();
     this.registry.set('gameMode', mode.id);
     this.registry.set('gameConfig', cfg);
+    this.initializationMetrics.registrySetupComplete = performance.now();
+    Logger.log(
+      `INIT TIMING: Registry setup complete at ${this.initializationMetrics.registrySetupComplete}ms (took ${this.initializationMetrics.registrySetupComplete - this.initializationMetrics.backgroundSetComplete}ms)`
+    );
+    Logger.log(
+      `INIT CONFIG: Selected mode: ${selectedMode}, fallSpeed: ${(cfg as any)?.fallSpeed || 'default'}`
+    );
 
     // Initialize game board and coordinate converter
+    Logger.log('INIT STEP 3: Initializing game board and coordinate converter');
     this.gameBoard = new GameBoard(10, 20);
+    this.initializationMetrics.gameBoardInitComplete = performance.now();
+    Logger.log(
+      `INIT TIMING: GameBoard initialized at ${this.initializationMetrics.gameBoardInitComplete}ms (took ${this.initializationMetrics.gameBoardInitComplete - this.initializationMetrics.registrySetupComplete}ms)`
+    );
+    Logger.log(
+      `INIT STATE: GameBoard dimensions: ${this.gameBoard.state.width}x${this.gameBoard.state.height}`
+    );
+
     this.coordinateConverter = new CoordinateConverter(20);
+    this.initializationMetrics.coordinateConverterInitComplete = performance.now();
+    Logger.log(
+      `INIT TIMING: CoordinateConverter initialized at ${this.initializationMetrics.coordinateConverterInitComplete}ms (took ${this.initializationMetrics.coordinateConverterInitComplete - this.initializationMetrics.gameBoardInitComplete}ms)`
+    );
+    Logger.log(`INIT STATE: CoordinateConverter ready for grid height: 20`);
 
     // Create UI with game callbacks
+    Logger.log('INIT STEP 4: Creating GameUI system');
+    this.initializationMetrics.gameUICreateStart = performance.now();
+    Logger.log(
+      `INIT TIMING: GameUI creation started at ${this.initializationMetrics.gameUICreateStart}ms`
+    );
+
     const uiCallbacks: GameUICallbacks = {
       onMoveLeft: () => this.movePiece(-1, 0),
       onMoveRight: () => this.movePiece(1, 0),
@@ -947,21 +1618,54 @@ export class Game extends Scene {
     };
 
     this.gameUI = new GameUI(this, uiCallbacks);
+    this.initializationMetrics.gameUICreateComplete = performance.now();
+    Logger.log(
+      `INIT TIMING: GameUI creation complete at ${this.initializationMetrics.gameUICreateComplete}ms (took ${this.initializationMetrics.gameUICreateComplete - this.initializationMetrics.gameUICreateStart}ms)`
+    );
+
+    // Validate UI system readiness
+    this.validateUISystemReadiness();
 
     // Initialize the piece generation system
-    Logger.log('Initializing piece generation system');
-    
+    Logger.log('INIT STEP 5: Initializing piece generation system');
+    this.initializationMetrics.firstPieceGenerationStart = performance.now();
+    Logger.log(
+      `INIT TIMING: First piece generation started at ${this.initializationMetrics.firstPieceGenerationStart}ms`
+    );
+
     // First, generate the initial next piece
     this.nextPiece = this.generateMultiDiePiece();
-    Logger.log(`Generated initial next piece: ${this.nextPiece.shape}`);
-    
-  // Then spawn the first active piece (which will use the next piece)
-  this.phase = 'Spawning';
-  this.spawnPiece();
-    
+    this.initializationMetrics.firstPieceGenerationComplete = performance.now();
+    Logger.log(
+      `INIT TIMING: First piece generation complete at ${this.initializationMetrics.firstPieceGenerationComplete}ms (took ${this.initializationMetrics.firstPieceGenerationComplete - this.initializationMetrics.firstPieceGenerationStart}ms)`
+    );
+    Logger.log(
+      `INIT STATE: Generated initial next piece: ${this.nextPiece.shape} with ${this.nextPiece.dice.length} dice`
+    );
+
+    // Then spawn the first active piece (which will use the next piece)
+    Logger.log('INIT STEP 6: Spawning first active piece');
+    this.initializationMetrics.firstPieceSpawnStart = performance.now();
+    Logger.log(
+      `INIT TIMING: First piece spawn started at ${this.initializationMetrics.firstPieceSpawnStart}ms`
+    );
+
+    this.phase = 'Spawning';
+    this.spawnPiece();
+
+    this.initializationMetrics.firstPieceSpawnComplete = performance.now();
+    Logger.log(
+      `INIT TIMING: First piece spawn complete at ${this.initializationMetrics.firstPieceSpawnComplete}ms (took ${this.initializationMetrics.firstPieceSpawnComplete - this.initializationMetrics.firstPieceSpawnStart}ms)`
+    );
+
+    // Validate first piece spawn result
+    this.validateFirstPieceSpawn();
+
+    // Set up timers
+    Logger.log('INIT STEP 7: Setting up game timers');
     const cfgAny: any = cfg;
     const ms = Number(cfgAny?.fallSpeed) || 800;
-    Logger.log(`Setting up drop timer with ${ms}ms delay`);
+    Logger.log(`INIT CONFIG: Setting up drop timer with ${ms}ms delay`);
 
     this.dropTimer = this.time.addEvent({
       delay: ms,
@@ -970,7 +1674,7 @@ export class Game extends Scene {
     });
 
     // Set up gravity timer (if enabled)
-    const allowGravity = (cfgAny?.allowGravity !== false);
+    const allowGravity = cfgAny?.allowGravity !== false;
     if (allowGravity) {
       const gravityMs = Math.max(100, Math.floor(ms / 4));
       this.gravityTimer = this.time.addEvent({
@@ -978,18 +1682,41 @@ export class Game extends Scene {
         callback: () => this.stepGravity(),
         loop: true,
       });
-      Logger.log('Gravity timer created successfully');
+      Logger.log(`INIT CONFIG: Gravity timer created with ${gravityMs}ms delay`);
     } else {
-      Logger.log('Gravity disabled for this mode');
+      Logger.log('INIT CONFIG: Gravity disabled for this mode');
     }
 
+    this.initializationMetrics.timersSetupComplete = performance.now();
+    Logger.log(
+      `INIT TIMING: Timers setup complete at ${this.initializationMetrics.timersSetupComplete}ms (took ${this.initializationMetrics.timersSetupComplete - this.initializationMetrics.firstPieceSpawnComplete}ms)`
+    );
+
     // Initial render
+    Logger.log('INIT STEP 8: Performing initial render');
+    this.initializationMetrics.initialRenderStart = performance.now();
+    Logger.log(
+      `INIT TIMING: Initial render started at ${this.initializationMetrics.initialRenderStart}ms`
+    );
+
     this.renderGameState();
-    Logger.log('Game scene initialized with new UI system');
+
+    this.initializationMetrics.initialRenderComplete = performance.now();
+    Logger.log(
+      `INIT TIMING: Initial render complete at ${this.initializationMetrics.initialRenderComplete}ms (took ${this.initializationMetrics.initialRenderComplete - this.initializationMetrics.initialRenderStart}ms)`
+    );
+
+    // Validate initial render result
+    this.validateInitialRender();
+
     this.phase = 'Dropping';
+    this.initializationMetrics.sceneCreateEnd = performance.now();
+
+    // Log complete initialization summary
+    this.logInitializationSummary();
+
+    Logger.log('=== INITIALIZATION DIAGNOSTIC: Scene create() completed ===');
   }
-
-
 
   private movePiece(dx: number, dy: number): void {
     if (!this.activePiece || !this.gameBoard) return;
@@ -1003,8 +1730,10 @@ export class Game extends Scene {
     const newX = this.activePiece.x + dx;
     const newY = this.activePiece.y + dy;
 
-    Logger.log(`Attempting to move piece from bottom-left (${this.activePiece.x}, ${this.activePiece.y}) to (${newX}, ${newY})`);
-    
+    Logger.log(
+      `Attempting to move piece from bottom-left (${this.activePiece.x}, ${this.activePiece.y}) to (${newX}, ${newY})`
+    );
+
     // For downward movement (dy < 0), we're decreasing Y which moves the piece down in bottom-left coordinates
     // For left/right movement (dx != 0), X coordinates remain unchanged in behavior
     // For upward movement (dy > 0), we're increasing Y which moves the piece up in bottom-left coordinates
@@ -1034,9 +1763,12 @@ export class Game extends Scene {
     // Start from current position and move down (decrease Y) until we find a collision
     let dropY = this.activePiece.y;
     let testY = dropY + GAME_CONSTANTS.FALL_STEP; // Start testing one step down
-    
+
     // Keep moving down (decreasing Y) while the piece can still be placed
-    while (testY >= GAME_CONSTANTS.MIN_VALID_Y && this.canPlacePiece(this.activePiece, this.activePiece.x, testY)) {
+    while (
+      testY >= GAME_CONSTANTS.MIN_VALID_Y &&
+      this.canPlacePiece(this.activePiece, this.activePiece.x, testY)
+    ) {
       dropY = testY;
       testY += GAME_CONSTANTS.FALL_STEP; // FALL_STEP is -1, so this decreases Y (moves down)
     }
@@ -1054,7 +1786,9 @@ export class Game extends Scene {
   ): Array<{ x: number; y: number }> {
     if (positions.length === 0) return positions;
 
-    Logger.log(`Rotating ${positions.length} positions ${clockwise ? 'clockwise' : 'counter-clockwise'}`);
+    Logger.log(
+      `Rotating ${positions.length} positions ${clockwise ? 'clockwise' : 'counter-clockwise'}`
+    );
     Logger.log(`Input positions: ${JSON.stringify(positions)}`);
 
     // Simple rotation around origin (0,0)
@@ -1121,26 +1855,36 @@ export class Game extends Scene {
 
       // Check X bounds (must be within grid width)
       if (absoluteX < 0 || absoluteX >= this.gameBoard.state.width) {
-        Logger.log(`canPlacePiece: Die ${i} out of X bounds at bottom-left (${absoluteX}, ${absoluteY})`);
+        Logger.log(
+          `canPlacePiece: Die ${i} out of X bounds at bottom-left (${absoluteX}, ${absoluteY})`
+        );
         return false;
       }
 
       // Check Y bounds: pieces can be above the grid (Y > MAX_VALID_Y) but not below (Y < MIN_VALID_Y)
       if (absoluteY < GAME_CONSTANTS.MIN_VALID_Y) {
-        Logger.log(`canPlacePiece: Die ${i} below grid bottom at bottom-left (${absoluteX}, ${absoluteY})`);
+        Logger.log(
+          `canPlacePiece: Die ${i} below grid bottom at bottom-left (${absoluteX}, ${absoluteY})`
+        );
         return false;
       }
 
       // Check collision with existing pieces (only if within visible grid bounds)
-      if (absoluteY >= GAME_CONSTANTS.MIN_VALID_Y && 
-          absoluteY <= GAME_CONSTANTS.MAX_VALID_Y && 
-          !this.gameBoard.isEmpty(absoluteX, absoluteY)) {
-        Logger.log(`canPlacePiece: Die ${i} collision with existing piece at bottom-left (${absoluteX}, ${absoluteY})`);
+      if (
+        absoluteY >= GAME_CONSTANTS.MIN_VALID_Y &&
+        absoluteY <= GAME_CONSTANTS.MAX_VALID_Y &&
+        !this.gameBoard.isEmpty(absoluteX, absoluteY)
+      ) {
+        Logger.log(
+          `canPlacePiece: Die ${i} collision with existing piece at bottom-left (${absoluteX}, ${absoluteY})`
+        );
         return false;
       }
     }
-    
-    Logger.log(`canPlacePiece: All ${positions.length} dice positions valid for piece at bottom-left (${newX}, ${newY})`);
+
+    Logger.log(
+      `canPlacePiece: All ${positions.length} dice positions valid for piece at bottom-left (${newX}, ${newY})`
+    );
     return true;
   }
 
@@ -1150,7 +1894,9 @@ export class Game extends Scene {
       return;
     }
 
-    Logger.log(`Rotating piece ${direction > 0 ? 'clockwise' : 'counter-clockwise'} with ${this.activePiece.dice.length} remaining dice`);
+    Logger.log(
+      `Rotating piece ${direction > 0 ? 'clockwise' : 'counter-clockwise'} with ${this.activePiece.dice.length} remaining dice`
+    );
 
     // Get current relative positions of remaining dice
     const currentPositions = this.activePiece.dice.map((die: any) => die.relativePos);
@@ -1161,7 +1907,9 @@ export class Game extends Scene {
     Logger.log(`Rotated positions: ${JSON.stringify(rotatedPositions)}`);
 
     // Try rotation at current position first
-    if (this.canPlacePiece(this.activePiece, this.activePiece.x, this.activePiece.y, rotatedPositions)) {
+    if (
+      this.canPlacePiece(this.activePiece, this.activePiece.x, this.activePiece.y, rotatedPositions)
+    ) {
       this.applyRotation(rotatedPositions, direction);
       return;
     }
@@ -1169,13 +1917,15 @@ export class Game extends Scene {
     // If rotation fails at current position, try wall kicks
     Logger.log('Rotation blocked at current position, attempting wall kicks');
     const wallKickOffsets = this.getWallKickOffsets(direction > 0);
-    
+
     for (const offset of wallKickOffsets) {
       const testX = this.activePiece.x + offset.x;
       const testY = this.activePiece.y + offset.y;
-      
-      Logger.log(`Trying wall kick at offset (${offset.x}, ${offset.y}) -> position (${testX}, ${testY})`);
-      
+
+      Logger.log(
+        `Trying wall kick at offset (${offset.x}, ${offset.y}) -> position (${testX}, ${testY})`
+      );
+
       if (this.canPlacePiece(this.activePiece, testX, testY, rotatedPositions)) {
         // Apply wall kick and rotation
         this.activePiece.x = testX;
@@ -1194,35 +1944,43 @@ export class Game extends Scene {
     // Try moving left, right, up, and combinations
     // Note: Could be customized based on rotation direction in the future
     return [
-      { x: -1, y: 0 },  // Try one left
-      { x: 1, y: 0 },   // Try one right
-      { x: -2, y: 0 },  // Try two left
-      { x: 2, y: 0 },   // Try two right
-      { x: 0, y: 1 },   // Try one up
-      { x: -1, y: 1 },  // Try left and up
-      { x: 1, y: 1 },   // Try right and up
-      { x: 0, y: -1 },  // Try one down (if above ground)
+      { x: -1, y: 0 }, // Try one left
+      { x: 1, y: 0 }, // Try one right
+      { x: -2, y: 0 }, // Try two left
+      { x: 2, y: 0 }, // Try two right
+      { x: 0, y: 1 }, // Try one up
+      { x: -1, y: 1 }, // Try left and up
+      { x: 1, y: 1 }, // Try right and up
+      { x: 0, y: -1 }, // Try one down (if above ground)
     ];
   }
 
-  private applyRotation(rotatedPositions: Array<{ x: number; y: number }>, direction: number): void {
+  private applyRotation(
+    rotatedPositions: Array<{ x: number; y: number }>,
+    direction: number
+  ): void {
     // Apply rotation to remaining dice
     this.activePiece.dice.forEach((die: any, index: number) => {
-      Logger.log(`Die ${index}: ${JSON.stringify(die.relativePos)} -> ${JSON.stringify(rotatedPositions[index])}`);
+      Logger.log(
+        `Die ${index}: ${JSON.stringify(die.relativePos)} -> ${JSON.stringify(rotatedPositions[index])}`
+      );
       die.relativePos = rotatedPositions[index];
     });
 
     // Update rotation angle for reference
-    this.activePiece.rotation = (this.activePiece.rotation + (direction > 0 ? 90 : -90) + 360) % 360;
+    this.activePiece.rotation =
+      (this.activePiece.rotation + (direction > 0 ? 90 : -90) + 360) % 360;
 
     // Validate the rotation result
     this.validateRotationResult();
 
     this.renderGameState();
     Logger.log(`Piece rotated successfully to ${this.activePiece.rotation}°`);
-    
+
     // Verify the positions after rotation
-    Logger.log(`Final positions after rotation: ${JSON.stringify(this.activePiece.dice.map((die: any) => die.relativePos))}`);
+    Logger.log(
+      `Final positions after rotation: ${JSON.stringify(this.activePiece.dice.map((die: any) => die.relativePos))}`
+    );
   }
 
   private validateRotationResult(): void {
@@ -1240,16 +1998,22 @@ export class Game extends Scene {
       }
 
       if (absoluteY < GAME_CONSTANTS.MIN_VALID_Y) {
-        Logger.log(`WARNING: Die ${i} has invalid Y coordinate after rotation: ${absoluteY} (below grid)`);
+        Logger.log(
+          `WARNING: Die ${i} has invalid Y coordinate after rotation: ${absoluteY} (below grid)`
+        );
       }
 
       // Check relative positions are non-negative (normalized correctly)
       if (die.relativePos.x < 0 || die.relativePos.y < 0) {
-        Logger.log(`WARNING: Die ${i} has negative relative position after rotation: (${die.relativePos.x}, ${die.relativePos.y})`);
+        Logger.log(
+          `WARNING: Die ${i} has negative relative position after rotation: (${die.relativePos.x}, ${die.relativePos.y})`
+        );
       }
     }
 
-    Logger.log(`Rotation validation complete for piece at (${this.activePiece.x}, ${this.activePiece.y})`);
+    Logger.log(
+      `Rotation validation complete for piece at (${this.activePiece.x}, ${this.activePiece.y})`
+    );
   }
 
   /**
@@ -1260,29 +2024,33 @@ export class Game extends Scene {
    */
   private safeRemoveDiceByIndices(indices: number[]): number {
     Logger.log('DICE REMOVAL: Starting enhanced safe dice removal process');
-    
+
     // Enhanced validation for active piece state
     if (!this.activePiece) {
       Logger.log('DICE REMOVAL ERROR: No active piece exists - cannot remove dice');
       return 0;
     }
-    
+
     if (!this.activePiece.dice) {
-      Logger.log('DICE REMOVAL ERROR: Active piece has no dice property - initializing empty array');
+      Logger.log(
+        'DICE REMOVAL ERROR: Active piece has no dice property - initializing empty array'
+      );
       this.activePiece.dice = [];
       return 0;
     }
-    
+
     if (!Array.isArray(this.activePiece.dice)) {
       Logger.log('DICE REMOVAL ERROR: Active piece dice is not an array - attempting recovery');
-      Logger.log(`DICE REMOVAL ERROR: dice type: ${typeof this.activePiece.dice}, value: ${JSON.stringify(this.activePiece.dice)}`);
-      
+      Logger.log(
+        `DICE REMOVAL ERROR: dice type: ${typeof this.activePiece.dice}, value: ${JSON.stringify(this.activePiece.dice)}`
+      );
+
       // Attempt to recover by converting to array or resetting
       try {
         if (typeof this.activePiece.dice === 'object' && this.activePiece.dice !== null) {
           // Try to convert object to array if it has array-like properties
           const keys = Object.keys(this.activePiece.dice);
-          const isArrayLike = keys.every(key => /^\d+$/.test(key));
+          const isArrayLike = keys.every((key) => /^\d+$/.test(key));
           if (isArrayLike) {
             Logger.log('DICE REMOVAL RECOVERY: Converting array-like object to proper array');
             this.activePiece.dice = Object.values(this.activePiece.dice);
@@ -1302,7 +2070,9 @@ export class Game extends Scene {
     // Enhanced input validation
     if (!indices || !Array.isArray(indices)) {
       Logger.log('DICE REMOVAL ERROR: Invalid indices parameter - must be an array');
-      Logger.log(`DICE REMOVAL ERROR: indices type: ${typeof indices}, value: ${JSON.stringify(indices)}`);
+      Logger.log(
+        `DICE REMOVAL ERROR: indices type: ${typeof indices}, value: ${JSON.stringify(indices)}`
+      );
       return 0;
     }
 
@@ -1313,55 +2083,66 @@ export class Game extends Scene {
 
     // Check for empty dice array edge case
     if (this.activePiece.dice.length === 0) {
-      Logger.log('DICE REMOVAL WARNING: Active piece has empty dice array - cannot remove any dice');
+      Logger.log(
+        'DICE REMOVAL WARNING: Active piece has empty dice array - cannot remove any dice'
+      );
       return 0;
     }
 
     const originalLength = this.activePiece.dice.length;
     Logger.log(`DICE REMOVAL: Attempting to remove ${indices.length} dice from active piece`);
-    Logger.log(`DICE REMOVAL: Current active piece state - length: ${originalLength}, shape: ${this.activePiece.shape || 'unknown'}`);
+    Logger.log(
+      `DICE REMOVAL: Current active piece state - length: ${originalLength}, shape: ${this.activePiece.shape || 'unknown'}`
+    );
     Logger.log(`DICE REMOVAL: Indices to remove: [${indices.join(', ')}]`);
 
     // Log current dice state before removal
     Logger.log(`DICE REMOVAL: Current dice before removal:`);
     this.activePiece.dice.forEach((die: any, index: number) => {
-      Logger.log(`  - Index ${index}: ID=${die.id}, pos=(${die.relativePos?.x}, ${die.relativePos?.y}), color=${die.color}`);
+      Logger.log(
+        `  - Index ${index}: ID=${die.id}, pos=(${die.relativePos?.x}, ${die.relativePos?.y}), color=${die.color}`
+      );
     });
 
     // Enhanced validation for all indices with detailed error reporting
     const maxValidIndex = originalLength - 1;
     const validIndices: number[] = [];
-    const invalidIndices: Array<{index: any, reason: string}> = [];
-    
-    indices.forEach(index => {
+    const invalidIndices: Array<{ index: any; reason: string }> = [];
+
+    indices.forEach((index) => {
       // Check for various types of invalid indices
       if (index === null || index === undefined) {
-        invalidIndices.push({index, reason: 'null or undefined'});
+        invalidIndices.push({ index, reason: 'null or undefined' });
       } else if (!Number.isInteger(index)) {
-        invalidIndices.push({index, reason: `not an integer (type: ${typeof index})`});
+        invalidIndices.push({ index, reason: `not an integer (type: ${typeof index})` });
       } else if (index < 0) {
-        invalidIndices.push({index, reason: 'negative index'});
+        invalidIndices.push({ index, reason: 'negative index' });
       } else if (index > maxValidIndex) {
-        invalidIndices.push({index, reason: `index exceeds array bounds (max: ${maxValidIndex})`});
+        invalidIndices.push({
+          index,
+          reason: `index exceeds array bounds (max: ${maxValidIndex})`,
+        });
       } else if (isNaN(index)) {
-        invalidIndices.push({index, reason: 'NaN value'});
+        invalidIndices.push({ index, reason: 'NaN value' });
       } else if (!isFinite(index)) {
-        invalidIndices.push({index, reason: 'infinite value'});
+        invalidIndices.push({ index, reason: 'infinite value' });
       } else {
         validIndices.push(index);
       }
     });
-    
+
     // Log detailed validation results
     if (invalidIndices.length > 0) {
       Logger.log(`DICE REMOVAL VALIDATION: Found ${invalidIndices.length} invalid indices:`);
-      invalidIndices.forEach(({index, reason}) => {
+      invalidIndices.forEach(({ index, reason }) => {
         Logger.log(`  - Index ${index}: ${reason}`);
       });
     }
 
     if (validIndices.length === 0) {
-      Logger.log('DICE REMOVAL WARNING: No valid indices found for dice removal - all indices were invalid');
+      Logger.log(
+        'DICE REMOVAL WARNING: No valid indices found for dice removal - all indices were invalid'
+      );
       return 0;
     }
 
@@ -1373,52 +2154,65 @@ export class Game extends Scene {
 
     // Enhanced array modification safety validation
     const safetyValidation = this.validateArrayModificationSafety(validIndices, originalLength);
-    
+
     // Log safety validation results
     if (safetyValidation.warnings.length > 0) {
       Logger.log(`DICE REMOVAL SAFETY WARNINGS:`);
-      safetyValidation.warnings.forEach(warning => {
+      safetyValidation.warnings.forEach((warning) => {
         Logger.log(`  - ${warning}`);
       });
     }
-    
+
     if (safetyValidation.errors.length > 0) {
       Logger.log(`DICE REMOVAL SAFETY ERRORS:`);
-      safetyValidation.errors.forEach(error => {
+      safetyValidation.errors.forEach((error) => {
         Logger.log(`  - ${error}`);
       });
     }
-    
+
     if (!safetyValidation.isSafe) {
       Logger.log('DICE REMOVAL ABORTED: Array modification safety validation failed');
       return 0;
     }
-    
+
     const uniqueIndices = safetyValidation.safeIndices;
-    Logger.log(`DICE REMOVAL SAFETY: Using ${uniqueIndices.length} validated indices for safe removal: [${uniqueIndices.join(', ')}]`);
+    Logger.log(
+      `DICE REMOVAL SAFETY: Using ${uniqueIndices.length} validated indices for safe removal: [${uniqueIndices.join(', ')}]`
+    );
 
     // Remove dice in reverse order with detailed logging
     let removedCount = 0;
-    const removedDice: Array<{index: number, die: any}> = [];
-    
+    const removedDice: Array<{ index: number; die: any }> = [];
+
     Logger.log(`DICE REMOVAL: Processing ${uniqueIndices.length} unique indices in reverse order`);
-    
+
     uniqueIndices.forEach((index, removalStep) => {
       const currentLength = this.activePiece.dice.length;
-      Logger.log(`DICE REMOVAL STEP ${removalStep + 1}: Attempting to remove index ${index} (current array length: ${currentLength})`);
-      
-      if (index < currentLength) { // Double-check bounds before each removal
+      Logger.log(
+        `DICE REMOVAL STEP ${removalStep + 1}: Attempting to remove index ${index} (current array length: ${currentLength})`
+      );
+
+      if (index < currentLength) {
+        // Double-check bounds before each removal
         const dieToRemove = this.activePiece.dice[index];
-        Logger.log(`DICE REMOVAL STEP ${removalStep + 1}: Removing die at index ${index} - ID: ${dieToRemove.id}, color: ${dieToRemove.color}`);
-        
+        Logger.log(
+          `DICE REMOVAL STEP ${removalStep + 1}: Removing die at index ${index} - ID: ${dieToRemove.id}, color: ${dieToRemove.color}`
+        );
+
         this.activePiece.dice.splice(index, 1);
         removedDice.push({ index, die: dieToRemove });
         removedCount++;
-        
-        Logger.log(`DICE REMOVAL STEP ${removalStep + 1}: Successfully removed die, new array length: ${this.activePiece.dice.length}`);
+
+        Logger.log(
+          `DICE REMOVAL STEP ${removalStep + 1}: Successfully removed die, new array length: ${this.activePiece.dice.length}`
+        );
       } else {
-        Logger.log(`DICE REMOVAL ERROR: Index ${index} out of bounds during removal (current array length: ${currentLength})`);
-        Logger.log(`DICE REMOVAL ERROR: This indicates an array manipulation error or race condition`);
+        Logger.log(
+          `DICE REMOVAL ERROR: Index ${index} out of bounds during removal (current array length: ${currentLength})`
+        );
+        Logger.log(
+          `DICE REMOVAL ERROR: This indicates an array manipulation error or race condition`
+        );
       }
     });
 
@@ -1426,22 +2220,26 @@ export class Game extends Scene {
     if (removedDice.length > 0) {
       Logger.log(`DICE REMOVAL SUMMARY: Successfully removed ${removedDice.length} dice:`);
       removedDice.forEach(({ index, die }) => {
-        Logger.log(`  - Original index ${index}: ID=${die.id}, color=${die.color}, pos=(${die.relativePos?.x}, ${die.relativePos?.y})`);
+        Logger.log(
+          `  - Original index ${index}: ID=${die.id}, color=${die.color}, pos=(${die.relativePos?.x}, ${die.relativePos?.y})`
+        );
       });
     }
 
     // Validate final state with detailed logging
     const finalLength = this.activePiece.dice.length;
     const expectedLength = originalLength - removedCount;
-    
+
     Logger.log(`DICE REMOVAL VALIDATION:`);
     Logger.log(`  - Original length: ${originalLength}`);
     Logger.log(`  - Removed count: ${removedCount}`);
     Logger.log(`  - Expected final length: ${expectedLength}`);
     Logger.log(`  - Actual final length: ${finalLength}`);
-    
+
     if (finalLength !== expectedLength) {
-      Logger.log(`DICE REMOVAL ERROR: Unexpected dice count after removal - length mismatch detected`);
+      Logger.log(
+        `DICE REMOVAL ERROR: Unexpected dice count after removal - length mismatch detected`
+      );
       Logger.log(`DICE REMOVAL ERROR: This indicates a critical array manipulation error`);
     }
 
@@ -1456,13 +2254,17 @@ export class Game extends Scene {
     if (finalLength > 0) {
       Logger.log(`DICE REMOVAL: Remaining dice after removal:`);
       this.activePiece.dice.forEach((die: any, index: number) => {
-        Logger.log(`  - Index ${index}: ID=${die.id}, pos=(${die.relativePos?.x}, ${die.relativePos?.y}), color=${die.color}`);
+        Logger.log(
+          `  - Index ${index}: ID=${die.id}, pos=(${die.relativePos?.x}, ${die.relativePos?.y}), color=${die.color}`
+        );
       });
     } else {
       Logger.log(`DICE REMOVAL: No dice remaining in active piece - piece will be finalized`);
     }
 
-    Logger.log(`DICE REMOVAL COMPLETE: Successfully removed ${removedCount} dice. Active piece now has ${finalLength} dice remaining`);
+    Logger.log(
+      `DICE REMOVAL COMPLETE: Successfully removed ${removedCount} dice. Active piece now has ${finalLength} dice remaining`
+    );
     return removedCount;
   }
 
@@ -1472,46 +2274,56 @@ export class Game extends Scene {
    */
   private validateActivePieceState(): boolean {
     Logger.log('VALIDATION: Starting enhanced active piece state validation');
-    
+
     if (!this.activePiece) {
       Logger.log('VALIDATION RESULT: No active piece - valid state');
       return true; // No piece is a valid state
     }
 
-    Logger.log(`VALIDATION: Checking piece "${this.activePiece.shape || 'unknown'}" (ID: ${this.activePiece.id || 'unknown'})`);
-    
+    Logger.log(
+      `VALIDATION: Checking piece "${this.activePiece.shape || 'unknown'}" (ID: ${this.activePiece.id || 'unknown'})`
+    );
+
     // Enhanced position validation
     const pieceX = this.activePiece.x;
     const pieceY = this.activePiece.y;
     const rotation = this.activePiece.rotation || 0;
-    
+
     Logger.log(`VALIDATION: Piece position: (${pieceX}, ${pieceY}), rotation: ${rotation}°`);
-    
+
     // Validate piece position coordinates
     if (typeof pieceX !== 'number' || typeof pieceY !== 'number') {
-      Logger.log(`VALIDATION ERROR: Invalid piece position coordinates - x: ${typeof pieceX}, y: ${typeof pieceY}`);
+      Logger.log(
+        `VALIDATION ERROR: Invalid piece position coordinates - x: ${typeof pieceX}, y: ${typeof pieceY}`
+      );
       return false;
     }
-    
+
     if (!isFinite(pieceX) || !isFinite(pieceY)) {
-      Logger.log(`VALIDATION ERROR: Non-finite piece position coordinates - x: ${pieceX}, y: ${pieceY}`);
+      Logger.log(
+        `VALIDATION ERROR: Non-finite piece position coordinates - x: ${pieceX}, y: ${pieceY}`
+      );
       return false;
     }
-    
+
     if (isNaN(pieceX) || isNaN(pieceY)) {
       Logger.log(`VALIDATION ERROR: NaN piece position coordinates - x: ${pieceX}, y: ${pieceY}`);
       return false;
     }
-    
+
     // Validate rotation value
     if (typeof rotation !== 'number' || !isFinite(rotation) || isNaN(rotation)) {
-      Logger.log(`VALIDATION ERROR: Invalid rotation value - type: ${typeof rotation}, value: ${rotation}`);
+      Logger.log(
+        `VALIDATION ERROR: Invalid rotation value - type: ${typeof rotation}, value: ${rotation}`
+      );
       return false;
     }
 
     if (!this.activePiece.dice || !Array.isArray(this.activePiece.dice)) {
       Logger.log('VALIDATION ERROR: Active piece has invalid dice array');
-      Logger.log(`VALIDATION ERROR: dice property type: ${typeof this.activePiece.dice}, isArray: ${Array.isArray(this.activePiece.dice)}`);
+      Logger.log(
+        `VALIDATION ERROR: dice property type: ${typeof this.activePiece.dice}, isArray: ${Array.isArray(this.activePiece.dice)}`
+      );
       return false;
     }
 
@@ -1524,10 +2336,12 @@ export class Game extends Scene {
     }
 
     // Check for duplicate dice IDs
-    const diceIds = this.activePiece.dice.map((die: any) => die.id).filter((id: any) => id !== undefined);
+    const diceIds = this.activePiece.dice
+      .map((die: any) => die.id)
+      .filter((id: any) => id !== undefined);
     const uniqueIds = new Set(diceIds);
     Logger.log(`VALIDATION: Dice ID check - ${diceIds.length} IDs found, ${uniqueIds.size} unique`);
-    
+
     if (diceIds.length !== uniqueIds.size) {
       Logger.log('VALIDATION ERROR: Duplicate dice IDs detected in active piece');
       const duplicates = diceIds.filter((id: any, index: number) => diceIds.indexOf(id) !== index);
@@ -1538,17 +2352,17 @@ export class Game extends Scene {
     // Enhanced dice structure validation with boundary checks
     let validationErrors = 0;
     const gameBoard = this.gameBoard;
-    
+
     for (let i = 0; i < this.activePiece.dice.length; i++) {
       const die = this.activePiece.dice[i];
       Logger.log(`VALIDATION: Checking die ${i} - ID: ${die?.id || 'undefined'}`);
-      
+
       if (!die || typeof die !== 'object') {
         Logger.log(`VALIDATION ERROR: Invalid die object at index ${i} - type: ${typeof die}`);
         validationErrors++;
         continue;
       }
-      
+
       // Check required die properties with enhanced validation
       const requiredProps = ['id', 'sides', 'number', 'color', 'relativePos'];
       for (const prop of requiredProps) {
@@ -1560,74 +2374,109 @@ export class Game extends Scene {
           validationErrors++;
         }
       }
-      
+
       // Enhanced relative position validation
       if (!die.relativePos || typeof die.relativePos !== 'object') {
-        Logger.log(`VALIDATION ERROR: Die ${i} has invalid relativePos object - type: ${typeof die.relativePos}`);
+        Logger.log(
+          `VALIDATION ERROR: Die ${i} has invalid relativePos object - type: ${typeof die.relativePos}`
+        );
         validationErrors++;
       } else {
         const relX = die.relativePos.x;
         const relY = die.relativePos.y;
-        
+
         // Validate coordinate types and values
         if (typeof relX !== 'number' || typeof relY !== 'number') {
-          Logger.log(`VALIDATION ERROR: Die ${i} has invalid relative position coordinate types - x: ${typeof relX}, y: ${typeof relY}`);
+          Logger.log(
+            `VALIDATION ERROR: Die ${i} has invalid relative position coordinate types - x: ${typeof relX}, y: ${typeof relY}`
+          );
           validationErrors++;
         } else if (!isFinite(relX) || !isFinite(relY)) {
-          Logger.log(`VALIDATION ERROR: Die ${i} has non-finite relative position coordinates - x: ${relX}, y: ${relY}`);
+          Logger.log(
+            `VALIDATION ERROR: Die ${i} has non-finite relative position coordinates - x: ${relX}, y: ${relY}`
+          );
           validationErrors++;
         } else if (isNaN(relX) || isNaN(relY)) {
-          Logger.log(`VALIDATION ERROR: Die ${i} has NaN relative position coordinates - x: ${relX}, y: ${relY}`);
+          Logger.log(
+            `VALIDATION ERROR: Die ${i} has NaN relative position coordinates - x: ${relX}, y: ${relY}`
+          );
           validationErrors++;
         } else {
           // Calculate absolute position and validate boundaries
           const absX = pieceX + relX;
           const absY = pieceY + relY;
-          
-          Logger.log(`VALIDATION: Die ${i} position analysis - relative (${relX}, ${relY}) -> absolute (${absX}, ${absY})`);
-          
+
+          Logger.log(
+            `VALIDATION: Die ${i} position analysis - relative (${relX}, ${relY}) -> absolute (${absX}, ${absY})`
+          );
+
           // Enhanced boundary validation using GridBoundaryValidator
           if (gameBoard) {
-            const isWithinBounds = GridBoundaryValidator.validatePosition(absX, absY, gameBoard.state.width, gameBoard.state.height);
+            const isWithinBounds = GridBoundaryValidator.validatePosition(
+              absX,
+              absY,
+              gameBoard.state.width,
+              gameBoard.state.height
+            );
             const isAboveGrid = GridBoundaryValidator.isAboveGrid(absY, gameBoard.state.height);
             const isBelowGrid = GridBoundaryValidator.isBelowGrid(absY);
-            
-            Logger.log(`VALIDATION: Die ${i} boundary checks - withinBounds: ${isWithinBounds}, aboveGrid: ${isAboveGrid}, belowGrid: ${isBelowGrid}`);
-            
+
+            Logger.log(
+              `VALIDATION: Die ${i} boundary checks - withinBounds: ${isWithinBounds}, aboveGrid: ${isAboveGrid}, belowGrid: ${isBelowGrid}`
+            );
+
             // Allow dice to be above grid (spawn area) but warn about other boundary issues
             if (absX < 0 || absX >= gameBoard.state.width) {
-              Logger.log(`VALIDATION WARNING: Die ${i} has X coordinate outside grid bounds: ${absX} (valid: 0-${gameBoard.state.width - 1})`);
+              Logger.log(
+                `VALIDATION WARNING: Die ${i} has X coordinate outside grid bounds: ${absX} (valid: 0-${gameBoard.state.width - 1})`
+              );
             }
-            
+
             if (isBelowGrid) {
-              Logger.log(`VALIDATION WARNING: Die ${i} is below grid bottom: Y=${absY} (should be >= 0)`);
+              Logger.log(
+                `VALIDATION WARNING: Die ${i} is below grid bottom: Y=${absY} (should be >= 0)`
+              );
             }
-            
+
             // Check for extremely large coordinates that might indicate corruption
             const maxReasonableCoord = 1000;
             if (Math.abs(absX) > maxReasonableCoord || Math.abs(absY) > maxReasonableCoord) {
-              Logger.log(`VALIDATION ERROR: Die ${i} has unreasonably large coordinates - absolute (${absX}, ${absY})`);
+              Logger.log(
+                `VALIDATION ERROR: Die ${i} has unreasonably large coordinates - absolute (${absX}, ${absY})`
+              );
               validationErrors++;
             }
           }
-          
+
           Logger.log(`VALIDATION: Die ${i} coordinate validation complete`);
         }
       }
-      
+
       // Validate other die properties
-      if (die.sides && (typeof die.sides !== 'number' || die.sides < 1 || !Number.isInteger(die.sides))) {
-        Logger.log(`VALIDATION ERROR: Die ${i} has invalid sides value: ${die.sides} (must be positive integer)`);
+      if (
+        die.sides &&
+        (typeof die.sides !== 'number' || die.sides < 1 || !Number.isInteger(die.sides))
+      ) {
+        Logger.log(
+          `VALIDATION ERROR: Die ${i} has invalid sides value: ${die.sides} (must be positive integer)`
+        );
         validationErrors++;
       }
-      
-      if (die.number && (typeof die.number !== 'number' || die.number < 1 || !Number.isInteger(die.number))) {
-        Logger.log(`VALIDATION ERROR: Die ${i} has invalid number value: ${die.number} (must be positive integer)`);
+
+      if (
+        die.number &&
+        (typeof die.number !== 'number' || die.number < 1 || !Number.isInteger(die.number))
+      ) {
+        Logger.log(
+          `VALIDATION ERROR: Die ${i} has invalid number value: ${die.number} (must be positive integer)`
+        );
         validationErrors++;
       }
-      
+
       if (die.color && typeof die.color !== 'string') {
-        Logger.log(`VALIDATION ERROR: Die ${i} has invalid color value: ${die.color} (must be string)`);
+        Logger.log(
+          `VALIDATION ERROR: Die ${i} has invalid color value: ${die.color} (must be string)`
+        );
         validationErrors++;
       }
     }
@@ -1637,7 +2486,9 @@ export class Game extends Scene {
       return false;
     }
 
-    Logger.log(`VALIDATION PASSED: Active piece state is valid - ${diceCount} dice, shape: ${this.activePiece.shape || 'unknown'}`);
+    Logger.log(
+      `VALIDATION PASSED: Active piece state is valid - ${diceCount} dice, shape: ${this.activePiece.shape || 'unknown'}`
+    );
     return true;
   }
 
@@ -1648,17 +2499,17 @@ export class Game extends Scene {
    */
   private handleActivePieceErrors(context: string): boolean {
     Logger.log(`ERROR HANDLING: Starting error recovery for context: ${context}`);
-    
+
     if (!this.activePiece) {
       Logger.log('ERROR HANDLING: No active piece - spawning new piece');
       this.spawnPiece();
       return true;
     }
-    
+
     // Handle corrupted dice array
     if (!this.activePiece.dice || !Array.isArray(this.activePiece.dice)) {
       Logger.log('ERROR HANDLING: Corrupted dice array detected - attempting recovery');
-      
+
       try {
         if (this.activePiece.dice === null || this.activePiece.dice === undefined) {
           Logger.log('ERROR RECOVERY: Dice array is null/undefined - initializing empty array');
@@ -1671,7 +2522,7 @@ export class Game extends Scene {
           } else {
             // Try to extract array-like values
             const values = Object.values(this.activePiece.dice);
-            if (values.every(v => v && typeof v === 'object' && 'id' in v)) {
+            if (values.every((v) => v && typeof v === 'object' && 'id' in v)) {
               Logger.log('ERROR RECOVERY: Converting object to dice array');
               this.activePiece.dice = values;
             } else {
@@ -1683,32 +2534,43 @@ export class Game extends Scene {
           Logger.log('ERROR RECOVERY: Dice array is invalid type - resetting to empty');
           this.activePiece.dice = [];
         }
-        
-        Logger.log(`ERROR RECOVERY: Dice array recovered with ${this.activePiece.dice.length} dice`);
+
+        Logger.log(
+          `ERROR RECOVERY: Dice array recovered with ${this.activePiece.dice.length} dice`
+        );
       } catch (recoveryError) {
         Logger.log(`ERROR RECOVERY FAILED: ${recoveryError} - finalizing corrupted piece`);
         this.finalizePieceLocking(this.activePiece);
         return false;
       }
     }
-    
+
     // Handle invalid piece position
-    if (typeof this.activePiece.x !== 'number' || typeof this.activePiece.y !== 'number' ||
-        !isFinite(this.activePiece.x) || !isFinite(this.activePiece.y) ||
-        isNaN(this.activePiece.x) || isNaN(this.activePiece.y)) {
-      Logger.log('ERROR HANDLING: Invalid piece position detected - applying emergency positioning');
-      
+    if (
+      typeof this.activePiece.x !== 'number' ||
+      typeof this.activePiece.y !== 'number' ||
+      !isFinite(this.activePiece.x) ||
+      !isFinite(this.activePiece.y) ||
+      isNaN(this.activePiece.x) ||
+      isNaN(this.activePiece.y)
+    ) {
+      Logger.log(
+        'ERROR HANDLING: Invalid piece position detected - applying emergency positioning'
+      );
+
       this.activePiece.x = GAME_CONSTANTS.SPAWN_X_CENTER;
       this.activePiece.y = GAME_CONSTANTS.SPAWN_Y;
-      
-      Logger.log(`ERROR RECOVERY: Reset piece position to (${this.activePiece.x}, ${this.activePiece.y})`);
+
+      Logger.log(
+        `ERROR RECOVERY: Reset piece position to (${this.activePiece.x}, ${this.activePiece.y})`
+      );
     }
-    
+
     // Validate and clean up dice array
     if (this.activePiece.dice.length > 0) {
       const validDice: any[] = [];
       const invalidDiceIndices: number[] = [];
-      
+
       this.activePiece.dice.forEach((die: any, index: number) => {
         if (this.validateDieStructure(die, index)) {
           validDice.push(die);
@@ -1716,12 +2578,14 @@ export class Game extends Scene {
           invalidDiceIndices.push(index);
         }
       });
-      
+
       if (invalidDiceIndices.length > 0) {
-        Logger.log(`ERROR RECOVERY: Removed ${invalidDiceIndices.length} invalid dice from active piece`);
+        Logger.log(
+          `ERROR RECOVERY: Removed ${invalidDiceIndices.length} invalid dice from active piece`
+        );
         this.activePiece.dice = validDice;
       }
-      
+
       // If no valid dice remain, finalize the piece
       if (validDice.length === 0) {
         Logger.log('ERROR RECOVERY: No valid dice remaining - finalizing piece');
@@ -1729,7 +2593,7 @@ export class Game extends Scene {
         return false;
       }
     }
-    
+
     Logger.log(`ERROR HANDLING: Recovery complete for context: ${context}`);
     return true;
   }
@@ -1745,7 +2609,7 @@ export class Game extends Scene {
       Logger.log(`DIE VALIDATION: Die ${index} is not a valid object`);
       return false;
     }
-    
+
     const requiredProps = ['id', 'sides', 'number', 'color', 'relativePos'];
     for (const prop of requiredProps) {
       if (!(prop in die) || die[prop] === null || die[prop] === undefined) {
@@ -1753,29 +2617,41 @@ export class Game extends Scene {
         return false;
       }
     }
-    
+
     // Validate relativePos structure
-    if (!die.relativePos || typeof die.relativePos !== 'object' ||
-        typeof die.relativePos.x !== 'number' || typeof die.relativePos.y !== 'number' ||
-        !isFinite(die.relativePos.x) || !isFinite(die.relativePos.y) ||
-        isNaN(die.relativePos.x) || isNaN(die.relativePos.y)) {
+    if (
+      !die.relativePos ||
+      typeof die.relativePos !== 'object' ||
+      typeof die.relativePos.x !== 'number' ||
+      typeof die.relativePos.y !== 'number' ||
+      !isFinite(die.relativePos.x) ||
+      !isFinite(die.relativePos.y) ||
+      isNaN(die.relativePos.x) ||
+      isNaN(die.relativePos.y)
+    ) {
       Logger.log(`DIE VALIDATION: Die ${index} has invalid relativePos structure`);
       return false;
     }
-    
+
     // Validate numeric properties
-    if (typeof die.sides !== 'number' || die.sides < 1 || !Number.isInteger(die.sides) ||
-        typeof die.number !== 'number' || die.number < 1 || !Number.isInteger(die.number)) {
+    if (
+      typeof die.sides !== 'number' ||
+      die.sides < 1 ||
+      !Number.isInteger(die.sides) ||
+      typeof die.number !== 'number' ||
+      die.number < 1 ||
+      !Number.isInteger(die.number)
+    ) {
       Logger.log(`DIE VALIDATION: Die ${index} has invalid numeric properties`);
       return false;
     }
-    
+
     // Validate color
     if (typeof die.color !== 'string' || die.color.length === 0) {
       Logger.log(`DIE VALIDATION: Die ${index} has invalid color property`);
       return false;
     }
-    
+
     return true;
   }
 
@@ -1785,7 +2661,10 @@ export class Game extends Scene {
    * @param arrayLength Current length of the dice array
    * @returns Validation result with safety recommendations
    */
-  private validateArrayModificationSafety(indices: number[], arrayLength: number): {
+  private validateArrayModificationSafety(
+    indices: number[],
+    arrayLength: number
+  ): {
     isSafe: boolean;
     safeIndices: number[];
     warnings: string[];
@@ -1795,62 +2674,72 @@ export class Game extends Scene {
       isSafe: true,
       safeIndices: [] as number[],
       warnings: [] as string[],
-      errors: [] as string[]
+      errors: [] as string[],
     };
-    
-    Logger.log(`ARRAY SAFETY: Validating modification safety for ${indices.length} indices on array of length ${arrayLength}`);
-    
+
+    Logger.log(
+      `ARRAY SAFETY: Validating modification safety for ${indices.length} indices on array of length ${arrayLength}`
+    );
+
     if (arrayLength <= 0) {
       result.isSafe = false;
       result.errors.push('Cannot modify empty or invalid array');
       return result;
     }
-    
+
     if (indices.length === 0) {
       result.warnings.push('No indices provided for modification');
       return result;
     }
-    
+
     // Check for various safety issues
     const uniqueIndices = [...new Set(indices)];
     if (uniqueIndices.length !== indices.length) {
-      result.warnings.push(`Duplicate indices detected: ${indices.length - uniqueIndices.length} duplicates removed`);
+      result.warnings.push(
+        `Duplicate indices detected: ${indices.length - uniqueIndices.length} duplicates removed`
+      );
     }
-    
+
     const maxValidIndex = arrayLength - 1;
     const validIndices: number[] = [];
     const invalidIndices: number[] = [];
-    
-    uniqueIndices.forEach(index => {
+
+    uniqueIndices.forEach((index) => {
       if (Number.isInteger(index) && index >= 0 && index <= maxValidIndex) {
         validIndices.push(index);
       } else {
         invalidIndices.push(index);
       }
     });
-    
+
     if (invalidIndices.length > 0) {
-      result.warnings.push(`Invalid indices detected: [${invalidIndices.join(', ')}] (valid range: 0-${maxValidIndex})`);
+      result.warnings.push(
+        `Invalid indices detected: [${invalidIndices.join(', ')}] (valid range: 0-${maxValidIndex})`
+      );
     }
-    
+
     // Check for potential array modification issues
     if (validIndices.length === arrayLength) {
       result.warnings.push('All array elements will be removed - array will become empty');
     }
-    
+
     if (validIndices.length > arrayLength / 2) {
-      result.warnings.push(`Removing ${validIndices.length}/${arrayLength} elements (>${Math.round(arrayLength/2*100)/100}%) - consider array reconstruction`);
+      result.warnings.push(
+        `Removing ${validIndices.length}/${arrayLength} elements (>${Math.round((arrayLength / 2) * 100) / 100}%) - consider array reconstruction`
+      );
     }
-    
+
     // Sort indices for safe removal (descending order)
     result.safeIndices = validIndices.sort((a, b) => b - a);
-    
+
     if (result.errors.length > 0) {
       result.isSafe = false;
     }
-    
-    Logger.log(`ARRAY SAFETY RESULT: Safe=${result.isSafe}, ValidIndices=${result.safeIndices.length}, Warnings=${result.warnings.length}, Errors=${result.errors.length}`);
-    
+
+    Logger.log(
+      `ARRAY SAFETY RESULT: Safe=${result.isSafe}, ValidIndices=${result.safeIndices.length}, Warnings=${result.warnings.length}, Errors=${result.errors.length}`
+    );
+
     return result;
   }
 
@@ -1867,7 +2756,7 @@ export class Game extends Scene {
       this.dropTimer.remove(false);
       this.dropTimer = null;
     }
-    
+
     if (this.gravityTimer) {
       this.gravityTimer.remove(false);
       this.gravityTimer = null;
@@ -1877,7 +2766,7 @@ export class Game extends Scene {
     if (this.gameUI) {
       this.gameUI.destroy();
     }
-    
+
     Logger.log('Game scene: Timers and UI cleaned up');
   }
 }
