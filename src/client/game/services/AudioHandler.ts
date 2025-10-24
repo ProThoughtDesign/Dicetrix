@@ -96,16 +96,16 @@ export class AudioHandler implements IAudioHandler {
 
   // Music control methods
   playMusic(key: string, loop: boolean = true): void {
-    return Logger.withSilentLogging(() => {
-      if (!this.initialized) {
-        Logger.log('AudioHandler: Not initialized, cannot play music');
-        return;
-      }
+    Logger.log(`AudioHandler: playMusic called with key='${key}', initialized=${this.initialized}`);
+    
+    if (!this.initialized) {
+      Logger.log('AudioHandler: Not initialized, cannot play music');
+      return;
+    }
 
-      hybridAudioService.playMusic(key, loop);
-      // Only log music changes, not every call
-      Logger.log(`AudioHandler: Playing music '${key}'`);
-    });
+    Logger.log(`AudioHandler: Calling hybridAudioService.playMusic('${key}', ${loop})`);
+    hybridAudioService.playMusic(key, loop);
+    Logger.log(`AudioHandler: Successfully called hybridAudioService.playMusic('${key}')`);
   }
 
   stopMusic(): void {

@@ -1,5 +1,5 @@
 {
-  "enabled": true,
+  "enabled": false,
   "name": "Client README Updater",
   "description": "Monitors the client folder for significant updates and automatically updates the README.md file with current game description, innovative features, and play instructions",
   "version": "1",

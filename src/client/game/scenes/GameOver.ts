@@ -1,5 +1,6 @@
 import { Scene } from 'phaser';
 import Logger from '../../utils/Logger';
+import { audioHandler } from '../services/AudioHandler';
 
 export class GameOver extends Scene {
   constructor() {
@@ -11,6 +12,15 @@ export class GameOver extends Scene {
     
     // Set background
     this.cameras.main.setBackgroundColor('#1a1a2e');
+
+    // Start menu music for game over screen
+    // Requirements: 1.4 - music transitions between scenes
+    try {
+      audioHandler.stopMusic();
+      audioHandler.playMusic('menu-theme', true);
+    } catch (error) {
+      Logger.log(`GameOver: Failed to start menu music - ${error}`);
+    }
 
     // Game over text
     this.add.text(width / 2, height * 0.4, 'GAME OVER', {
@@ -33,8 +43,22 @@ export class GameOver extends Scene {
     })
     .setOrigin(0.5)
     .setInteractive({ useHandCursor: true })
-    .on('pointerdown', () => this.scene.start('StartMenu'));
+    .on('pointerdown', () => this.returnToMenu());
 
     Logger.log('GameOver scene: Ready');
+  }
+
+  private returnToMenu(): void {
+    try {
+      // Play menu select sound
+      audioHandler.playSound('menu-select');
+      
+      // Return to StartMenu (music will continue)
+      this.scene.start('StartMenu');
+    } catch (error) {
+      Logger.log(`GameOver: Error returning to menu - ${error}`);
+      // Fallback to direct scene transition
+      this.scene.start('StartMenu');
+    }
   }
 }

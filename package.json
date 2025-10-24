@@ -29,10 +29,15 @@
     "test:cascade": "vitest --run src/client/game/models/__tests__/CascadeLoopPrevention.test.ts",
     "test:api": "vitest --run src/server/__tests__/ApiIntegration.test.ts",
     "test:performance": "vitest --run src/client/game/systems/__tests__/PerformanceBenchmarks.test.ts",
-    "type-check": "tsc --build"
+    "type-check": "tsc --build",
+    "validate-audio": "node scripts/validate-audio-assets.js"
   },
   "dependencies": {
     "@devvit/web": "^0.12.1",
+    "@strudel/core": "^1.2.4",
+    "@strudel/mini": "^1.2.4",
+    "@strudel/tonal": "^1.2.4",
+    "@strudel/webaudio": "^1.2.5",
     "devvit": "^0.12.1",
     "express": "5.1.0",
     "phaser": "3.88.2"

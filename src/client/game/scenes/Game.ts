@@ -12,6 +12,9 @@ import { GameUI, GameUICallbacks } from '../ui/GameUI';
 import { GAME_CONSTANTS, SPAWN_POSITIONS } from '../../../shared/constants/GameConstants';
 import { CoordinateConverter } from '../../../shared/utils/CoordinateConverter';
 import { GridBoundaryValidator } from '../../../shared/utils/GridBoundaryValidator';
+import { audioHandler } from '../services/AudioHandler';
+import { SoundEffectLibrary } from '../services/SoundEffectLibrary';
+import { PauseMenuUI, PauseMenuCallbacks } from '../ui/PauseMenuUI';
 
 export class Game extends Scene {
   // Simple game phase state machine to manage scene flow
@@ -28,6 +31,14 @@ export class Game extends Scene {
   private activeSprites: Phaser.GameObjects.Container[] = [];
   private nextSprites: Phaser.GameObjects.Container[] = [];
   private lockedSprites: Phaser.GameObjects.Container[] = [];
+  
+  // Enhanced audio integration
+  private soundEffectLibrary: SoundEffectLibrary | null = null;
+  private currentGameMode: string = 'medium';
+  
+  // Pause menu integration
+  private pauseMenuUI: PauseMenuUI | null = null;
+  private isPaused: boolean = false;
 
   // Diagnostic timing metrics for initialization debugging
   private initializationMetrics = {
@@ -50,6 +61,245 @@ export class Game extends Scene {
 
   constructor() {
     super('Game');
+  }
+
+  /**
+   * Initialize enhanced audio system with SoundEffectLibrary integration
+   * Requirements: 1.4, 2.1, 2.2, 2.3, 2.4
+   */
+  private initializeAudioSystem(): void {
+    try {
+      // Initialize SoundEffectLibrary for comprehensive sound effects
+      this.soundEffectLibrary = new SoundEffectLibrary(this);
+      Logger.log('Game: SoundEffectLibrary initialized successfully');
+
+      // Start appropriate music for the current game mode
+      this.startGameModeMusic();
+      
+    } catch (error) {
+      Logger.log(`Game: Failed to initialize audio system - ${error}`);
+      // Continue without audio - graceful degradation
+      this.soundEffectLibrary = null;
+    }
+  }
+
+  /**
+   * Start music appropriate for the current game mode
+   * Requirements: 1.4
+   */
+  private startGameModeMusic(): void {
+    try {
+      // Map game modes to music keys
+      const musicKey = this.getMusicKeyForMode(this.currentGameMode);
+      
+      Logger.log(`Game: Starting music for mode '${this.currentGameMode}' -> '${musicKey}'`);
+      
+      // Transition from menu music to game music
+      audioHandler.stopMusic();
+      audioHandler.playMusic(musicKey, true);
+      
+    } catch (error) {
+      Logger.log(`Game: Failed to start game mode music - ${error}`);
+    }
+  }
+
+  /**
+   * Get appropriate music key for game mode
+   * Requirements: 1.4
+   */
+  private getMusicKeyForMode(gameMode: string): string {
+    switch (gameMode.toLowerCase()) {
+      case 'easy':
+        return 'easy-mode';
+      case 'medium':
+        return 'medium-mode';
+      case 'hard':
+        return 'hard-mode';
+      case 'expert':
+        return 'expert-mode';
+      case 'zen':
+        return 'zen-mode';
+      default:
+        Logger.log(`Game: Unknown game mode '${gameMode}', using medium-mode music`);
+        return 'medium-mode';
+    }
+  }
+
+  /**
+   * Pause the game and show pause menu with audio controls
+   * Requirements: 2.2, 2.4, 3.3, 3.4
+   */
+  private pauseGame(): void {
+    try {
+      if (this.isPaused) {
+        Logger.log('Game: Already paused, ignoring pause request');
+        return;
+      }
+
+      // Play pause sound effect
+      if (this.soundEffectLibrary) {
+        this.soundEffectLibrary.playPause();
+      }
+
+      // Pause game timers
+      this.pauseGameTimers();
+
+      // Create pause menu with callbacks
+      const pauseCallbacks: PauseMenuCallbacks = {
+        onResume: () => this.resumeGame(),
+        onSettings: () => this.openSettingsFromPause(),
+        onMainMenu: () => this.returnToMainMenuFromPause(),
+        onRestart: () => this.restartGameFromPause()
+      };
+
+      this.pauseMenuUI = new PauseMenuUI(this, pauseCallbacks);
+      this.isPaused = true;
+      
+      Logger.log('Game: Paused with compact audio controls menu');
+    } catch (error) {
+      Logger.log(`Game: Error during pause - ${error}`);
+      // Fallback to simple pause
+      this.pauseGameTimers();
+      this.isPaused = true;
+    }
+  }
+
+  /**
+   * Resume the game from pause menu
+   * Requirements: 2.2, 2.4, 3.3, 3.4
+   */
+  private resumeGame(): void {
+    try {
+      if (!this.isPaused) {
+        Logger.log('Game: Not paused, ignoring resume request');
+        return;
+      }
+
+      // Clean up pause menu
+      if (this.pauseMenuUI) {
+        this.pauseMenuUI.destroy();
+        this.pauseMenuUI = null;
+      }
+
+      // Resume game timers
+      this.resumeGameTimers();
+
+      // Play resume sound effect
+      if (this.soundEffectLibrary) {
+        this.soundEffectLibrary.playResume();
+      }
+
+      this.isPaused = false;
+      Logger.log('Game: Resumed from pause menu');
+    } catch (error) {
+      Logger.log(`Game: Error during resume - ${error}`);
+      // Fallback to simple resume
+      this.resumeGameTimers();
+      this.isPaused = false;
+    }
+  }
+
+  /**
+   * Pause game timers
+   */
+  private pauseGameTimers(): void {
+    if (this.dropTimer) {
+      this.dropTimer.paused = true;
+    }
+    if (this.gravityTimer) {
+      this.gravityTimer.paused = true;
+    }
+  }
+
+  /**
+   * Resume game timers
+   */
+  private resumeGameTimers(): void {
+    if (this.dropTimer) {
+      this.dropTimer.paused = false;
+    }
+    if (this.gravityTimer) {
+      this.gravityTimer.paused = false;
+    }
+  }
+
+  /**
+   * Open full settings from pause menu
+   * Requirements: 3.3, 3.4
+   */
+  private openSettingsFromPause(): void {
+    try {
+      // Clean up pause menu
+      if (this.pauseMenuUI) {
+        this.pauseMenuUI.destroy();
+        this.pauseMenuUI = null;
+      }
+
+      // Store game state for return
+      this.registry.set('pausedGameState', {
+        gameMode: this.currentGameMode,
+        score: this.score,
+        activePiece: this.activePiece,
+        nextPiece: this.nextPiece,
+        gameBoard: this.gameBoard?.state
+      });
+
+      // Go to settings scene
+      this.scene.start('Settings');
+      Logger.log('Game: Opened settings from pause menu');
+    } catch (error) {
+      Logger.log(`Game: Error opening settings from pause - ${error}`);
+      // Fallback to resume
+      this.resumeGame();
+    }
+  }
+
+  /**
+   * Return to main menu from pause menu
+   * Requirements: 3.3, 3.4
+   */
+  private returnToMainMenuFromPause(): void {
+    try {
+      // Clean up pause menu
+      if (this.pauseMenuUI) {
+        this.pauseMenuUI.destroy();
+        this.pauseMenuUI = null;
+      }
+
+      // Stop game music and return to menu music
+      audioHandler.stopMusic();
+      audioHandler.playMusic('menu-theme', true);
+
+      // Go to start menu
+      this.scene.start('StartMenu');
+      Logger.log('Game: Returned to main menu from pause');
+    } catch (error) {
+      Logger.log(`Game: Error returning to main menu from pause - ${error}`);
+      // Fallback to direct scene transition
+      this.scene.start('StartMenu');
+    }
+  }
+
+  /**
+   * Restart game from pause menu
+   * Requirements: 3.3, 3.4
+   */
+  private restartGameFromPause(): void {
+    try {
+      // Clean up pause menu
+      if (this.pauseMenuUI) {
+        this.pauseMenuUI.destroy();
+        this.pauseMenuUI = null;
+      }
+
+      // Restart the game scene with same mode
+      this.scene.restart({ gameMode: this.currentGameMode });
+      Logger.log('Game: Restarted from pause menu');
+    } catch (error) {
+      Logger.log(`Game: Error restarting from pause - ${error}`);
+      // Fallback to scene restart
+      this.scene.restart();
+    }
   }
 
   /**
@@ -862,6 +1112,13 @@ export class Game extends Scene {
       Logger.log(
         `SPAWN GAME OVER: Cannot enter grid - collision detected when trying to move from Y=${spawnY} to Y=${enterGridY}`
       );
+      
+      // Play game over sound effect
+      // Requirements: 2.2, 2.4
+      if (this.soundEffectLibrary) {
+        this.soundEffectLibrary.playGameOver();
+      }
+      
       // Game over - transition to GameOver scene
       this.scene.start('GameOver');
       return;
@@ -1059,6 +1316,12 @@ export class Game extends Scene {
             `LOCK SUCCESS: Die ${index} provisionally locked at (${finalX}, ${finalY})${positionClamped ? ' (clamped)' : ''}`
           );
           successfullyLocked.push(index);
+          
+          // Play piece placement sound for each locked die
+          // Requirements: 2.1, 2.2
+          if (this.soundEffectLibrary) {
+            this.soundEffectLibrary.playPiecePlacement();
+          }
         } catch (err) {
           const errorMsg = `Failed to lock die ${index} at (${finalX}, ${finalY}): ${err}`;
           Logger.log(`LOCK ERROR: ${errorMsg}`);
@@ -1183,6 +1446,18 @@ export class Game extends Scene {
               const base = size * (matchedNumber as number);
               const groupScore = (base + facesTotal) * this.cascadeMultiplier;
               cascadeIterationScore += groupScore;
+
+              // Play line clear sound effect based on match size
+              // Requirements: 2.2, 2.4
+              if (this.soundEffectLibrary) {
+                this.soundEffectLibrary.playLineClear(Math.min(size, 4));
+              }
+
+              // Play combo effect sound for cascades
+              // Requirements: 2.3
+              if (this.cascadeMultiplier > 1 && this.soundEffectLibrary) {
+                this.soundEffectLibrary.playComboEffect(this.cascadeMultiplier);
+              }
 
               // Increase multiplier for next match (per-match increase)
               this.cascadeMultiplier++;
@@ -1573,6 +1848,7 @@ export class Game extends Scene {
     const cfg = mode.getConfig();
     this.registry.set('gameMode', mode.id);
     this.registry.set('gameConfig', cfg);
+    this.currentGameMode = selectedMode;
     this.initializationMetrics.registrySetupComplete = performance.now();
     Logger.log(
       `INIT TIMING: Registry setup complete at ${this.initializationMetrics.registrySetupComplete}ms (took ${this.initializationMetrics.registrySetupComplete - this.initializationMetrics.backgroundSetComplete}ms)`
@@ -1613,7 +1889,7 @@ export class Game extends Scene {
       onRotateClockwise: () => this.rotatePiece(1),
       onRotateCounterClockwise: () => this.rotatePiece(-1),
       onHardDrop: () => this.hardDrop(),
-      onPause: () => this.scene.start('StartMenu'),
+      onPause: () => this.pauseGame(),
       onBoardTouch: (gridX, gridY) => this.handleBoardTouch(gridX, gridY),
     };
 
@@ -1622,6 +1898,10 @@ export class Game extends Scene {
     Logger.log(
       `INIT TIMING: GameUI creation complete at ${this.initializationMetrics.gameUICreateComplete}ms (took ${this.initializationMetrics.gameUICreateComplete - this.initializationMetrics.gameUICreateStart}ms)`
     );
+
+    // Initialize enhanced audio system
+    Logger.log('INIT STEP 4.5: Initializing enhanced audio system');
+    this.initializeAudioSystem();
 
     // Validate UI system readiness
     this.validateUISystemReadiness();
@@ -1744,6 +2024,12 @@ export class Game extends Scene {
       this.activePiece.y = newY;
       this.renderGameState();
       Logger.log(`Successfully moved piece to bottom-left (${newX}, ${newY})`);
+      
+      // Play movement sound effect for downward movement (soft drop)
+      // Requirements: 2.1, 2.2
+      if (dy < 0 && this.soundEffectLibrary) {
+        this.soundEffectLibrary.playPieceDrop();
+      }
     } else {
       Logger.log(`Cannot move piece to bottom-left (${newX}, ${newY}) - collision detected`);
     }
@@ -1775,6 +2061,12 @@ export class Game extends Scene {
 
     this.activePiece.y = dropY;
     Logger.log(`Hard dropped piece to lowest valid Y=${dropY}`);
+
+    // Play hard drop sound effect
+    // Requirements: 2.1, 2.2
+    if (this.soundEffectLibrary) {
+      this.soundEffectLibrary.playPieceDrop();
+    }
 
     // Force immediate collision detection by calling stepDrop
     this.stepDrop();
@@ -1970,6 +2262,12 @@ export class Game extends Scene {
     // Update rotation angle for reference
     this.activePiece.rotation =
       (this.activePiece.rotation + (direction > 0 ? 90 : -90) + 360) % 360;
+
+    // Play rotation sound effect
+    // Requirements: 2.1, 2.2
+    if (this.soundEffectLibrary) {
+      this.soundEffectLibrary.playPieceRotation();
+    }
 
     // Validate the rotation result
     this.validateRotationResult();
@@ -2767,6 +3065,18 @@ export class Game extends Scene {
       this.gameUI.destroy();
     }
 
-    Logger.log('Game scene: Timers and UI cleaned up');
+    // Clean up audio
+    if (this.soundEffectLibrary) {
+      this.soundEffectLibrary.destroy();
+      this.soundEffectLibrary = null;
+    }
+
+    // Clean up pause menu
+    if (this.pauseMenuUI) {
+      this.pauseMenuUI.destroy();
+      this.pauseMenuUI = null;
+    }
+
+    Logger.log('Game scene: Timers, UI, audio, and pause menu cleaned up');
   }
 }
