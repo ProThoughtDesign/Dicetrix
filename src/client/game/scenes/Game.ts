@@ -4,6 +4,8 @@ import GameBoard from '../logic/GameBoard';
 import { settings } from '../services/Settings';
 import { getMode } from '../config/GameMode';
 import { drawDie } from '../visuals/DiceRenderer';
+import { detectMatches } from '../logic/MatchDetector';
+import { applyGravity } from '../logic/Gravity';
 // import { applyIndividualGravity } from '../logic/Gravity'; // Disabled for now
 import Logger from '../../utils/Logger';
 import { GameUI, GameUICallbacks } from '../ui/GameUI';
@@ -12,6 +14,8 @@ import { CoordinateConverter } from '../../../shared/utils/CoordinateConverter';
 import { GridBoundaryValidator } from '../../../shared/utils/GridBoundaryValidator';
 
 export class Game extends Scene {
+  // Simple game phase state machine to manage scene flow
+  private phase: 'Idle' | 'Dropping' | 'Cascading' | 'Animating' | 'Spawning' = 'Idle';
   private gameUI: GameUI;
   private gameBoard: GameBoard;
   private coordinateConverter: CoordinateConverter;
@@ -390,8 +394,9 @@ export class Game extends Scene {
     }
   }
 
-  private stepDrop(): void {
+  private async stepDrop(): Promise<void> {
     Logger.log('=== stepDrop() START ===');
+    this.phase = 'Dropping';
     if (!this.gameBoard) {
       Logger.log('ERROR: No gameBoard found');
       return;
@@ -549,25 +554,70 @@ export class Game extends Scene {
       }
     }
 
-    // After batching locks, finalize match detection and gravity once
+    // After batching locks, run match detection and handle cascades with animations
     if (successfullyLocked.length > 0) {
+      this.phase = 'Cascading';
       try {
-        const finalizeResult: any = this.gameBoard.finalizeLocks();
-        if (finalizeResult && finalizeResult.matches && finalizeResult.matches.length > 0) {
-          Logger.log(`BATCH MATCHES DETECTED: ${finalizeResult.matches.length} groups`);
-          // Update UI footer for matches
+        const boardMetrics = (this.gameUI && (this.gameUI as any).boardMetrics) || null;
+
+        // Cascade loop: detect -> animate -> clear -> gravity -> repeat until no matches
+        let cascadeMatches: any[] = detectMatches(this.gameBoard.state);
+        if (cascadeMatches && cascadeMatches.length > 0) {
+          Logger.log(`INITIAL CASCADE: ${cascadeMatches.length} match groups detected`);
+        }
+
+        while (cascadeMatches && cascadeMatches.length > 0) {
+          // Build footer messages
           const msgs: string[] = [];
-          for (const m of finalizeResult.matches) {
+          const allPositions: Array<{ x: number; y: number }> = [];
+          for (const m of cascadeMatches) {
             const size = m.size || (m.positions ? m.positions.length : 0);
             const num = m.matchedNumber ?? '?';
-            const msg = `Matched: ${size} dice with value ${num}`;
-            msgs.push(msg);
+            msgs.push(`Matched: ${size} dice with value ${num}`);
+            if (m.positions && Array.isArray(m.positions)) {
+              allPositions.push(...m.positions.map((p: any) => ({ x: p.x, y: p.y })));
+            }
           }
+
           const footerText = msgs.join(' | ');
           try { this.gameUI?.updateMatchFooter(footerText); } catch (e) { /* ignore UI errors */ }
+
+          // Animate matched positions before clearing
+          try {
+            this.phase = 'Animating';
+            await this.animateMatchPositions(allPositions, boardMetrics);
+          } catch (e) {
+            Logger.log(`ERROR: animateMatchPositions failed: ${e}`);
+          } finally {
+            this.phase = 'Cascading';
+          }
+
+          // Clear matched positions from authoritative grid
+          try {
+            const clearPositions = allPositions.map(p => ({ x: p.x, y: p.y }));
+            this.gameBoard.clearCells(clearPositions);
+          } catch (e) {
+            Logger.log(`ERROR: clearCells failed: ${e}`);
+          }
+
+          // Apply gravity once after clears
+          try {
+            applyGravity(this.gameBoard.state);
+          } catch (e) {
+            Logger.log(`ERROR: applyGravity failed: ${e}`);
+          }
+
+          // Re-render after gravity so players see falling pieces
+          this.renderGameState();
+
+          // Detect again for potential cascades
+          cascadeMatches = detectMatches(this.gameBoard.state);
+          if (cascadeMatches && cascadeMatches.length > 0) {
+            Logger.log(`CASCADE CONTINUED: ${cascadeMatches.length} new match groups detected`);
+          }
         }
       } catch (e) {
-        Logger.log(`ERROR: finalizeLocks failed: ${e}`);
+        Logger.log(`ERROR: Cascade handling failed: ${e}`);
       }
     }
 
@@ -640,7 +690,68 @@ export class Game extends Scene {
 
     // Re-render grid to show final locked state and spawn a new piece
     this.renderGameState();
+    this.phase = 'Spawning';
     this.spawnPiece();
+  }
+
+  // Animate matched positions (fade out) and return a Promise that resolves when animations complete
+  private animateMatchPositions(positions: Array<{ x: number; y: number }>, boardMetrics: any): Promise<void> {
+    return new Promise((resolve) => {
+      if (!positions || positions.length === 0) return resolve();
+      const tweens: Phaser.Tweens.Tween[] = [];
+      let completed = 0;
+
+      const onComplete = () => {
+        completed++;
+        if (completed >= positions.length) resolve();
+      };
+
+      for (const p of positions) {
+        // Create a temporary sprite at the grid position
+        try {
+          const screenPos = this.coordinateConverter.gridToScreen(p.x, p.y, boardMetrics);
+          const sprite = drawDie(
+            this,
+            screenPos.x,
+            screenPos.y,
+            boardMetrics.cellW,
+            boardMetrics.cellH,
+            // create a lightweight visual die for animation
+            { id: `anim-${p.x}-${p.y}-${Date.now()}`, sides: 6, number: 1, color: 'white' } as any
+          ) as Phaser.GameObjects.Container | null;
+
+          if (!sprite) {
+            onComplete();
+            continue;
+          }
+
+          // Ensure origin placement matches existing renders
+          sprite.setAlpha(1);
+          this.add.existing(sprite);
+
+          const tw = this.tweens.add({
+            targets: sprite,
+            alpha: 0,
+            scale: 0.8,
+            duration: 300,
+            ease: 'Cubic.easeIn',
+            onComplete: () => {
+              try { sprite.destroy(); } catch (e) { /* ignore */ }
+              onComplete();
+            }
+          });
+
+          tweens.push(tw);
+        } catch (e) {
+          onComplete();
+        }
+      }
+
+      // Safety timeout in case tweens never call complete
+      this.time.delayedCall(400, () => {
+        if (completed < positions.length) resolve();
+      });
+    });
   }
 
   private stepGravity(): void {
@@ -699,8 +810,9 @@ export class Game extends Scene {
     this.nextPiece = this.generateMultiDiePiece();
     Logger.log(`Generated initial next piece: ${this.nextPiece.shape}`);
     
-    // Then spawn the first active piece (which will use the next piece)
-    this.spawnPiece();
+  // Then spawn the first active piece (which will use the next piece)
+  this.phase = 'Spawning';
+  this.spawnPiece();
     
     const cfgAny: any = cfg;
     const ms = Number(cfgAny?.fallSpeed) || 800;
@@ -729,6 +841,7 @@ export class Game extends Scene {
     // Initial render
     this.renderGameState();
     Logger.log('Game scene initialized with new UI system');
+    this.phase = 'Dropping';
   }
 
 

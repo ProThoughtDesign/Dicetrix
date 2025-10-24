@@ -574,10 +574,12 @@ export class GameUI extends BaseUI {
         callbacks.onHardDrop?.();
         break;
       case 'rotateLeft':
-        callbacks.onRotateCounterClockwise?.();
+        // Swapped: left button should rotate clockwise
+        callbacks.onRotateClockwise?.();
         break;
       case 'rotateRight':
-        callbacks.onRotateClockwise?.();
+        // Swapped: right button should rotate counter-clockwise
+        callbacks.onRotateCounterClockwise?.();
         break;
     }
   }
