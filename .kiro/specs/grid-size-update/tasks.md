@@ -2,7 +2,6 @@
 
 - [x] 1. Update game constants for 8x16 grid dimensions
 
-
   - Update GRID_WIDTH from 10 to 8 in GameConstants.ts
   - Update GRID_HEIGHT from 20 to 16 in GameConstants.ts
   - Update TOP_Y from 19 to 15 (height - 1)
@@ -40,7 +39,7 @@
   - ✅ Verify bottom collision detection works with 16-row height
   - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5_
 
-- [ ] 6. Update spawn position calculations
+- [x] 6. Update spawn position calculations
 
   - Verify SPAWN_POSITIONS.calculateSpawnY works with new SPAWN_Y (13)
   - Test that pieces spawn at correct center position (X=3) for 8-column grid
@@ -48,7 +47,7 @@
   - Verify game over detection works when pieces cannot enter 16-row grid
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5_
 
-- [ ] 7. Update UI board metrics calculations
+- [x] 7. Update UI board metrics calculations
 
   - Modify calculateBoardMetrics to use 8x16 dimensions for layout calculations
   - Update cell size calculations to fit 8 columns and 16 rows in available space
@@ -56,7 +55,7 @@
   - Verify boardW and boardH calculations use correct grid dimensions
   - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5_
 
-- [ ] 8. Update visual rendering for 8x16 grid
+- [x] 8. Update visual rendering for 8x16 grid
 
   - Verify renderLockedPieces iterates correctly over 8x16 grid (0-7 X, 0-15 Y)
   - Ensure renderActivePiece positions sprites within 8x16 boundaries
@@ -64,7 +63,7 @@
   - Test that all visual elements display correctly for 8x16 grid
   - _Requirements: 4.1, 4.2, 4.3, 4.5_
 
-- [ ] 9. Update match detection and game logic systems
+- [x] 9. Update match detection and game logic systems
 
   - Verify MatchDetector works correctly with 8x16 grid boundaries
   - Ensure gravity system applies correctly within 16-row height limits
@@ -72,7 +71,8 @@
   - Test that piece rotation respects 8x16 boundaries
   - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5_
 
-- [ ] 10. Update all test files for 8x16 expectations
+- [x] 10. Update all test files for 8x16 expectations
+
 
   - Update GameConstants.test.ts to expect GRID_WIDTH=8 and GRID_HEIGHT=16
   - Update GridBoundaryValidator.test.ts to use 8x16 dimensions in tests

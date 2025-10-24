@@ -19,12 +19,12 @@ describe('Piece Spawning Integration', () => {
       const minRelativeY = Math.min(...singleDiePiece.map(pos => pos.y));
       const spawnY = SPAWN_POSITIONS.calculateSpawnY(minRelativeY);
       
-      // Single die with relative Y=0 should spawn at Y=21
-      expect(spawnY).toBe(21);
+      // Single die with relative Y=0 should spawn at Y=16
+      expect(spawnY).toBe(16);
       
-      // Lowest die should be at Y=21 (above visible grid)
+      // Lowest die should be at Y=16 (above visible grid)
       const lowestDieY = spawnY + minRelativeY;
-      expect(lowestDieY).toBe(21);
+      expect(lowestDieY).toBe(16);
       expect(lowestDieY).toBeGreaterThan(GAME_CONSTANTS.TOP_Y);
     });
 
@@ -37,8 +37,8 @@ describe('Piece Spawning Integration', () => {
       const minRelativeY = Math.min(...verticalPiece.map(pos => pos.y));
       const spawnY = SPAWN_POSITIONS.calculateSpawnY(minRelativeY);
       
-      // Piece with lowest die at relative Y=0 should spawn at Y=21
-      expect(spawnY).toBe(21);
+      // Piece with lowest die at relative Y=0 should spawn at Y=16
+      expect(spawnY).toBe(16);
       
       // Check all dice positions after spawning
       const dicePositions = verticalPiece.map(pos => ({
@@ -47,15 +47,14 @@ describe('Piece Spawning Integration', () => {
       }));
       
       expect(dicePositions).toEqual([
-        { x: 4, y: 21 }, // Bottom die at Y=21
-        { x: 4, y: 22 }, // Middle die at Y=22
-        { x: 4, y: 23 }  // Top die at Y=23
+        { x: 3, y: 16 }, // Bottom die at Y=16
+        { x: 3, y: 17 }, // Middle die at Y=17
+        { x: 3, y: 18 }  // Top die at Y=18
       ]);
       
-      // All dice should be above visible grid
-      dicePositions.forEach(pos => {
-        expect(pos.y).toBeGreaterThan(GAME_CONSTANTS.TOP_Y);
-      });
+      // Bottom die should be at spawn Y, others above visible grid
+      expect(dicePositions[0].y).toBe(GAME_CONSTANTS.SPAWN_Y);
+      expect(dicePositions[2].y).toBe(GAME_CONSTANTS.SPAWN_Y + 2); // Top die at Y=18
     });
 
     test('should calculate correct spawn position for L-shaped piece', () => {
@@ -68,7 +67,7 @@ describe('Piece Spawning Integration', () => {
       const minRelativeY = Math.min(...lPiece.map(pos => pos.y));
       const spawnY = SPAWN_POSITIONS.calculateSpawnY(minRelativeY);
       
-      expect(spawnY).toBe(21);
+      expect(spawnY).toBe(16);
       
       // Check all dice positions
       const dicePositions = lPiece.map(pos => ({
@@ -77,10 +76,10 @@ describe('Piece Spawning Integration', () => {
       }));
       
       expect(dicePositions).toEqual([
-        { x: 4, y: 21 }, // Bottom-left at Y=21
-        { x: 4, y: 22 }, // One up at Y=22
-        { x: 4, y: 23 }, // Two up at Y=23
-        { x: 5, y: 21 }  // One right at Y=21
+        { x: 3, y: 16 }, // Bottom-left at Y=16
+        { x: 3, y: 17 }, // One up at Y=17
+        { x: 3, y: 18 }, // Two up at Y=18
+        { x: 4, y: 16 }  // One right at Y=16
       ]);
     });
 
@@ -94,8 +93,8 @@ describe('Piece Spawning Integration', () => {
       const minRelativeY = Math.min(...offsetPiece.map(pos => pos.y));
       const spawnY = SPAWN_POSITIONS.calculateSpawnY(minRelativeY);
       
-      // With minRelativeY = -1, spawn should be at Y=22
-      expect(spawnY).toBe(22);
+      // With minRelativeY = -1, spawn should be at Y=17
+      expect(spawnY).toBe(17);
       
       // Check dice positions
       const dicePositions = offsetPiece.map(pos => ({
@@ -104,14 +103,14 @@ describe('Piece Spawning Integration', () => {
       }));
       
       expect(dicePositions).toEqual([
-        { x: 4, y: 21 }, // Lowest die at Y=21
-        { x: 4, y: 22 }, // Middle die at Y=22
-        { x: 4, y: 23 }  // Highest die at Y=23
+        { x: 3, y: 16 }, // Lowest die at Y=16
+        { x: 3, y: 17 }, // Middle die at Y=17
+        { x: 3, y: 18 }  // Highest die at Y=18
       ]);
       
-      // Lowest die should still be at Y=21
+      // Lowest die should still be at Y=16
       const lowestDieY = Math.min(...dicePositions.map(pos => pos.y));
-      expect(lowestDieY).toBe(21);
+      expect(lowestDieY).toBe(16);
     });
   });
 
@@ -128,13 +127,13 @@ describe('Piece Spawning Integration', () => {
         const spawnY = SPAWN_POSITIONS.calculateSpawnY(minRelativeY);
         
         // Validate using GridBoundaryValidator
-        expect(GridBoundaryValidator.validateSpawnPosition(spawnY, minRelativeY, 21)).toBe(true);
+        expect(GridBoundaryValidator.validateSpawnPosition(spawnY, minRelativeY, 13)).toBe(true);
         
-        // Ensure lowest die is at or above Y=21
+        // Ensure lowest die is at or above Y=13
         const lowestDieY = spawnY + minRelativeY;
-        expect(lowestDieY).toBeGreaterThanOrEqual(21);
+        expect(lowestDieY).toBeGreaterThanOrEqual(13);
         
-        // Ensure spawn position is above visible grid
+        // Ensure spawn position is above the visible grid for 8x16
         expect(spawnY).toBeGreaterThan(GAME_CONSTANTS.TOP_Y);
       });
     });
@@ -142,22 +141,22 @@ describe('Piece Spawning Integration', () => {
     test('should detect invalid spawn positions', () => {
       // Test cases where spawn would be too low
       const invalidCases = [
-        { spawnY: 20, minRelativeY: 0 }, // Would put lowest die at Y=20
-        { spawnY: 19, minRelativeY: 0 }, // Would put lowest die at Y=19
-        { spawnY: 21, minRelativeY: -1 }, // Would put lowest die at Y=20
+        { spawnY: 12, minRelativeY: 0 }, // Would put lowest die at Y=12
+        { spawnY: 11, minRelativeY: 0 }, // Would put lowest die at Y=11
+        { spawnY: 13, minRelativeY: -1 }, // Would put lowest die at Y=12
       ];
 
       invalidCases.forEach(({ spawnY, minRelativeY }) => {
-        expect(GridBoundaryValidator.validateSpawnPosition(spawnY, minRelativeY, 21)).toBe(false);
+        expect(GridBoundaryValidator.validateSpawnPosition(spawnY, minRelativeY, 13)).toBe(false);
       });
     });
   });
 
   describe('Game Over Detection', () => {
     test('should detect game over when spawn area is blocked', () => {
-      // Fill the top rows to simulate a full grid
+      // Fill the grid up to the spawn entry point to simulate a full grid
       for (let x = 0; x < GAME_CONSTANTS.GRID_WIDTH; x++) {
-        for (let y = 18; y <= 19; y++) { // Fill top two rows
+        for (let y = 0; y <= 12; y++) { // Fill up to Y=12 to block spawn entry
           gameBoard.addPieceAt([{
             pos: { x, y },
             die: { id: `block-${x}-${y}`, sides: 6, number: 1, color: 'red' } as any
@@ -167,10 +166,10 @@ describe('Piece Spawning Integration', () => {
 
       // Try to spawn a piece - should detect collision when entering grid
       const spawnX = GAME_CONSTANTS.SPAWN_X_CENTER;
-      const spawnY = 21;
-      const enterGridY = spawnY - 1; // Y=20, which should be blocked
+      const spawnY = 13;
+      const enterGridY = spawnY - 1; // Y=12, which should be blocked
 
-      // Check if position Y=20 is occupied (should be true due to filled grid)
+      // Check if position Y=12 is occupied (should be true due to filled grid)
       expect(gameBoard.isEmpty(spawnX, enterGridY)).toBe(false);
       
       // This simulates the game over condition check
@@ -181,7 +180,7 @@ describe('Piece Spawning Integration', () => {
     test('should allow spawning when grid has space at top', () => {
       // Fill only bottom rows, leaving top clear
       for (let x = 0; x < GAME_CONSTANTS.GRID_WIDTH; x++) {
-        for (let y = 0; y <= 15; y++) { // Fill bottom rows, leave top 4 rows clear
+        for (let y = 0; y <= 11; y++) { // Fill bottom rows, leave top 4 rows clear
           gameBoard.addPieceAt([{
             pos: { x, y },
             die: { id: `block-${x}-${y}`, sides: 6, number: 1, color: 'red' } as any
@@ -191,8 +190,8 @@ describe('Piece Spawning Integration', () => {
 
       // Try to spawn a piece - should succeed
       const spawnX = GAME_CONSTANTS.SPAWN_X_CENTER;
-      const spawnY = 21;
-      const enterGridY = 19; // Y=19 is the top of the visible grid, should be clear
+      const spawnY = 13;
+      const enterGridY = 12; // Y=12 should be clear
 
       expect(gameBoard.isEmpty(spawnX, enterGridY)).toBe(true);
     });
@@ -205,7 +204,7 @@ describe('Piece Spawning Integration', () => {
       ];
       
       const spawnX = GAME_CONSTANTS.SPAWN_X_CENTER;
-      const spawnY = SPAWN_POSITIONS.calculateSpawnY(0); // Should be 21
+      const spawnY = SPAWN_POSITIONS.calculateSpawnY(0); // Should be 13
       
       // Simulate piece falling step by step
       let currentY = spawnY;

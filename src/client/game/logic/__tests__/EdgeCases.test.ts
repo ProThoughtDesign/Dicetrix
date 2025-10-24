@@ -35,18 +35,18 @@ describe('Coordinate System Edge Cases', () => {
         y: spawnY + pos.y
       }));
 
-      // All dice should be above visible grid
+      // All dice should be above the visible grid for 8x16 (spawn area)
       dicePositions.forEach(pos => {
         expect(pos.y).toBeGreaterThan(GAME_CONSTANTS.TOP_Y);
       });
 
-      // Lowest die should be at Y=21
+      // Lowest die should be at Y=16
       const lowestY = Math.min(...dicePositions.map(pos => pos.y));
-      expect(lowestY).toBe(21);
+      expect(lowestY).toBe(16);
 
-      // Highest die should be at Y=24
+      // Highest die should be at Y=19 (16 + 3)
       const highestY = Math.max(...dicePositions.map(pos => pos.y));
-      expect(highestY).toBe(24);
+      expect(highestY).toBe(19);
     });
 
     test('should handle spawning at grid edges', () => {
@@ -60,8 +60,8 @@ describe('Coordinate System Edge Cases', () => {
 
       const edgeSpawnTests = [
         { spawnX: 0, shouldFit: true, description: 'spawn at left edge' },
-        { spawnX: 6, shouldFit: true, description: 'spawn at right edge (piece extends to X=9)' },
-        { spawnX: 7, shouldFit: false, description: 'spawn too far right (piece would extend beyond X=9)' },
+        { spawnX: 4, shouldFit: true, description: 'spawn at right edge (piece extends to X=7)' },
+        { spawnX: 5, shouldFit: false, description: 'spawn too far right (piece would extend beyond X=7)' },
         { spawnX: -1, shouldFit: false, description: 'spawn beyond left edge' }
       ];
 
@@ -112,15 +112,15 @@ describe('Coordinate System Edge Cases', () => {
         const minRelativeY = Math.min(...positions.map(pos => pos.y));
         const spawnY = SPAWN_POSITIONS.calculateSpawnY(minRelativeY);
         
-        // All dice should spawn above visible grid
+        // All dice should spawn at or above Y=13 for 8x16 grid
         positions.forEach(relativePos => {
           const absoluteY = spawnY + relativePos.y;
-          expect(absoluteY).toBeGreaterThanOrEqual(21);
+          expect(absoluteY).toBeGreaterThanOrEqual(13);
         });
 
-        // Lowest die should be at Y=21
+        // Lowest die should be at Y=16
         const lowestDieY = spawnY + minRelativeY;
-        expect(lowestDieY).toBe(21);
+        expect(lowestDieY).toBe(16);
       });
     });
   });
@@ -299,12 +299,12 @@ describe('Coordinate System Edge Cases', () => {
 
     test('should handle array index conversion at boundaries', () => {
       const conversionTests = [
-        { gridY: 0, expectedArrayY: 19, description: 'bottom grid to top array' },
-        { gridY: 19, expectedArrayY: 0, description: 'top grid to bottom array' },
-        { gridY: 10, expectedArrayY: 9, description: 'middle grid to middle array' },
-        { arrayY: 0, expectedGridY: 19, description: 'top array to bottom grid' },
-        { arrayY: 19, expectedGridY: 0, description: 'bottom array to top grid' },
-        { arrayY: 9, expectedGridY: 10, description: 'middle array to middle grid' }
+        { gridY: 0, expectedArrayY: 15, description: 'bottom grid to top array' },
+        { gridY: 15, expectedArrayY: 0, description: 'top grid to bottom array' },
+        { gridY: 8, expectedArrayY: 7, description: 'middle grid to middle array' },
+        { arrayY: 0, expectedGridY: 15, description: 'top array to bottom grid' },
+        { arrayY: 15, expectedGridY: 0, description: 'bottom array to top grid' },
+        { arrayY: 7, expectedGridY: 8, description: 'middle array to middle grid' }
       ];
 
       conversionTests.forEach(test => {

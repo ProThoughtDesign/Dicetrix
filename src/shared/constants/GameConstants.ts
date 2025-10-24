@@ -10,7 +10,7 @@ export const GAME_CONSTANTS = {
   // Coordinate system boundaries
   GROUND_Y: 0,        // Bottom of the grid (Y = 0)
   TOP_Y: 15,          // Top of the visible grid (Y = 15)
-  SPAWN_Y: 13,        // Pieces spawn closer to the grid (Y = 13 for bottom piece)
+  SPAWN_Y: 16,        // Pieces spawn so bottom die is at Y = 16 (above visible grid)
   
   // Spawn positions
   SPAWN_X_CENTER: 3,  // Center X position for spawning (grid width / 2 - 1)

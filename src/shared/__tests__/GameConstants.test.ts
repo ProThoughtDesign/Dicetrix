@@ -11,12 +11,12 @@ describe('GameConstants', () => {
     test('should have correct coordinate boundaries', () => {
       expect(GAME_CONSTANTS.GROUND_Y).toBe(0);
       expect(GAME_CONSTANTS.TOP_Y).toBe(15);
-      expect(GAME_CONSTANTS.SPAWN_Y).toBe(13);
+      expect(GAME_CONSTANTS.SPAWN_Y).toBe(16);
     });
 
     test('should have logical coordinate relationships', () => {
-      // Spawn Y should be within the grid for 8x16 configuration
-      expect(GAME_CONSTANTS.SPAWN_Y).toBeLessThanOrEqual(GAME_CONSTANTS.TOP_Y);
+      // Spawn Y should be above the visible grid for 8x16 configuration
+      expect(GAME_CONSTANTS.SPAWN_Y).toBeGreaterThan(GAME_CONSTANTS.TOP_Y);
       expect(GAME_CONSTANTS.SPAWN_Y).toBeGreaterThanOrEqual(GAME_CONSTANTS.GROUND_Y);
       
       // Ground Y should be at the bottom
@@ -45,14 +45,14 @@ describe('GameConstants', () => {
 
   describe('SPAWN_POSITIONS', () => {
     test('calculateSpawnY should calculate correct spawn position', () => {
-      // Piece with lowest die at relative Y=0 should spawn at Y=13
-      expect(SPAWN_POSITIONS.calculateSpawnY(0)).toBe(13);
+      // Piece with lowest die at relative Y=0 should spawn at Y=16
+      expect(SPAWN_POSITIONS.calculateSpawnY(0)).toBe(16);
       
-      // Piece with lowest die at relative Y=-1 should spawn at Y=14
-      expect(SPAWN_POSITIONS.calculateSpawnY(-1)).toBe(14);
+      // Piece with lowest die at relative Y=-1 should spawn at Y=17
+      expect(SPAWN_POSITIONS.calculateSpawnY(-1)).toBe(17);
       
-      // Piece with lowest die at relative Y=1 should spawn at Y=12
-      expect(SPAWN_POSITIONS.calculateSpawnY(1)).toBe(12);
+      // Piece with lowest die at relative Y=1 should spawn at Y=15
+      expect(SPAWN_POSITIONS.calculateSpawnY(1)).toBe(15);
     });
 
     test('getDefaultSpawn should return correct default position', () => {
@@ -84,7 +84,7 @@ describe('GameConstants', () => {
   describe('constant consistency', () => {
     test('constants should have consistent relationships', () => {
       // Verify that all constants work together logically for 8x16 grid
-      expect(GAME_CONSTANTS.SPAWN_Y).toBeLessThanOrEqual(GAME_CONSTANTS.TOP_Y);
+      expect(GAME_CONSTANTS.SPAWN_Y).toBeGreaterThan(GAME_CONSTANTS.TOP_Y);
       expect(GAME_CONSTANTS.SPAWN_Y).toBeGreaterThanOrEqual(GAME_CONSTANTS.GROUND_Y);
       expect(GAME_CONSTANTS.TOP_Y).toBeGreaterThan(GAME_CONSTANTS.GROUND_Y);
       expect(GAME_CONSTANTS.MIN_VALID_Y).toBe(GAME_CONSTANTS.GROUND_Y);

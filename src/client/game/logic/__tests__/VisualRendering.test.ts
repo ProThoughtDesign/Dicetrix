@@ -15,8 +15,8 @@ describe('Visual Rendering Coordinate Conversion', () => {
     boardY: 50,
     cellW: 30,
     cellH: 25,
-    rows: 20,
-    cols: 10
+    rows: 16,
+    cols: 8
   };
 
   describe('Grid to Screen Coordinate Conversion', () => {
@@ -30,11 +30,11 @@ describe('Visual Rendering Coordinate Conversion', () => {
     });
 
     test('should convert top-left grid position to top screen position', () => {
-      const screenPos = converter.gridToScreen(0, 19, standardBoardMetrics);
+      const screenPos = converter.gridToScreen(0, 15, standardBoardMetrics);
       
-      // Grid Y=19 should map to top of screen board
+      // Grid Y=15 should map to top of screen board (16-row grid: 0-15)
       expect(screenPos.x).toBe(standardBoardMetrics.boardX); // X=0 -> boardX
-      expect(screenPos.y).toBe(standardBoardMetrics.boardY); // Y=19 -> top of board
+      expect(screenPos.y).toBe(standardBoardMetrics.boardY); // Y=15 -> top of board
     });
 
     test('should convert grid center to screen center', () => {
@@ -77,18 +77,18 @@ describe('Visual Rendering Coordinate Conversion', () => {
         boardY: 100,
         cellW: 40,
         cellH: 35,
-        rows: 20,
-        cols: 10
+        rows: 16,
+        cols: 8
       };
 
       // Test bottom-left corner
       const bottomLeft = converter.gridToScreen(0, 0, customMetrics);
       expect(bottomLeft.x).toBe(200);
-      expect(bottomLeft.y).toBe(100 + 19 * 35); // Bottom of board
+      expect(bottomLeft.y).toBe(100 + 15 * 35); // Bottom of board
 
       // Test top-right corner
-      const topRight = converter.gridToScreen(9, 19, customMetrics);
-      expect(topRight.x).toBe(200 + 9 * 40);
+      const topRight = converter.gridToScreen(7, 15, customMetrics);
+      expect(topRight.x).toBe(200 + 7 * 40);
       expect(topRight.y).toBe(100); // Top of board
     });
   });
@@ -109,7 +109,7 @@ describe('Visual Rendering Coordinate Conversion', () => {
       const screenY = standardBoardMetrics.boardY + 12; // Middle of top cell
       
       const gridPos = converter.screenToGrid(screenX, screenY, standardBoardMetrics);
-      expect(gridPos).toEqual({ x: 0, y: 19 });
+      expect(gridPos).toEqual({ x: 0, y: 15 });
     });
 
     test('should return null for positions outside board', () => {
@@ -137,7 +137,7 @@ describe('Visual Rendering Coordinate Conversion', () => {
         {
           screenX: standardBoardMetrics.boardX + standardBoardMetrics.cellW - 1, // Right edge of first cell
           screenY: standardBoardMetrics.boardY + standardBoardMetrics.cellH - 1, // Bottom edge of top cell
-          expectedGrid: { x: 0, y: 19 }
+          expectedGrid: { x: 0, y: 15 }
         }
       ];
 
@@ -168,9 +168,9 @@ describe('Visual Rendering Coordinate Conversion', () => {
     test('should handle fractional screen positions correctly', () => {
       // Test positions within cells but not at exact centers
       const fractionalTests = [
-        { gridX: 5, gridY: 10, offsetX: 0.25, offsetY: 0.75 },
+        { gridX: 4, gridY: 8, offsetX: 0.25, offsetY: 0.75 },
         { gridX: 2, gridY: 15, offsetX: 0.8, offsetY: 0.1 },
-        { gridX: 8, gridY: 3, offsetX: 0.5, offsetY: 0.5 },
+        { gridX: 7, gridY: 3, offsetX: 0.5, offsetY: 0.5 },
       ];
 
       fractionalTests.forEach(({ gridX, gridY, offsetX, offsetY }) => {
@@ -191,7 +191,7 @@ describe('Visual Rendering Coordinate Conversion', () => {
       // Simulate an active piece at various positions
       const testPieces = [
         {
-          pieceX: 4, pieceY: 10,
+          pieceX: 3, pieceY: 8,
           dice: [
             { relativePos: { x: 0, y: 0 } },
             { relativePos: { x: 1, y: 0 } },
@@ -233,10 +233,10 @@ describe('Visual Rendering Coordinate Conversion', () => {
     });
 
     test('should handle pieces above visible grid correctly', () => {
-      // Test pieces in spawn area (Y > 19)
+      // Test pieces above the 8x16 grid (Y > 15)
       const spawnPiece = {
         pieceX: GAME_CONSTANTS.SPAWN_X_CENTER,
-        pieceY: 21, // Above visible grid
+        pieceY: 16, // Above the 8x16 grid
         dice: [
           { relativePos: { x: 0, y: 0 } },
           { relativePos: { x: 0, y: 1 } }
@@ -285,9 +285,9 @@ describe('Visual Rendering Coordinate Conversion', () => {
 
       // Verify Y coordinates are in correct order (higher grid Y = lower screen Y)
       const bottomRow = lockedPieces.filter(p => p.gridPos.y === 0);
-      const topRow = lockedPieces.filter(p => p.gridPos.y === 19);
+      const topRow = lockedPieces.filter(p => p.gridPos.y === 15);
       
-      // Bottom row (Y=0) should have higher screen Y than top row (Y=19)
+      // Bottom row (Y=0) should have higher screen Y than top row (Y=15)
       expect(bottomRow[0].screenPos.y).toBeGreaterThan(topRow[0].screenPos.y);
     });
   });
@@ -303,15 +303,15 @@ describe('Visual Rendering Coordinate Conversion', () => {
         },
         {
           description: 'Touch center cell',
-          touchX: standardBoardMetrics.boardX + 4.5 * standardBoardMetrics.cellW,
-          touchY: standardBoardMetrics.boardY + 10 * standardBoardMetrics.cellH,
-          expectedGrid: { x: 4, y: 9 }
+          touchX: standardBoardMetrics.boardX + 3.5 * standardBoardMetrics.cellW,
+          touchY: standardBoardMetrics.boardY + 8 * standardBoardMetrics.cellH,
+          expectedGrid: { x: 3, y: 7 }
         },
         {
           description: 'Touch top-right cell',
-          touchX: standardBoardMetrics.boardX + 9.5 * standardBoardMetrics.cellW,
+          touchX: standardBoardMetrics.boardX + 7.5 * standardBoardMetrics.cellW,
           touchY: standardBoardMetrics.boardY + 0.5 * standardBoardMetrics.cellH,
-          expectedGrid: { x: 9, y: 19 }
+          expectedGrid: { x: 7, y: 15 }
         }
       ];
 
@@ -331,10 +331,10 @@ describe('Visual Rendering Coordinate Conversion', () => {
           expectedGrid: { x: 1, y: 1 }
         },
         {
-          // Touch exactly on top edge of cell (5,10)
+          // Touch exactly on top edge of cell (5,8)
           touchX: standardBoardMetrics.boardX + 5.5 * standardBoardMetrics.cellW,
-          touchY: standardBoardMetrics.boardY + (standardBoardMetrics.rows - 11) * standardBoardMetrics.cellH,
-          expectedGrid: { x: 5, y: 10 }
+          touchY: standardBoardMetrics.boardY + (standardBoardMetrics.rows - 9) * standardBoardMetrics.cellH,
+          expectedGrid: { x: 5, y: 8 }
         }
       ];
 
@@ -370,14 +370,14 @@ describe('Visual Rendering Coordinate Conversion', () => {
         boardY: 0,
         cellW: 1,
         cellH: 1,
-        rows: 20,
-        cols: 10
+        rows: 16,
+        cols: 8
       };
 
       // Should still work with minimal metrics
-      const screenPos = converter.gridToScreen(5, 10, edgeCaseMetrics);
-      expect(screenPos.x).toBe(5);
-      expect(screenPos.y).toBe(9); // rows - 1 - gridY = 20 - 1 - 10 = 9
+      const screenPos = converter.gridToScreen(4, 8, edgeCaseMetrics);
+      expect(screenPos.x).toBe(4);
+      expect(screenPos.y).toBe(7); // rows - 1 - gridY = 16 - 1 - 8 = 7
     });
 
     test('should maintain precision with fractional cell sizes', () => {
@@ -386,15 +386,15 @@ describe('Visual Rendering Coordinate Conversion', () => {
         boardY: 50.25,
         cellW: 30.75,
         cellH: 25.5,
-        rows: 20,
-        cols: 10
+        rows: 16,
+        cols: 8
       };
 
       const screenPos = converter.gridToScreen(3, 7, fractionalMetrics);
       
       // Should handle fractional calculations correctly
       expect(screenPos.x).toBeCloseTo(100.5 + 3 * 30.75, 10);
-      expect(screenPos.y).toBeCloseTo(50.25 + (20 - 1 - 7) * 25.5, 10);
+      expect(screenPos.y).toBeCloseTo(50.25 + (16 - 1 - 7) * 25.5, 10);
     });
   });
 });

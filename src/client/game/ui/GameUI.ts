@@ -2,6 +2,7 @@ import * as Phaser from 'phaser';
 import { BaseUI } from './BaseUI';
 import { InputHandler, InputCallbacks, TouchDragCallbacks } from './InputHandler';
 import { CoordinateConverter } from '../../../shared/utils/CoordinateConverter';
+import { GAME_CONSTANTS } from '../../../shared/constants/GameConstants';
 import Logger from '../../utils/Logger';
 
 export interface GameUICallbacks extends InputCallbacks {
@@ -60,8 +61,8 @@ export class GameUI extends BaseUI {
     boardH: 0,
     cellW: 0,
     cellH: 0,
-  cols: 8,
-  rows: 16,
+    cols: GAME_CONSTANTS.GRID_WIDTH,
+    rows: GAME_CONSTANTS.GRID_HEIGHT,
     boardAreaY: 0,
   };
 
@@ -89,8 +90,8 @@ export class GameUI extends BaseUI {
   constructor(scene: Phaser.Scene, callbacks: GameUICallbacks = {}) {
     super(scene);
 
-    // Initialize coordinate converter for 20-row grid
-    this.coordinateConverter = new CoordinateConverter(16);
+    // Initialize coordinate converter for 8x16 grid
+    this.coordinateConverter = new CoordinateConverter(GAME_CONSTANTS.GRID_HEIGHT);
 
     this.createUIElements();
     this.setupInputHandlers(callbacks);
@@ -286,7 +287,7 @@ export class GameUI extends BaseUI {
   }
 
   private updateLeftColumnLayout(): void {
-  const { screenWidth, padding } = this.layout;
+    const { screenWidth, screenHeight, padding } = this.layout;
 
     // Header full width
     const headerHeight = 80;
@@ -299,18 +300,30 @@ export class GameUI extends BaseUI {
     // hide match footer for now
     if (this.matchFooter) this.matchFooter.setVisible(false);
 
-  // Board should take up 60% of the screen width
-  const cols = this.boardMetrics.cols;
-  const rows = this.boardMetrics.rows;
-    const boardW = Math.floor(screenWidth * 0.6);
-    // compute cell width from boardW
-    const cellW = Math.floor(boardW / cols);
-    const cellH = cellW;
-    const boardH = cellH * rows;
+    // Calculate board metrics for 8x16 grid
+    const cols = GAME_CONSTANTS.GRID_WIDTH;  // 8 columns
+    const rows = GAME_CONSTANTS.GRID_HEIGHT; // 16 rows
+    
+    // Available space for board (60% of screen width, remaining height after header)
+    const availableWidth = Math.floor(screenWidth * 0.6);
+    const availableHeight = screenHeight - headerY - headerHeight - padding * 3;
+    
+    // Calculate cell size to fit 8x16 grid in available space
+    const cellWByWidth = Math.floor(availableWidth / cols);
+    const cellHByHeight = Math.floor(availableHeight / rows);
+    
+    // Use smaller dimension to ensure grid fits within available space
+    const cellSize = Math.min(cellWByWidth, cellHByHeight);
+    const cellW = cellSize;
+    const cellH = cellSize;
+    
+    // Calculate actual board dimensions
+    const boardW = cellW * cols;  // 8 columns
+    const boardH = cellH * rows;  // 16 rows
 
-    // Position board on the left side, below header
-    const boardX = padding;
-    const boardY = headerY + headerHeight + 12; // small gap
+    // Position board on the left side, below header, centered in available space
+    const boardX = padding + Math.floor((availableWidth - boardW) / 2);
+    const boardY = headerY + headerHeight + 12 + Math.floor((availableHeight - boardH) / 2);
 
     // Update board metrics (boardX/Y are absolute screen coordinates)
     this.boardMetrics = {

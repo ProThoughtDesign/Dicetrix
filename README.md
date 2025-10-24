@@ -31,7 +31,7 @@ The game's signature innovation is its **individual die collision detection syst
 - Comprehensive error handling with graceful recovery from invalid states
 - Extensive logging system for debugging collision detection and piece state changes
 
-**Bottom-Left Coordinate System**: Uses Y=0 at bottom, Y=15 at top with intuitive physics where pieces fall by decreasing Y coordinates (Y=17→16→15→...→0)
+**Bottom-Left Coordinate System**: Uses Y=0 at bottom, Y=15 at top with intuitive physics where pieces fall by decreasing Y coordinates (Y=16→15→14→...→0)
 
 **Strategic Depth**: This system adds strategic complexity as players must consider:
 - Traditional piece placement and spatial reasoning  
@@ -44,7 +44,7 @@ The game's signature innovation is its **individual die collision detection syst
 - **8 Piece Types**: Single die, Line2-4, L3-4, Square, T-shape containing 1-4 dice each
 - **Dice Variety**: Each die shows a random number (1 to max sides) and is colored based on die type using a palette system
 - **Bottom-Left Coordinate System**: Uses Y=0 at bottom, Y=15 at top for intuitive physics where pieces fall by decreasing Y
-- **Intelligent Spawning**: Pieces spawn at Y=17 (close to grid) so pieces enter the visible grid quickly
+- **Intelligent Spawning**: Pieces spawn at Y=16 (above grid) so pieces enter the visible grid quickly
 - **Multi-Input Controls**: Responsive on-screen 3x2 button grid, keyboard (WASD/arrows), and touch input
 - **Advanced Match Detection**: Flood-fill algorithm finds connected groups of 3+ matching dice numbers
 - **Cascade Chain Reactions**: After clearing matches, remaining dice fall creating potential chain combos
@@ -129,7 +129,7 @@ The game follows a complete scene progression:
 1. **Boot Scene**: Initializes Phaser and loads essential assets
 2. **Preloader Scene**: Loads game assets and shows loading progress
 3. **Start Menu Scene**: 
-   - Features the stylized "DICETRIX" title using custom fonts
+   - Features the stylized "DICETRIX" title using custom fonts (Nabla)
    - Difficulty selection dropdown with color-coded modes
    - Large "START GAME" button to begin playing
 4. **Game Scene**: The main gameplay experience with individual die physics
@@ -139,13 +139,13 @@ The game follows a complete scene progression:
 
 #### Understanding the Game Interface
 
-**Left Side (Main Game Area)**:
+**Left Side (Main Game Area - 60% of screen)**:
 - **Score Display**: Current score shown at the top in gold text with black stroke for visibility
 - **Main Grid**: 8x16 playing field with green grid lines and dark blue background (#071021)
 - **Bottom-Left Coordinates**: Y=0 is at the bottom, Y=15 is at the top of the visible grid
 - **Visual Feedback**: Dice are rendered with colors based on type and show their face numbers clearly
 
-**Right Side (Controls & Info)**:
+**Right Side (Controls & Info - 40% of screen)**:
 - **Next Piece Preview**: 4x4 grid showing your upcoming piece with green border and grid-aligned positioning
 - **Control Panel**: 3x2 grid of interactive control buttons with symbols (↺ ⇊ ↻ / ← ⇓ →)
 - **Booster Slots**: 3x3 grid for future power-ups (currently placeholder with green borders)
@@ -154,7 +154,7 @@ The game follows a complete scene progression:
 #### Basic Gameplay Steps
 
 1. **Piece Spawning**: 
-   - Multi-die pieces automatically appear at the top center (X=4, Y=17)
+   - Multi-die pieces automatically appear at the top center (X=3, Y=13)
    - 8 different shapes: Single die, Line2-4, L3-4, Square, T-shape
    - Each piece contains 1-4 dice with random numbers based on difficulty
    - Dice colors are determined by a palette system for visual variety
@@ -173,7 +173,7 @@ The game follows a complete scene progression:
    - **Each timer tick checks every die individually for collision**
    - **Only dice that hit obstacles lock to the grid immediately**
    - **Remaining dice continue falling as a smaller active piece**
-   - Pieces fall by decreasing Y coordinates (Y=17→16→15→...→0)
+   - Pieces fall by decreasing Y coordinates (Y=13→12→11→...→0)
    - Safe array management removes locked dice in reverse index order
 
 4. **Creating Matches**:
@@ -196,7 +196,7 @@ The game follows a complete scene progression:
 - **Master Individual Die Physics**: Understand how pieces fragment as individual dice hit obstacles
 - **Use Next Piece Preview**: Plan positioning using the 4x4 preview grid in the right panel
 - **Triple Strategy Balance**: Consider spatial piece fitting + number positioning + fragmentation prediction
-- **Height Management**: Keep top rows clear to prevent spawn collision game over at Y=17
+- **Height Management**: Keep top rows clear to prevent spawn collision game over
 - **Fragmentation Planning**: Anticipate how pieces will break apart when hitting terrain
 - **Cascade Setup**: Position pieces to create chain reactions (except in Zen mode)
 - **Rotation Mastery**: Use matrix-based rotation with wall kicks for complex maneuvers
@@ -206,7 +206,7 @@ The game follows a complete scene progression:
 
 **Responsive On-Screen Control Grid (3x2 layout)**:
 
-- **Top Row**: ↺ (rotate clockwise) | ⇊ (soft drop) | ↻ (rotate counter-clockwise)  
+- **Top Row**: ↺ (rotate counter-clockwise) | ⇊ (soft drop) | ↻ (rotate clockwise)  
 - **Bottom Row**: ← (move left) | ⇓ (hard drop) | → (move right)
 - **Visual Feedback**: Green borders brighten on hover, buttons scale based on screen size
 - **Mobile Optimized**: Control size adapts automatically for optimal touch experience
@@ -240,7 +240,7 @@ The game follows a complete scene progression:
    - 8 different piece shapes: Single, Line2-4, L3-4, Square, T-shape
    - Each piece contains 1-4 dice with random numbers based on difficulty mode
    - Dice colors determined by palette mapping system for visual variety
-   - Pieces spawn at Y=17 with lowest die positioned to enter the visible grid quickly
+   - Pieces spawn at Y=13 with lowest die positioned to enter the visible grid quickly
    - Game Over occurs if spawn position is blocked by existing dice
 
 2. **Active Control Phase**: While the piece remains active and controllable
@@ -255,7 +255,7 @@ The game follows a complete scene progression:
    - **Timer-Based Falling**: Automatic dropping with intervals based on difficulty (400-1200ms)
    - **Individual Die Movement**: Each tick checks every die in the active piece for collision independently
    - **Selective Collision**: Only dice that would collide lock to the grid, others continue falling
-   - **Bottom-Left Coordinate System**: Pieces fall by decreasing Y (Y=17→16→15→...→0), with Y=0 as ground
+   - **Bottom-Left Coordinate System**: Pieces fall by decreasing Y (Y=13→12→11→...→0), with Y=0 as ground
    - **Comprehensive Per-Die Collision Detection**: Each die checked against bottom boundary, grid boundaries, and existing pieces
    - **Position Clamping**: Out-of-bounds dice are clamped to valid positions during individual locking
    - **Dynamic State Transitions**: Pieces transition from "multi-die active" to "partially locked" to "fully locked"
@@ -287,7 +287,7 @@ The game follows a complete scene progression:
 - **Master Individual Die Physics**: Understand how pieces fragment as individual dice hit obstacles
 - **Utilize Next Piece Preview**: Plan positioning using the 4x4 preview grid in the right panel
 - **Triple Strategy Balance**: Consider spatial piece fitting + number positioning + fragmentation prediction
-- **Height Management**: Keep top rows clear to prevent spawn collision game over at Y=17
+- **Height Management**: Keep top rows clear to prevent spawn collision game over
 - **Fragmentation Planning**: Anticipate how pieces will break apart when hitting terrain
 - **Cascade Setup**: Position pieces to create chain reactions (except in Zen mode)
 - **Rotation Mastery**: Use matrix-based rotation with wall kicks for complex maneuvers

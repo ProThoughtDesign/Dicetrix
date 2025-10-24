@@ -1583,7 +1583,7 @@ export class Game extends Scene {
 
     // Initialize game board and coordinate converter
     Logger.log('INIT STEP 3: Initializing game board and coordinate converter');
-    this.gameBoard = new GameBoard(10, 20);
+    this.gameBoard = new GameBoard(GAME_CONSTANTS.GRID_WIDTH, GAME_CONSTANTS.GRID_HEIGHT);
     this.initializationMetrics.gameBoardInitComplete = performance.now();
     Logger.log(
       `INIT TIMING: GameBoard initialized at ${this.initializationMetrics.gameBoardInitComplete}ms (took ${this.initializationMetrics.gameBoardInitComplete - this.initializationMetrics.registrySetupComplete}ms)`
@@ -1592,12 +1592,12 @@ export class Game extends Scene {
       `INIT STATE: GameBoard dimensions: ${this.gameBoard.state.width}x${this.gameBoard.state.height}`
     );
 
-    this.coordinateConverter = new CoordinateConverter(20);
+    this.coordinateConverter = new CoordinateConverter(GAME_CONSTANTS.GRID_HEIGHT);
     this.initializationMetrics.coordinateConverterInitComplete = performance.now();
     Logger.log(
       `INIT TIMING: CoordinateConverter initialized at ${this.initializationMetrics.coordinateConverterInitComplete}ms (took ${this.initializationMetrics.coordinateConverterInitComplete - this.initializationMetrics.gameBoardInitComplete}ms)`
     );
-    Logger.log(`INIT STATE: CoordinateConverter ready for grid height: 20`);
+    Logger.log(`INIT STATE: CoordinateConverter ready for grid height: ${GAME_CONSTANTS.GRID_HEIGHT}`);
 
     // Create UI with game callbacks
     Logger.log('INIT STEP 4: Creating GameUI system');

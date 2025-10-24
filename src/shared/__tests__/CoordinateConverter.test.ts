@@ -2,44 +2,44 @@ import { describe, test, expect } from 'vitest';
 import { CoordinateConverter } from '../utils/CoordinateConverter';
 
 describe('CoordinateConverter', () => {
-  const gridHeight = 20;
+  const gridHeight = 16;
   const converter = new CoordinateConverter(gridHeight);
 
   describe('gridToArrayY', () => {
-    test('should convert bottom-left grid Y=0 to array index 19', () => {
-      expect(converter.gridToArrayY(0)).toBe(19);
+    test('should convert bottom-left grid Y=0 to array index 15', () => {
+      expect(converter.gridToArrayY(0)).toBe(15);
     });
 
-    test('should convert top grid Y=19 to array index 0', () => {
-      expect(converter.gridToArrayY(19)).toBe(0);
+    test('should convert top grid Y=15 to array index 0', () => {
+      expect(converter.gridToArrayY(15)).toBe(0);
     });
 
-    test('should convert middle grid Y=10 to array index 9', () => {
-      expect(converter.gridToArrayY(10)).toBe(9);
+    test('should convert middle grid Y=8 to array index 7', () => {
+      expect(converter.gridToArrayY(8)).toBe(7);
     });
 
     test('should handle edge cases correctly', () => {
-      expect(converter.gridToArrayY(1)).toBe(18);
-      expect(converter.gridToArrayY(18)).toBe(1);
+      expect(converter.gridToArrayY(1)).toBe(14);
+      expect(converter.gridToArrayY(14)).toBe(1);
     });
   });
 
   describe('arrayToGridY', () => {
-    test('should convert array index 0 to grid Y=19', () => {
-      expect(converter.arrayToGridY(0)).toBe(19);
+    test('should convert array index 0 to grid Y=15', () => {
+      expect(converter.arrayToGridY(0)).toBe(15);
     });
 
-    test('should convert array index 19 to grid Y=0', () => {
-      expect(converter.arrayToGridY(19)).toBe(0);
+    test('should convert array index 15 to grid Y=0', () => {
+      expect(converter.arrayToGridY(15)).toBe(0);
     });
 
-    test('should convert array index 9 to grid Y=10', () => {
-      expect(converter.arrayToGridY(9)).toBe(10);
+    test('should convert array index 7 to grid Y=8', () => {
+      expect(converter.arrayToGridY(7)).toBe(8);
     });
 
     test('should handle edge cases correctly', () => {
-      expect(converter.arrayToGridY(1)).toBe(18);
-      expect(converter.arrayToGridY(18)).toBe(1);
+      expect(converter.arrayToGridY(1)).toBe(14);
+      expect(converter.arrayToGridY(14)).toBe(1);
     });
   });
 
@@ -67,25 +67,25 @@ describe('CoordinateConverter', () => {
       boardY: 50,
       cellW: 30,
       cellH: 25,
-      rows: 20
+      rows: 16
     };
 
     test('should convert grid bottom-left (0,0) to correct screen position', () => {
       const screenPos = converter.gridToScreen(0, 0, boardMetrics);
       expect(screenPos.x).toBe(100); // boardX + 0 * cellW
-      expect(screenPos.y).toBe(525); // boardY + (rows - 1 - 0) * cellH = 50 + 19 * 25
+      expect(screenPos.y).toBe(425); // boardY + (rows - 1 - 0) * cellH = 50 + 15 * 25
     });
 
-    test('should convert grid top-left (0,19) to correct screen position', () => {
-      const screenPos = converter.gridToScreen(0, 19, boardMetrics);
+    test('should convert grid top-left (0,15) to correct screen position', () => {
+      const screenPos = converter.gridToScreen(0, 15, boardMetrics);
       expect(screenPos.x).toBe(100); // boardX + 0 * cellW
-      expect(screenPos.y).toBe(50);  // boardY + (rows - 1 - 19) * cellH = 50 + 0 * 25
+      expect(screenPos.y).toBe(50);  // boardY + (rows - 1 - 15) * cellH = 50 + 0 * 25
     });
 
     test('should convert grid center position correctly', () => {
-      const screenPos = converter.gridToScreen(5, 10, boardMetrics);
-      expect(screenPos.x).toBe(250); // 100 + 5 * 30
-      expect(screenPos.y).toBe(275); // 50 + (20 - 1 - 10) * 25 = 50 + 9 * 25
+      const screenPos = converter.gridToScreen(4, 8, boardMetrics);
+      expect(screenPos.x).toBe(220); // 100 + 4 * 30
+      expect(screenPos.y).toBe(225); // 50 + (16 - 1 - 8) * 25 = 50 + 7 * 25
     });
   });
 
@@ -95,24 +95,24 @@ describe('CoordinateConverter', () => {
       boardY: 50,
       cellW: 30,
       cellH: 25,
-      rows: 20,
-      cols: 10
+      rows: 16,
+      cols: 8
     };
 
     test('should convert screen position to grid coordinates correctly', () => {
       // Screen position that should map to grid (0,0)
       const screenX = 115; // Within first cell X
-      const screenY = 540; // Within bottom cell Y
+      const screenY = 440; // Within bottom cell Y
       const gridPos = converter.screenToGrid(screenX, screenY, boardMetrics);
       expect(gridPos).toEqual({ x: 0, y: 0 });
     });
 
     test('should convert screen position to grid top correctly', () => {
-      // Screen position that should map to grid (0,19)
+      // Screen position that should map to grid (0,15)
       const screenX = 115; // Within first cell X
       const screenY = 60;  // Within top cell Y
       const gridPos = converter.screenToGrid(screenX, screenY, boardMetrics);
-      expect(gridPos).toEqual({ x: 0, y: 19 });
+      expect(gridPos).toEqual({ x: 0, y: 15 });
     });
 
     test('should return null for positions outside grid', () => {
@@ -129,8 +129,8 @@ describe('CoordinateConverter', () => {
     });
 
     test('should be symmetric with gridToScreen for valid positions', () => {
-      for (let gridX = 0; gridX < 10; gridX++) {
-        for (let gridY = 0; gridY < 20; gridY++) {
+      for (let gridX = 0; gridX < 8; gridX++) {
+        for (let gridY = 0; gridY < 16; gridY++) {
           const screenPos = converter.gridToScreen(gridX, gridY, boardMetrics);
           // Add small offset to ensure we're within the cell
           const backToGrid = converter.screenToGrid(

@@ -296,9 +296,9 @@ describe('Piece Rotation System', () => {
     ];
   }
 
-  describe('Bottom-Left Coordinate System Integration', () => {
+  describe('8x16 Grid Boundary Integration', () => {
 
-    test('should allow rotation when piece is above grid', () => {
+    test('should allow rotation when piece is above 16-row grid', () => {
       const iPiece = [
         { x: 0, y: 0 },
         { x: 0, y: 1 },
@@ -306,9 +306,9 @@ describe('Piece Rotation System', () => {
         { x: 0, y: 3 }
       ];
 
-      // Place piece above grid (Y=22, so lowest die is at Y=22)
+      // Place piece above 16-row grid (Y=20, so lowest die is at Y=20)
       const pieceX = 4;
-      const pieceY = 22;
+      const pieceY = 20;
 
       // Should be able to place original piece
       expect(canPlacePieceAt(pieceX, pieceY, iPiece)).toBe(true);
@@ -318,7 +318,7 @@ describe('Piece Rotation System', () => {
       expect(canPlacePieceAt(pieceX, pieceY, rotated)).toBe(true);
     });
 
-    test('should prevent rotation when it would cause collision with grid boundaries', () => {
+    test('should prevent rotation when it would extend beyond 8-column width', () => {
       const iPiece = [
         { x: 0, y: 0 },
         { x: 0, y: 1 },
@@ -326,16 +326,50 @@ describe('Piece Rotation System', () => {
         { x: 0, y: 3 }
       ];
 
-      // Place piece near right edge
-      const pieceX = 9; // Right edge of grid
+      // Place piece at right edge of 8-column grid
+      const pieceX = 7; // X=7 is the rightmost column (0-7)
       const pieceY = 5;
 
-      // Original vertical piece should fit
+      // Original vertical piece should fit (only uses X=7)
       expect(canPlacePieceAt(pieceX, pieceY, iPiece)).toBe(true);
 
-      // Rotated horizontal piece should not fit (would extend beyond right edge)
+      // Rotated horizontal piece should not fit (would need X=7,8,9,10 but grid only goes to X=7)
       const rotated = rotateMatrix(iPiece, true);
       expect(canPlacePieceAt(pieceX, pieceY, rotated)).toBe(false);
+    });
+
+    test('should respect 8x16 grid boundaries during rotation validation', () => {
+      const lPiece = [
+        { x: 0, y: 0 },
+        { x: 0, y: 1 },
+        { x: 0, y: 2 },
+        { x: 1, y: 0 }
+      ];
+
+      // First, let's see what the rotated L-piece looks like
+      const rotated = rotateMatrix(lPiece, true);
+      // Original L: [(0,0), (0,1), (0,2), (1,0)]
+      // After clockwise rotation: [(2,0), (1,0), (0,0), (2,1)]
+      
+      // Test at various positions within 8x16 grid
+      const testCases = [
+        { x: 0, y: 5, shouldFit: true, description: 'left edge' },
+        { x: 5, y: 5, shouldFit: true, description: 'near right edge' }, // Changed from 6 to 5
+        { x: 6, y: 5, shouldFit: false, description: 'right edge - rotation would extend beyond' }, // Changed from 7 to 6
+        { x: 3, y: 1, shouldFit: true, description: 'center bottom' },
+        { x: 3, y: 13, shouldFit: true, description: 'center top' }
+      ];
+
+      for (const testCase of testCases) {
+        const rotated = rotateMatrix(lPiece, true);
+        const canPlace = canPlacePieceAt(testCase.x, testCase.y, rotated);
+        
+        if (testCase.shouldFit) {
+          expect(canPlace).toBe(true);
+        } else {
+          expect(canPlace).toBe(false);
+        }
+      }
     });
 
     test('should prevent rotation when it would cause collision with existing pieces', () => {
@@ -389,7 +423,7 @@ describe('Piece Rotation System', () => {
       expect(allDiceAboveGround).toBe(true);
     });
 
-    test('should maintain proper positioning after rotation near spawn area', () => {
+    test('should maintain proper positioning after rotation near spawn area in 8x16 grid', () => {
       const sPiece = [
         { x: 1, y: 0 }, // Bottom right
         { x: 2, y: 0 }, // Bottom far right
@@ -397,9 +431,9 @@ describe('Piece Rotation System', () => {
         { x: 1, y: 1 }  // Top center
       ];
 
-      // Place piece at spawn height
-      const pieceX = GAME_CONSTANTS.SPAWN_X_CENTER;
-      const pieceY = GAME_CONSTANTS.SPAWN_Y;
+      // Place piece at spawn position for 8x16 grid
+      const pieceX = GAME_CONSTANTS.SPAWN_X_CENTER; // X=3 for 8-column grid
+      const pieceY = GAME_CONSTANTS.SPAWN_Y; // Y=16 for 16-row grid
 
       // Should be able to place at spawn position
       expect(canPlacePieceAt(pieceX, pieceY, sPiece)).toBe(true);
@@ -408,13 +442,18 @@ describe('Piece Rotation System', () => {
       const rotated = rotateMatrix(sPiece, true);
       expect(canPlacePieceAt(pieceX, pieceY, rotated)).toBe(true);
 
-      // All dice should still be above the visible grid after rotation
+      // All dice should be above the visible 16-row grid after rotation (Y > 15)
       const allDiceAboveGrid = rotated.every(pos => {
         const absoluteY = pieceY + pos.y;
-        return absoluteY > GAME_CONSTANTS.MAX_VALID_Y;
+        return absoluteY > GAME_CONSTANTS.MAX_VALID_Y; // MAX_VALID_Y = 15 for 16-row grid
       });
       
       expect(allDiceAboveGrid).toBe(true);
+
+      // Verify spawn position is correct for 8-column grid
+      expect(GAME_CONSTANTS.SPAWN_X_CENTER).toBe(3); // Center of 8 columns (0-7)
+      expect(GAME_CONSTANTS.GRID_WIDTH).toBe(8);
+      expect(GAME_CONSTANTS.GRID_HEIGHT).toBe(16);
     });
   });
 
@@ -429,7 +468,7 @@ describe('Piece Rotation System', () => {
       ];
 
       // Place piece at right edge where rotation would fail
-      const originalX = 7; // Not at the very edge, but close enough that rotation extends beyond
+      const originalX = 6; // Close to edge so rotation extends beyond, but wall kick can help
       const originalY = 5;
       
       // Original position should be valid

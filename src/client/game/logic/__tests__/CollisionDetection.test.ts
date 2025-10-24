@@ -60,9 +60,9 @@ describe('Individual Die Collision Detection', () => {
       const testCases = [
         { x: -1, expectedCollision: true, reason: 'Left boundary' },
         { x: 0, expectedCollision: false, reason: 'Valid left edge' },
-        { x: 5, expectedCollision: false, reason: 'Valid center' },
-        { x: 9, expectedCollision: false, reason: 'Valid right edge' },
-        { x: 10, expectedCollision: true, reason: 'Right boundary' },
+        { x: 3, expectedCollision: false, reason: 'Valid center' },
+        { x: 7, expectedCollision: false, reason: 'Valid right edge' },
+        { x: 8, expectedCollision: true, reason: 'Right boundary' },
         { x: 15, expectedCollision: true, reason: 'Far right boundary' }
       ];
 
@@ -355,7 +355,7 @@ describe('Individual Die Collision Detection', () => {
         },
         {
           currentPos: { x: 15, y: 3 },
-          expectedLock: { x: 9, y: 3 },
+          expectedLock: { x: 7, y: 3 },
           reason: 'Clamp excessive X to grid width - 1'
         },
         {
@@ -365,7 +365,7 @@ describe('Individual Die Collision Detection', () => {
         },
         {
           currentPos: { x: 3, y: 25 },
-          expectedLock: { x: 3, y: 19 },
+          expectedLock: { x: 3, y: 15 },
           reason: 'Clamp excessive Y to MAX_VALID_Y'
         },
         {
@@ -719,8 +719,8 @@ describe('Collision Detection Integration', () => {
       const testCases = [
         { x: -1, shouldCollide: true, boundary: 'left' },
         { x: 0, shouldCollide: false, boundary: 'none' },
-        { x: 9, shouldCollide: false, boundary: 'none' },
-        { x: 10, shouldCollide: true, boundary: 'right' },
+        { x: 7, shouldCollide: false, boundary: 'none' },
+        { x: 8, shouldCollide: true, boundary: 'right' },
         { x: 15, shouldCollide: true, boundary: 'right' },
       ];
 
@@ -742,7 +742,7 @@ describe('Collision Detection Integration', () => {
       ];
       
       // Test piece at right edge
-      const rightEdgeX = 8; // Piece extends from X=8 to X=10
+      const rightEdgeX = 6; // Piece extends from X=6 to X=8
       const collisionResults = horizontalPiece.map(relativePos => {
         const absoluteX = rightEdgeX + relativePos.x;
         return {
@@ -752,9 +752,9 @@ describe('Collision Detection Integration', () => {
         };
       });
       
-      expect(collisionResults[0].outOfBounds).toBe(false); // X=8, valid
-      expect(collisionResults[1].outOfBounds).toBe(false); // X=9, valid
-      expect(collisionResults[2].outOfBounds).toBe(true);  // X=10, out of bounds
+      expect(collisionResults[0].outOfBounds).toBe(false); // X=6, valid
+      expect(collisionResults[1].outOfBounds).toBe(false); // X=7, valid
+      expect(collisionResults[2].outOfBounds).toBe(true);  // X=8, out of bounds
       
       // Test piece at left edge
       const leftEdgeX = -1; // Piece extends from X=-1 to X=1
@@ -799,19 +799,19 @@ describe('Collision Detection Integration', () => {
     });
 
     test('should simulate falling piece collision with stacked pieces', () => {
-      // Create a stack at X=4 (center column)
+      // Create a stack at X=3 (center column)
       const stackHeight = 5;
       for (let y = 0; y < stackHeight; y++) {
         gameBoard.addPieceAt([{
-          pos: { x: 4, y },
+          pos: { x: 3, y },
           die: { id: `stack-${y}`, sides: 6, number: y + 1, color: 'red' } as any
         }]);
       }
 
       // Simulate a piece falling in the same column
       const fallingPiece = [{ x: 0, y: 0 }]; // Single die
-      const pieceX = 4; // Same column as stack
-      let pieceY = 21; // Start at spawn position
+      const pieceX = 3; // Same column as stack (center of 8-column grid)
+      let pieceY = GAME_CONSTANTS.SPAWN_Y; // Start at spawn position
 
       // Fall until collision
       let finalY = pieceY;
@@ -1011,9 +1011,9 @@ describe('Collision Detection Integration', () => {
       // Place pieces at all four corners
       const cornerPieces = [
         { x: 0, y: 0 }, // Bottom-left
-        { x: 9, y: 0 }, // Bottom-right
-        { x: 0, y: 19 }, // Top-left
-        { x: 9, y: 19 }, // Top-right
+        { x: 7, y: 0 }, // Bottom-right
+        { x: 0, y: 15 }, // Top-left
+        { x: 7, y: 15 }, // Top-right
       ];
 
       cornerPieces.forEach((pos, index) => {
@@ -1031,9 +1031,9 @@ describe('Collision Detection Integration', () => {
       // Test adjacent positions
       const adjacentTests = [
         { x: 1, y: 0, shouldBeEmpty: true }, // Next to bottom-left
-        { x: 8, y: 0, shouldBeEmpty: true }, // Next to bottom-right
-        { x: 1, y: 19, shouldBeEmpty: true }, // Next to top-left
-        { x: 8, y: 19, shouldBeEmpty: true }, // Next to top-right
+        { x: 6, y: 0, shouldBeEmpty: true }, // Next to bottom-right
+        { x: 1, y: 15, shouldBeEmpty: true }, // Next to top-left
+        { x: 6, y: 15, shouldBeEmpty: true }, // Next to top-right
       ];
 
       adjacentTests.forEach(({ x, y, shouldBeEmpty }) => {
