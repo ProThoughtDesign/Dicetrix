@@ -1,6 +1,8 @@
 import { GridState, GridPosition, MatchGroup, Die } from './types';
+import { CoordinateConverter } from '../../../shared/utils/CoordinateConverter';
 
 export function detectMatches(grid: GridState, minMatch = 3): MatchGroup[] {
+  const converter = new CoordinateConverter(grid.height);
   const visited: boolean[][] = [];
   for (let y = 0; y < grid.height; y++) visited[y] = new Array(grid.width).fill(false);
 
@@ -26,7 +28,9 @@ export function detectMatches(grid: GridState, minMatch = 3): MatchGroup[] {
   if (!crow) continue;
   const c = crow[p.x];
   if (!c) continue;
-        group.push(p);
+        // Convert array coordinates to grid coordinates for the result
+        const gridY = converter.arrayToGridY(p.y);
+        group.push({ x: p.x, y: gridY });
 
         const neighbors = [
           { x: p.x - 1, y: p.y },
@@ -55,7 +59,9 @@ export function detectMatches(grid: GridState, minMatch = 3): MatchGroup[] {
         // compute color counts
         const colors: Record<string, number> = {};
         for (const p of group) {
-          const r = grid.cells[p.y];
+          // Convert grid coordinates back to array coordinates to access the cell
+          const arrayY = converter.gridToArrayY(p.y);
+          const r = grid.cells[arrayY];
           if (!r) continue;
           const d = r[p.x] as Die | null;
           if (!d) continue;

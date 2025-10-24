@@ -6,260 +6,181 @@ import { getMode } from '../config/GameMode';
 import { drawDie } from '../visuals/DiceRenderer';
 // import { applyIndividualGravity } from '../logic/Gravity'; // Disabled for now
 import Logger from '../../utils/Logger';
+import { GameUI, GameUICallbacks } from '../ui/GameUI';
+import { GAME_CONSTANTS, SPAWN_POSITIONS } from '../../../shared/constants/GameConstants';
+import { CoordinateConverter } from '../../../shared/utils/CoordinateConverter';
+import { GridBoundaryValidator } from '../../../shared/utils/GridBoundaryValidator';
 
 export class Game extends Scene {
+  private gameUI: GameUI;
+  private gameBoard: GameBoard;
+  private coordinateConverter: CoordinateConverter;
+  private activePiece: any;
+  private nextPiece: any;
+  private dropTimer: Phaser.Time.TimerEvent | null = null;
+  private gravityTimer: Phaser.Time.TimerEvent | null = null;
+  private activeSprites: Phaser.GameObjects.Container[] = [];
+  private nextSprites: Phaser.GameObjects.Container[] = [];
+  private lockedSprites: Phaser.GameObjects.Container[] = [];
+
   constructor() {
     super('Game');
   }
 
-  private renderGridPlaceholder(): void {
-    const l = (this as any)._layout;
-    if (!l) return;
+  private renderGameState(): void {
+    if (!this.gameUI) return;
 
-    // Use exact metrics from layout calculation
-    const bm = l.boardMetrics || ({} as any);
-    const cols = bm.cols || 10;
-    const rows = bm.rows || 20;
-    const cellW = bm.cellW || 32;
-    const cellH = bm.cellH || 24;
-    const boardAreaY = bm.boardAreaY || 48;
-
-    // helper to compute pixel coordinates for a grid cell (top-left) - no padding
-    const cellToPixel = (gx: number, gy: number) => ({
-      px: gx * cellW,
-      py: boardAreaY + gy * cellH,
-    });
-
-    // draw grid lines on top (reuse if present) - align exactly with background
-    if (!l.gridLines) {
-      l.gridLines = this.add.graphics();
-      l.boardContainer.add(l.gridLines);
-    }
-    l.gridLines.clear();
-    l.gridLines.lineStyle(1, 0x17f64b, 0.5); // rgb(23, 246, 75) at 50% opacity
+    const { boardMetrics, nextMetrics } = this.gameUI;
     
-    // Vertical lines
-    for (let x = 0; x <= cols; x++) {
-      const px = x * cellW;
-      l.gridLines.moveTo(px, boardAreaY);
-      l.gridLines.lineTo(px, boardAreaY + rows * cellH);
-    }
+    // Clear existing sprites
+    this.clearSprites();
+
+    // Render active piece
+    this.renderActivePiece(boardMetrics);
     
-    // Horizontal lines
-    for (let y = 0; y <= rows; y++) {
-      const py = boardAreaY + y * cellH;
-      l.gridLines.moveTo(0, py);
-      l.gridLines.lineTo(cols * cellW, py);
-    }
-    l.gridLines.strokePath();
+    // Render next piece
+    this.renderNextPiece(nextMetrics);
+    
+    // Render locked pieces
+    this.renderLockedPieces(boardMetrics);
+  }
 
-    // draw active falling piece if present (multi-die support)
-    const active: any = (this as any).activePiece;
-    Logger.log(
-      `Active piece rendering: active=${active ? `${active.shape} at x=${active.x},y=${active.y}` : 'null'}, activeSprites=${l.activeSprites ? l.activeSprites.length : 0}`
-    );
-
-    // Ensure activeSprites container exists
-    if (!l.activeSprites) {
-      l.activeSprites = [];
-    }
-
-    // Clear all existing active sprites
-    l.activeSprites.forEach((sprite: any) => {
+  private clearSprites(): void {
+    // Clear active piece sprites
+    this.activeSprites.forEach(sprite => {
       try {
         sprite.destroy();
       } catch (e) {
         /* ignore */
       }
     });
-    l.activeSprites = [];
+    this.activeSprites = [];
 
-    if (active && active.dice && active.dice.length > 0) {
-      Logger.log(`Rendering piece with ${active.dice.length} dice`);
-      active.dice.forEach((die: any, index: number) => {
-        const absoluteX = active.x + die.relativePos.x;
-        const absoluteY = active.y + die.relativePos.y;
-        const { px, py } = cellToPixel(absoluteX, absoluteY);
+    // Clear next piece sprites
+    this.nextSprites.forEach(sprite => {
+      try {
+        sprite.destroy();
+      } catch (e) {
+        /* ignore */
+      }
+    });
+    this.nextSprites = [];
+  }
+
+  private renderActivePiece(boardMetrics: any): void {
+    if (!this.activePiece || !this.activePiece.dice || this.activePiece.dice.length === 0) {
+      return;
+    }
+
+    Logger.log(`Rendering active piece with ${this.activePiece.dice.length} dice`);
+
+    this.activePiece.dice.forEach((die: any, index: number) => {
+      const gridX = this.activePiece.x + die.relativePos.x;
+      const gridY = this.activePiece.y + die.relativePos.y;
+      
+      // Convert grid coordinates to screen pixel coordinates using CoordinateConverter
+      const screenPos = this.coordinateConverter.gridToScreen(gridX, gridY, boardMetrics);
+
+      const sprite = drawDie(
+        this,
+        screenPos.x,
+        screenPos.y,
+        boardMetrics.cellW,
+        boardMetrics.cellH,
+        die
+      ) as Phaser.GameObjects.Container | null;
+      
+      if (sprite) {
+        this.activeSprites.push(sprite);
+        Logger.log(`Created active sprite ${index} at bottom-left grid(${gridX}, ${gridY}) -> screen(${screenPos.x}, ${screenPos.y})`);
+      }
+    });
+  }
+
+  private renderNextPiece(nextMetrics: any): void {
+    if (!this.nextPiece || !this.nextPiece.dice) {
+      return;
+    }
+
+    Logger.log(`Rendering next piece with ${this.nextPiece.dice.length} dice`);
+
+    // Find bounding box to center the piece
+    const minX = Math.min(...this.nextPiece.dice.map((die: any) => die.relativePos.x));
+    const maxX = Math.max(...this.nextPiece.dice.map((die: any) => die.relativePos.x));
+    const minY = Math.min(...this.nextPiece.dice.map((die: any) => die.relativePos.y));
+    const maxY = Math.max(...this.nextPiece.dice.map((die: any) => die.relativePos.y));
+
+    const pieceWidth = maxX - minX + 1;
+    const pieceHeight = maxY - minY + 1;
+
+    // Center in 4x4 grid
+    const offsetX = (4 - pieceWidth) / 2 - minX;
+    const offsetY = (4 - pieceHeight) / 2 - minY;
+
+    this.nextPiece.dice.forEach((die: any, index: number) => {
+      const gridX = die.relativePos.x + offsetX;
+      const gridY = die.relativePos.y + offsetY;
+      const px = nextMetrics.nextX + gridX * nextMetrics.cellW;
+      const py = nextMetrics.nextY + gridY * nextMetrics.cellH;
+
+      const sprite = drawDie(
+        this,
+        px,
+        py,
+        nextMetrics.cellW,
+        nextMetrics.cellH,
+        die
+      ) as Phaser.GameObjects.Container | null;
+      
+      if (sprite) {
+        this.nextSprites.push(sprite);
+        Logger.log(`Created next sprite ${index} at bottom-left grid(${gridX}, ${gridY})`);
+      }
+    });
+  }
+
+  private renderLockedPieces(boardMetrics: any): void {
+    if (!this.gameBoard) return;
+
+    const { height, width, cells } = this.gameBoard.state;
+
+    // Clear old locked sprites
+    this.lockedSprites.forEach(sprite => {
+      try {
+        sprite.destroy();
+      } catch (e) {
+        /* ignore */
+      }
+    });
+    this.lockedSprites = [];
+
+    // Render all locked dice using bottom-left coordinate system
+    for (let gridY = 0; gridY < height; gridY++) {
+      // Convert grid Y to array index for accessing the cells array
+      const arrayY = this.coordinateConverter.gridToArrayY(gridY);
+      const row = cells[arrayY];
+      if (!row) continue;
+      
+      for (let gridX = 0; gridX < width; gridX++) {
+        const die = row[gridX];
+        if (!die) continue;
+
+        // Convert grid coordinates to screen pixel coordinates
+        const screenPos = this.coordinateConverter.gridToScreen(gridX, gridY, boardMetrics);
 
         const sprite = drawDie(
           this,
-          px,
-          py,
-          cellW,
-          cellH,
+          screenPos.x,
+          screenPos.y,
+          boardMetrics.cellW,
+          boardMetrics.cellH,
           die
         ) as Phaser.GameObjects.Container | null;
         
         if (sprite) {
-          l.boardContainer.add(sprite);
-          l.activeSprites.push(sprite);
-          Logger.log(`Created sprite ${index} at (${absoluteX}, ${absoluteY})`);
-        }
-      });
-    }
-
-    // Draw locked cells from gameBoard (reuse sprite pool)
-    const lg: any = (this as any).gameBoard;
-    if (lg) {
-      if (!l.cellGroup) {
-        l.cellGroup = this.add.container(0, 0);
-        l.boardContainer.add(l.cellGroup);
-      }
-      // Instead of clearing all locked visuals every frame, we assume locked cells
-      // are persistent visuals inside l.cellGroup. When a piece gets locked we will
-      // reparent the activeSprite into l.cellGroup at the locked cell coords so it
-      // remains visible. Here we only ensure already-locked visuals are positioned
-      // correctly (in case of resize) by scanning children and snapping them to
-      // the grid if they carry a custom data property.
-      // We'll also draw any missing locked visuals (for legacy or first-pass).
-      const height = lg.state.height;
-      const width = lg.state.width;
-      // Create a quick map of occupied grid coords -> die for detecting missing visuals
-      const occupied = new Map<string, any>();
-      for (let y = 0; y < height; y++) {
-        const row = lg.state.cells[y];
-        if (!row) continue;
-        for (let x = 0; x < width; x++) {
-          const d = row[x];
-          if (d) occupied.set(`${x},${y}`, d);
+          this.lockedSprites.push(sprite);
         }
       }
-
-      // Draw Next piece preview grid (4x4) and piece if present
-      if (l.nextMetrics) {
-        // Draw 4x4 grid lines in the next piece area
-        if (!l.nextGridLines) {
-          l.nextGridLines = this.add.graphics();
-          l.sideContainer.add(l.nextGridLines);
-        }
-
-        l.nextGridLines.clear();
-        l.nextGridLines.lineStyle(1, 0x17f64b, 0.5); // Same color as main grid
-
-        const nextGridCols = 4;
-        const nextGridRows = 4;
-        const nextCellW = Math.floor((l.nextMetrics.nextW as number) / nextGridCols);
-        const nextCellH = Math.floor((l.nextMetrics.nextW as number) / nextGridRows); // Square cells
-        const nextGridX = l.nextMetrics.nextBgX as number;
-        const nextGridY = l.nextMetrics.nextY as number;
-
-        // Draw vertical lines
-        for (let x = 0; x <= nextGridCols; x++) {
-          const px = nextGridX + x * nextCellW;
-          l.nextGridLines.moveTo(px, nextGridY);
-          l.nextGridLines.lineTo(px, nextGridY + nextGridRows * nextCellH);
-        }
-
-        // Draw horizontal lines
-        for (let y = 0; y <= nextGridRows; y++) {
-          const py = nextGridY + y * nextCellH;
-          l.nextGridLines.moveTo(nextGridX, py);
-          l.nextGridLines.lineTo(nextGridX + nextGridCols * nextCellW, py);
-        }
-
-        l.nextGridLines.strokePath();
-
-        // Draw next piece in the center of the 4x4 grid (multi-die support)
-        const np = (this as any).nextPiece;
-        Logger.log(
-          `Next piece rendering: nextMetrics=${!!l.nextMetrics}, nextPiece=${np ? `${np.shape} with ${np.dice?.length || 0} dice` : 'null'}`
-        );
-        if (np && np.dice) {
-          // Clear previous next sprites
-          if (l.nextSprites) {
-            l.nextSprites.forEach((sprite: any) => {
-              try {
-                sprite.destroy();
-              } catch (e) {
-                /* ignore */
-              }
-            });
-          }
-          l.nextSprites = [];
-
-          // Find bounding box of the piece to center it
-          const minX = Math.min(...np.dice.map((die: any) => die.relativePos.x));
-          const maxX = Math.max(...np.dice.map((die: any) => die.relativePos.x));
-          const minY = Math.min(...np.dice.map((die: any) => die.relativePos.y));
-          const maxY = Math.max(...np.dice.map((die: any) => die.relativePos.y));
-
-          const pieceWidth = maxX - minX + 1;
-          const pieceHeight = maxY - minY + 1;
-
-          // Center the piece in the 4x4 grid
-          const offsetX = (4 - pieceWidth) / 2 - minX;
-          const offsetY = (4 - pieceHeight) / 2 - minY;
-
-          // Create sprites for each die in the next piece
-          np.dice.forEach((die: any, index: number) => {
-            const gridX = die.relativePos.x + offsetX;
-            const gridY = die.relativePos.y + offsetY;
-            const nx = nextGridX + gridX * nextCellW;
-            const ny = nextGridY + gridY * nextCellH;
-
-            Logger.log(`Next piece die ${index} at grid(${gridX}, ${gridY}) pixel(${nx}, ${ny})`);
-
-            const sprite = drawDie(
-              this,
-              nx,
-              ny,
-              nextCellW,
-              nextCellH,
-              die
-            ) as Phaser.GameObjects.Container | null;
-            if (sprite) {
-              l.sideContainer.add(sprite);
-              l.nextSprites.push(sprite);
-              Logger.log(`Created next sprite ${index}`);
-            }
-          });
-
-          Logger.log(`Created ${l.nextSprites.length} next piece sprites`);
-        } else {
-          Logger.log('No next piece to render');
-        }
-      } else {
-        Logger.log('No nextMetrics available for next piece rendering');
-      }
-
-      // snap existing children that have a __gridPos data to new positions
-      l.cellGroup.each((child: any) => {
-        try {
-          const meta = child.getData ? child.getData('__gridPos') : undefined;
-          if (meta) {
-            const { px, py } = cellToPixel(meta.x, meta.y);
-            child.setPosition(px, py);
-            // mark that this grid cell is satisfied
-            occupied.delete(`${meta.x},${meta.y}`);
-          } else {
-            // If child lacks meta, ignore for now
-          }
-        } catch (e) {
-          /* ignore individual child errors */
-        }
-      });
-
-      // For any occupied cells that don't have visuals yet, create them
-      occupied.forEach((d: any, key: string) => {
-        const parts = key.split(',');
-        const sx = parts.length > 0 ? Number(parts[0]) : NaN;
-        const sy = parts.length > 1 ? Number(parts[1]) : NaN;
-        if (Number.isNaN(sx) || Number.isNaN(sy)) return;
-        const { px, py } = cellToPixel(sx, sy);
-        const spr = drawDie(
-          this,
-          px,
-          py,
-          cellW,
-          cellH,
-          d as any
-        ) as Phaser.GameObjects.Container | null;
-        if (spr) {
-          // tag with grid pos so we can reposition on resize and avoid re-creating
-          if ((spr as any).setData) (spr as any).setData('__gridPos', { x: sx, y: sy });
-          l.cellGroup.add(spr as any);
-        }
-      });
     }
   }
 
@@ -384,19 +305,24 @@ export class Game extends Scene {
     };
   }
 
+  private handleBoardTouch(gridX: number, gridY: number): void {
+    Logger.log(`Board touched at bottom-left grid position (${gridX}, ${gridY})`);
+    // TODO: Implement touch-based piece movement
+    // For now, just log the touch position
+  }
+
   private spawnPiece(): void {
     Logger.log('spawnPiece() called');
-    const gb: any = (this as any).gameBoard;
-    if (!gb) {
+    if (!this.gameBoard) {
       Logger.log('ERROR: No gameBoard in spawnPiece');
       return;
     }
 
-    const w = gb.state.width;
+    const w = this.gameBoard.state.width;
     Logger.log(`Grid width: ${w}`);
 
     // If there's a nextPiece preview, promote it to active; otherwise generate new
-    const next = (this as any).nextPiece;
+    const next = this.nextPiece;
     let pieceToUse = next || this.generateMultiDiePiece();
 
     if (next) {
@@ -405,46 +331,73 @@ export class Game extends Scene {
       Logger.log('Generated new piece');
     }
 
-    // Position piece at top center
-    const x = Math.floor(w / 2) - 1; // Offset for multi-die pieces
-    const y = 0;
+    // Position piece ABOVE the grid using bottom-left coordinate system
+    const x = GAME_CONSTANTS.SPAWN_X_CENTER; // Use constant for spawn X position
+    
+    // Find the lowest die in the piece (smallest Y in relative coordinates)
+    const minRelativeY = Math.min(...pieceToUse.dice.map((die: any) => die.relativePos.y));
+    
+    // Calculate spawn Y position using constants: spawn so the lowest die starts above visible grid
+    // When it falls one step, lowest die will be at Y=20, then Y=19 (top of grid)
+    const spawnY = SPAWN_POSITIONS.calculateSpawnY(minRelativeY);
+    
+    Logger.log(`Spawning piece with bottom-left coordinates: minRelativeY=${minRelativeY}, spawnY=${spawnY}, so lowest die starts at Y=${spawnY + minRelativeY} (should be 21)`);
     
     // Create the piece object to test collision
     const newActivePiece = {
       ...pieceToUse,
       x,
-      y,
+      y: spawnY,
     };
 
-    // Check if the spawn position is valid (collision detection)
-    if (!this.canPlacePiece(newActivePiece, x, y)) {
-      Logger.log('GAME OVER: Cannot spawn new piece - collision detected at spawn position');
+    // Check if the piece can enter the grid (game over condition)
+    // Try to move the piece down one step to see if it can enter the grid from Y=21 to Y=20
+    const enterGridY = spawnY - 1; // Moving down means decreasing Y in bottom-left system
+    if (!this.canPlacePiece(newActivePiece, x, enterGridY)) {
+      Logger.log(`GAME OVER: Cannot enter grid - collision detected when trying to move from Y=${spawnY} to Y=${enterGridY}`);
       // Game over - transition to GameOver scene
       this.scene.start('GameOver');
       return;
     }
 
-    (this as any).activePiece = newActivePiece;
-    Logger.log(`Spawned active piece at x=${x}, y=${y}: ${newActivePiece.shape}`);
+    this.activePiece = newActivePiece;
+    Logger.log(`Spawned active piece at bottom-left coordinates x=${x}, Y=${spawnY}: ${newActivePiece.shape}`);
 
     // Generate fresh nextPiece for preview
-    (this as any).nextPiece = this.generateMultiDiePiece();
-    Logger.log(`Generated next piece: ${(this as any).nextPiece.shape}`);
+    this.nextPiece = this.generateMultiDiePiece();
+    Logger.log(`Generated next piece: ${this.nextPiece.shape}`);
 
     // render update
-    this.renderGridPlaceholder();
+    this.renderGameState();
     Logger.log('spawnPiece() completed');
   }
 
+  /**
+   * Returns a descriptive name for the collision scenario based on dice counts
+   * @param dicesToLock Number of dice that will be locked
+   * @param diceToContinue Number of dice that will continue falling
+   * @returns Human-readable scenario name
+   */
+  private getCollisionScenarioName(dicesToLock: number, diceToContinue: number): string {
+    if (dicesToLock === 0 && diceToContinue > 0) {
+      return `No Collisions (${diceToContinue} dice continue)`;
+    } else if (dicesToLock > 0 && diceToContinue === 0) {
+      return `All Collisions (${dicesToLock} dice lock)`;
+    } else if (dicesToLock > 0 && diceToContinue > 0) {
+      return `Mixed Collisions (${dicesToLock} lock, ${diceToContinue} continue)`;
+    } else {
+      return `Empty Scenario (0 dice total)`;
+    }
+  }
+
   private stepDrop(): void {
-    Logger.log('stepDrop() called');
-    const lg: any = (this as any).gameBoard;
-    if (!lg) {
+    Logger.log('=== stepDrop() START ===');
+    if (!this.gameBoard) {
       Logger.log('ERROR: No gameBoard found');
       return;
     }
 
-    let active: any = (this as any).activePiece;
+    let active = this.activePiece;
     if (!active) {
       Logger.log('No active piece, spawning new one');
       this.spawnPiece();
@@ -458,125 +411,293 @@ export class Game extends Scene {
       return;
     }
 
-    Logger.log(`Active piece with ${active.dice.length} unlocked dice`);
+    // Log initial active piece state for debugging
+    Logger.log(`COLLISION DETECTION: Active piece "${active.shape || 'unknown'}" at bottom-left coordinates (${active.x}, ${active.y}) with ${active.dice.length} unlocked dice`);
+    Logger.log(`PIECE STATE: ID=${active.id}, rotation=${active.rotation}°`);
 
-    // CORRECTED COLLISION DETECTION ALGORITHM:
-    // Use a while loop to repeatedly check for collisions until all dice are either locked or moved
-    let hasUnlockedDice = true;
-    let cycleCount = 0;
-    const maxCycles = 50; // Safety limit to prevent infinite loops
+    // Enhanced validation and error handling before processing
+    const preProcessValidation = this.validateActivePieceState();
+    Logger.log(`PRE-PROCESS VALIDATION: ${preProcessValidation ? 'PASSED' : 'FAILED'}`);
     
-    while (hasUnlockedDice && active.dice.length > 0 && cycleCount < maxCycles) {
-      cycleCount++;
-      Logger.log(`Collision cycle ${cycleCount}: checking ${active.dice.length} unlocked dice`);
-      
-      const dicesToLock: any[] = [];
-      const diceToMove: any[] = [];
-      
-      // Create array of dice with their indices and absolute positions for sorting
-      const diceWithPositions = active.dice.map((die: any, index: number) => ({
-        die,
-        index,
-        absoluteX: active.x + die.relativePos.x,
-        absoluteY: active.y + die.relativePos.y,
-      }));
-      
-      // Sort dice from bottom-left to top-right (highest Y first, then lowest X)
-      // This ensures lower dice are evaluated and locked before upper dice
-      diceWithPositions.sort((a, b) => {
-        if (a.absoluteY !== b.absoluteY) {
-          return b.absoluteY - a.absoluteY; // Higher Y values first (bottom of screen)
-        }
-        return a.absoluteX - b.absoluteX; // Lower X values first (left side)
-      });
-      
-      Logger.log(`Evaluating dice in bottom-left to top-right order: ${diceWithPositions.map(d => `(${d.absoluteX},${d.absoluteY})`).join(', ')}`);
-      
-      // Check each unlocked die individually for collision in the correct order
-      diceWithPositions.forEach(({ die, index, absoluteX, absoluteY }) => {
-        const currentX = absoluteX;
-        const currentY = absoluteY;
-        const belowY = currentY + 1;
-        
-        // Check if this die can move down
-        const isEmpty = lg.isEmpty(currentX, belowY);
-        const outOfBounds = belowY >= lg.state.height;
-        
-        // Additional safety check: if die is already at or below bottom, force lock
-        const atBottom = currentY >= lg.state.height - 1;
-        
-        Logger.log(`Die ${index} at (${currentX}, ${currentY}) checking below (${currentX}, ${belowY}): isEmpty=${isEmpty}, outOfBounds=${outOfBounds}, atBottom=${atBottom}, gridHeight=${lg.state.height}`);
-        
-        if (outOfBounds || !isEmpty || atBottom) {
-          Logger.log(`Die ${index} cannot move - will be locked (outOfBounds=${outOfBounds}, !isEmpty=${!isEmpty}, atBottom=${atBottom})`);
-          // Ensure die is locked at a valid position (clamp to grid bounds)
-          const lockX = Math.max(0, Math.min(currentX, lg.state.width - 1));
-          const lockY = Math.max(0, Math.min(currentY, lg.state.height - 1));
-          dicesToLock.push({ die, index, x: lockX, y: lockY });
-        } else {
-          Logger.log(`Die ${index} can move - will continue falling`);
-          diceToMove.push({ die, index });
-        }
-      });
-      
-      // Lock dice that cannot move
-      if (dicesToLock.length > 0) {
-        Logger.log(`Locking ${dicesToLock.length} dice to grid`);
-        dicesToLock.forEach(({ die, index, x, y }) => {
-          const lockResult = lg.lockAt({ x, y }, die);
-          Logger.log(`Locked die ${index} at (${x}, ${y}): matches=${lockResult.matches.length}`);
-        });
-        
-        // Remove locked dice from active piece (sort indices descending to avoid index shifting)
-        const lockedIndices = dicesToLock.map(d => d.index).sort((a, b) => b - a);
-        lockedIndices.forEach(index => {
-          active.dice.splice(index, 1);
-        });
-        
-        Logger.log(`Removed ${dicesToLock.length} locked dice, ${active.dice.length} dice remaining`);
-        
-        // Continue the while loop to check remaining dice again
-        continue;
+    if (!preProcessValidation) {
+      Logger.log('PRE-PROCESS VALIDATION FAILED: Attempting error recovery');
+      const recoverySuccess = this.handleActivePieceErrors('stepDrop pre-process validation');
+      if (!recoverySuccess) {
+        Logger.log('ERROR RECOVERY FAILED: Aborting stepDrop operation');
+        return;
       }
       
-      // If no dice were locked, we can move the remaining dice and exit the loop
-      if (diceToMove.length > 0) {
-        Logger.log(`Moving ${diceToMove.length} unlocked dice down by 1`);
-        diceToMove.forEach(({ die, index }) => {
-          const newAbsoluteY = active.y + die.relativePos.y + 1;
-          // Safety check: don't move dice outside grid bounds
-          if (newAbsoluteY < lg.state.height) {
-            die.relativePos.y += 1;
-            Logger.log(`Moved die ${index} relativePos to (${die.relativePos.x}, ${die.relativePos.y}) -> absolute (${active.x + die.relativePos.x}, ${active.y + die.relativePos.y})`);
-          } else {
-            Logger.log(`WARNING: Prevented die ${index} from moving outside grid bounds (would be at Y=${newAbsoluteY}, max=${lg.state.height - 1})`);
-          }
-        });
-        hasUnlockedDice = false; // Exit the while loop - dice have moved, wait for next timer tick
+      // Re-validate after recovery
+      const postRecoveryValidation = this.validateActivePieceState();
+      if (!postRecoveryValidation) {
+        Logger.log('POST-RECOVERY VALIDATION FAILED: Critical error - finalizing piece');
+        this.finalizePieceLocking(active);
+        return;
+      }
+      Logger.log('POST-RECOVERY VALIDATION: Successful - continuing with stepDrop');
+    }
+
+    // Check each die individually for collision
+    const dicesToLock: Array<{die: any, index: number, x: number, y: number, collisionReason: string}> = [];
+    const diceToContinue: Array<{die: any, index: number}> = [];
+    
+    Logger.log(`INDIVIDUAL DIE ANALYSIS: Processing ${active.dice.length} dice for collision detection`);
+    
+    active.dice.forEach((die: any, index: number) => {
+      const currentX = active.x + die.relativePos.x;
+      const currentY = active.y + die.relativePos.y;
+      const attemptedX = currentX; // X doesn't change during fall
+      const attemptedY = currentY + GAME_CONSTANTS.FALL_STEP; // FALL_STEP is -1, so this decreases Y
+      
+      Logger.log(`DIE ${index} POSITION ANALYSIS:`);
+      Logger.log(`  - Die ID: ${die.id}, Color: ${die.color}, Sides: ${die.sides}, Number: ${die.number}`);
+      Logger.log(`  - Relative position: (${die.relativePos.x}, ${die.relativePos.y})`);
+      Logger.log(`  - Current absolute position: (${currentX}, ${currentY})`);
+      Logger.log(`  - Attempted position after fall: (${attemptedX}, ${attemptedY})`);
+      Logger.log(`  - Movement vector: (${attemptedX - currentX}, ${attemptedY - currentY})`);
+      
+      // Check collision conditions for bottom-left coordinate system
+      const hitBottom = attemptedY < GAME_CONSTANTS.GROUND_Y; // Would go below Y=0
+      const outOfBounds = currentX < 0 || currentX >= this.gameBoard.state.width;
+      const hitPiece = attemptedY >= GAME_CONSTANTS.GROUND_Y && 
+                       attemptedY <= GAME_CONSTANTS.MAX_VALID_Y && 
+                       !this.gameBoard.isEmpty(attemptedX, attemptedY);
+      
+      Logger.log(`DIE ${index} COLLISION CHECKS:`);
+      Logger.log(`  - Hit bottom (Y < ${GAME_CONSTANTS.GROUND_Y}): ${hitBottom} (attemptedY=${attemptedY})`);
+      Logger.log(`  - Out of bounds (X < 0 or X >= ${this.gameBoard.state.width}): ${outOfBounds} (currentX=${currentX})`);
+      Logger.log(`  - Hit existing piece: ${hitPiece} (checking position ${attemptedX}, ${attemptedY})`);
+      
+      // Determine collision reason and outcome
+      let collisionReason = '';
+      let hasCollision = false;
+      
+      if (hitBottom) {
+        collisionReason = `hit bottom boundary (Y=${attemptedY} < ${GAME_CONSTANTS.GROUND_Y})`;
+        hasCollision = true;
+      } else if (outOfBounds) {
+        collisionReason = `out of X bounds (X=${currentX}, valid range: 0-${this.gameBoard.state.width - 1})`;
+        hasCollision = true;
+      } else if (hitPiece) {
+        collisionReason = `collision with existing piece at (${attemptedX}, ${attemptedY})`;
+        hasCollision = true;
+      }
+      
+      if (hasCollision) {
+        // This die needs to be locked at its current position
+        const lockX = Math.max(0, Math.min(currentX, this.gameBoard.state.width - 1));
+        const lockY = Math.max(GAME_CONSTANTS.MIN_VALID_Y, Math.min(currentY, GAME_CONSTANTS.MAX_VALID_Y));
+        
+        Logger.log(`DIE ${index} COLLISION RESULT: WILL LOCK`);
+        Logger.log(`  - Collision reason: ${collisionReason}`);
+        Logger.log(`  - Lock position: (${lockX}, ${lockY}) ${lockX !== currentX || lockY !== currentY ? '(clamped)' : '(unchanged)'}`);
+        
+        dicesToLock.push({ die, index, x: lockX, y: lockY, collisionReason });
       } else {
-        // No dice to move and no dice to lock - shouldn't happen, but exit to prevent infinite loop
-        Logger.log('Warning: No dice to move or lock - exiting collision loop');
-        hasUnlockedDice = false;
+        // This die can continue falling
+        Logger.log(`DIE ${index} COLLISION RESULT: CONTINUE FALLING`);
+        Logger.log(`  - No collision detected - die can move to (${attemptedX}, ${attemptedY})`);
+        diceToContinue.push({ die, index });
+      }
+      
+      Logger.log(`DIE ${index} ANALYSIS COMPLETE\n`);
+    });
+
+    // Log collision detection summary
+    Logger.log(`COLLISION DETECTION SUMMARY:`);
+    Logger.log(`  - Total dice processed: ${active.dice.length}`);
+    Logger.log(`  - Dice to lock: ${dicesToLock.length}`);
+    Logger.log(`  - Dice to continue falling: ${diceToContinue.length}`);
+    Logger.log(`  - Collision scenario: ${this.getCollisionScenarioName(dicesToLock.length, diceToContinue.length)}`);
+    
+    if (dicesToLock.length > 0) {
+      Logger.log(`DICE LOCKING DETAILS:`);
+      dicesToLock.forEach(({ die, index, x, y, collisionReason }) => {
+        Logger.log(`  - Die ${index} (ID: ${die.id}): ${collisionReason} -> lock at (${x}, ${y})`);
+      });
+    }
+    
+    if (diceToContinue.length > 0) {
+      Logger.log(`DICE CONTINUING DETAILS:`);
+      diceToContinue.forEach(({ die, index }) => {
+        Logger.log(`  - Die ${index} (ID: ${die.id}): no collision, will continue falling`);
+      });
+    }
+
+    // Process dice that hit obstacles
+    if (dicesToLock.length > 0) {
+      Logger.log(`\nDICE LOCKING PROCESS: Processing ${dicesToLock.length} dice that hit obstacles`);
+      
+      // Track active piece state before locking
+      const preLockDiceCount = active.dice.length;
+      Logger.log(`ACTIVE PIECE STATE BEFORE LOCKING: ${preLockDiceCount} dice`);
+      
+      // Lock each die to the grid with validation
+      const successfullyLocked: number[] = [];
+      const lockingErrors: Array<{index: number, error: string}> = [];
+      
+      dicesToLock.forEach(({ die, index, x, y, collisionReason }) => {
+        Logger.log(`LOCKING DIE ${index}: Attempting to lock at (${x}, ${y}) due to ${collisionReason}`);
+        
+        try {
+          // Enhanced coordinate validation and clamping using GridBoundaryValidator
+          const isValidPosition = GridBoundaryValidator.validatePosition(x, y, this.gameBoard.state.width, this.gameBoard.state.height);
+          let finalX = x;
+          let finalY = y;
+          let positionClamped = false;
+          
+          if (!isValidPosition) {
+            Logger.log(`POSITION VALIDATION: Invalid lock position for die ${index}: (${x}, ${y}) - applying enhanced bounds clamping`);
+            
+            // Use GridBoundaryValidator for robust coordinate clamping
+            const clampedPos = GridBoundaryValidator.clampPosition(x, y, this.gameBoard.state.width, this.gameBoard.state.height);
+            finalX = clampedPos.x;
+            finalY = clampedPos.y;
+            positionClamped = true;
+            
+            Logger.log(`POSITION CLAMPING: Enhanced clamping from (${x}, ${y}) to (${finalX}, ${finalY})`);
+            Logger.log(`POSITION CLAMPING: Boundary checks - isAtBottom: ${GridBoundaryValidator.isAtBottom(y)}, isBelowGrid: ${GridBoundaryValidator.isBelowGrid(y)}`);
+          }
+          
+          // Additional safety check for edge cases
+          if (finalX < 0 || finalX >= this.gameBoard.state.width || finalY < 0 || finalY >= this.gameBoard.state.height) {
+            Logger.log(`POSITION SAFETY CHECK: Final position still invalid (${finalX}, ${finalY}) - applying emergency clamping`);
+            finalX = Math.max(0, Math.min(finalX, this.gameBoard.state.width - 1));
+            finalY = Math.max(0, Math.min(finalY, this.gameBoard.state.height - 1));
+            positionClamped = true;
+            Logger.log(`EMERGENCY CLAMPING: Final position set to (${finalX}, ${finalY})`);
+          }
+          
+          // Attempt to lock the die
+          const lockResult = this.gameBoard.lockAt({ x: finalX, y: finalY }, die);
+          Logger.log(`LOCK SUCCESS: Die ${index} locked at (${finalX}, ${finalY})${positionClamped ? ' (clamped)' : ''}`);
+          Logger.log(`LOCK RESULT: Generated ${lockResult.matches.length} matches`);
+          
+          if (lockResult.matches.length > 0) {
+            Logger.log(`MATCHES DETECTED: Die ${index} created matches: ${JSON.stringify(lockResult.matches.map(m => `${m.size} dice`))}`);
+          }
+          
+          successfullyLocked.push(index);
+        } catch (error) {
+          const errorMsg = `Failed to lock die ${index} at (${x}, ${y}): ${error}`;
+          Logger.log(`LOCK ERROR: ${errorMsg}`);
+          lockingErrors.push({ index, error: errorMsg });
+          // Continue with other dice even if one fails
+        }
+      });
+      
+      // Log locking operation summary
+      Logger.log(`LOCKING OPERATION SUMMARY:`);
+      Logger.log(`  - Attempted to lock: ${dicesToLock.length} dice`);
+      Logger.log(`  - Successfully locked: ${successfullyLocked.length} dice`);
+      Logger.log(`  - Locking errors: ${lockingErrors.length} dice`);
+      
+      if (lockingErrors.length > 0) {
+        Logger.log(`LOCKING ERRORS DETAILS:`);
+        lockingErrors.forEach(({ index, error }) => {
+          Logger.log(`  - Die ${index}: ${error}`);
+        });
+      }
+      
+      // Only remove dice that were successfully locked, using safe removal method
+      if (successfullyLocked.length > 0) {
+        Logger.log(`DICE REMOVAL: Removing ${successfullyLocked.length} successfully locked dice from active piece`);
+        
+        const removedCount = this.safeRemoveDiceByIndices(successfullyLocked);
+        
+        Logger.log(`DICE REMOVAL RESULT: Expected to remove ${successfullyLocked.length}, actually removed ${removedCount}`);
+        
+        if (removedCount !== successfullyLocked.length) {
+          Logger.log(`WARNING: Dice removal count mismatch - this may indicate an array manipulation error`);
+        }
+        
+        // Log active piece state after removal
+        const postRemovalDiceCount = active.dice ? active.dice.length : 0;
+        Logger.log(`ACTIVE PIECE STATE AFTER REMOVAL: ${postRemovalDiceCount} dice remaining (was ${preLockDiceCount})`);
+        Logger.log(`DICE COUNT CHANGE: ${preLockDiceCount} -> ${postRemovalDiceCount} (removed ${preLockDiceCount - postRemovalDiceCount})`);
+        
+        // Enhanced validation and error handling after dice removal
+        const postRemovalValidation = this.validateActivePieceState();
+        Logger.log(`POST-REMOVAL VALIDATION: ${postRemovalValidation ? 'PASSED' : 'FAILED'}`);
+        
+        if (!postRemovalValidation) {
+          Logger.log('POST-REMOVAL VALIDATION FAILED: Attempting comprehensive error recovery');
+          const recoverySuccess = this.handleActivePieceErrors('stepDrop post-removal validation');
+          if (!recoverySuccess) {
+            Logger.log('POST-REMOVAL RECOVERY FAILED: Critical error detected - aborting stepDrop');
+            return;
+          }
+          
+          // Final validation after recovery
+          const finalValidation = this.validateActivePieceState();
+          if (!finalValidation) {
+            Logger.log('FINAL VALIDATION FAILED: Unrecoverable error - emergency piece finalization');
+            this.activePiece.dice = []; // Force empty to trigger finalization
+          } else {
+            Logger.log('POST-REMOVAL RECOVERY: Successful - continuing with stepDrop');
+          }
+        }
+      } else {
+        Logger.log(`WARNING: No dice were successfully locked - active piece state unchanged`);
       }
     }
+
+    // Handle piece movement based on collision scenarios
+    Logger.log(`\nPIECE MOVEMENT LOGIC:`);
+    const scenarioName = this.getCollisionScenarioName(dicesToLock.length, diceToContinue.length);
+    Logger.log(`MOVEMENT SCENARIO: ${scenarioName}`);
     
-    if (cycleCount >= maxCycles) {
-      Logger.log(`Warning: Collision detection hit maximum cycles (${maxCycles}), forcing exit`);
+    if (diceToContinue.length > 0 && dicesToLock.length === 0) {
+      // Scenario 1: No collisions - move entire piece down
+      const oldY = active.y;
+      active.y += GAME_CONSTANTS.FALL_STEP; // FALL_STEP is -1, so this decreases Y (moves down)
+      Logger.log(`NO COLLISIONS: Moving entire piece from Y=${oldY} to Y=${active.y} (${Math.abs(GAME_CONSTANTS.FALL_STEP)} units down)`);
+      Logger.log(`PIECE MOVEMENT: All ${diceToContinue.length} dice continue falling together`);
+    } else if (diceToContinue.length > 0 && dicesToLock.length > 0) {
+      // Scenario 3: Mixed collisions - some dice lock, others continue falling
+      // The remaining dice should continue falling, so move the piece down
+      const oldY = active.y;
+      active.y += GAME_CONSTANTS.FALL_STEP; // FALL_STEP is -1, so this decreases Y (moves down)
+      Logger.log(`MIXED COLLISION: ${dicesToLock.length} dice locked, ${diceToContinue.length} dice continue falling`);
+      Logger.log(`PIECE MOVEMENT: Moving piece from Y=${oldY} to Y=${active.y} for remaining dice`);
+      Logger.log(`CONTINUING DICE: ${diceToContinue.map(d => `Die ${d.index} (ID: ${d.die.id})`).join(', ')}`);
+    } else if (diceToContinue.length === 0 && dicesToLock.length > 0) {
+      // Scenario 2: All collisions - all dice locked, no movement needed
+      Logger.log(`ALL COLLISIONS: ${dicesToLock.length} dice locked, no remaining dice to move`);
+      Logger.log(`PIECE MOVEMENT: No movement - piece will be finalized`);
+    } else {
+      // Edge case: no dice in either category (shouldn't happen)
+      Logger.log(`WARNING: Unexpected collision scenario - no dice in either category`);
+      Logger.log(`PIECE MOVEMENT: No action taken`);
     }
+
+    // Log final active piece state
+    const finalDiceCount = active.dice ? active.dice.length : 0;
+    Logger.log(`FINAL ACTIVE PIECE STATE: ${finalDiceCount} dice at position (${active.x}, ${active.y})`);
     
-    // Update visuals after all collision cycles
-    this.renderGridPlaceholder();
+    // Update visuals to show current state
+    Logger.log(`RENDERING: Updating visual representation`);
+    this.renderGameState();
     
-    // Update the active piece
-    (this as any).activePiece = active;
-    
-    // If all dice are now locked, finalize the piece
-    if (active.dice.length === 0) {
-      Logger.log('All dice locked - finalizing piece');
+    // Check if piece is completely locked and log the decision
+    if (finalDiceCount === 0) {
+      Logger.log(`PIECE FINALIZATION: All dice locked - finalizing piece "${active.shape || 'unknown'}"`);
       this.finalizePieceLocking(active);
     } else {
-      Logger.log(`Collision step complete - ${active.dice.length} dice still falling, waiting for next timer tick`);
+      Logger.log(`STEP COMPLETION: ${finalDiceCount} dice still falling - step complete`);
+      
+      // Log remaining dice details for next step
+      if (active.dice && active.dice.length > 0) {
+        Logger.log(`REMAINING DICE FOR NEXT STEP:`);
+        active.dice.forEach((die: any, index: number) => {
+          const absX = active.x + die.relativePos.x;
+          const absY = active.y + die.relativePos.y;
+          Logger.log(`  - Die ${index} (ID: ${die.id}): relative (${die.relativePos.x}, ${die.relativePos.y}) -> absolute (${absX}, ${absY})`);
+        });
+      }
     }
+    
+    Logger.log('=== stepDrop() END ===\n');
   }
 
 
@@ -584,38 +705,12 @@ export class Game extends Scene {
   private finalizePieceLocking(_active: any): void {
     Logger.log('Finalizing piece locking - all dice settled');
 
-    // Handle sprite cleanup for any remaining active sprites
-    const l = (this as any)._layout;
-    if (l && l.activeSprites && l.activeSprites.length > 0) {
-      try {
-        // Ensure cellGroup exists
-        if (!l.cellGroup) {
-          l.cellGroup = this.add.container(0, 0);
-          l.boardContainer.add(l.cellGroup);
-        }
-
-        // Clean up any remaining active sprites (should be none if all dice were locked individually)
-        l.activeSprites.forEach((sprite: any) => {
-          try {
-            sprite.destroy();
-          } catch (e) {
-            /* ignore */
-          }
-        });
-
-        l.activeSprites = [];
-        Logger.log('Cleaned up remaining active sprites');
-      } catch (e) {
-        Logger.log('Failed to clean up sprites: ' + String(e));
-      }
-    }
-
     // Clear active piece and spawn new one
-    (this as any).activePiece = undefined;
+    this.activePiece = undefined;
     Logger.log('Cleared active piece, about to spawn new one');
 
     // Re-render grid to show final locked state and spawn a new piece
-    this.renderGridPlaceholder();
+    this.renderGameState();
     this.spawnPiece();
   }
 
@@ -638,217 +733,11 @@ export class Game extends Scene {
   }
 
   create(): void {
-    const { width, height } = this.scale;
-
     // Set background
     this.cameras.main.setBackgroundColor('#1a1a2e');
-
-    // Root containers
     this.registry.set('gameSceneReady', true);
 
-    // Create containers for left (board) and right (side panel)
-    const root = this.add.container(0, 0);
-
-    // Board group (left)
-    const boardContainer = this.add.container(0, 0);
-    // Score label (left) and value (right) placeholders (top of board)
-    const SCORE_LABEL_SIZE = '28px';
-    const scoreLabel = this.add
-      .text(0, 0, 'Score:', {
-        fontFamily: 'Arial Black',
-        fontSize: SCORE_LABEL_SIZE,
-        color: '#ffd700',
-        stroke: '#000000',
-        strokeThickness: 1,
-      })
-      .setOrigin(0, 0);
-
-    const scoreValue = this.add
-      .text(0, 0, '0', {
-        fontFamily: 'Arial Black',
-        fontSize: SCORE_LABEL_SIZE,
-        color: '#ffffff',
-        stroke: '#000000',
-        strokeThickness: 3,
-      })
-      .setOrigin(1, 0);
-
-    // Board area placeholder (will be resized)
-    const boardBg = this.add.graphics();
-    boardBg.fillStyle(0x0f1720, 1);
-    // initial placeholder rect; will be redrawn in updateLayout
-    boardBg.fillRect(0, 0, 400, 600);
-
-    // Border graphics for the board group
-    const boardBorder = this.add.graphics();
-
-    boardContainer.add([boardBg, boardBorder, scoreLabel, scoreValue]);
-
-    // Side panel (right) - Next Piece + Boosters
-    const sideContainer = this.add.container(0, 0);
-
-    // Next label (one size larger)
-    const nextLabel = this.add
-      .text(0, 0, 'Next Piece', {
-        fontFamily: 'Arial Black',
-        fontSize: '24px',
-        color: '#00ff88',
-        stroke: '#000000',
-        strokeThickness: 1,
-      })
-      .setOrigin(0.5, 0);
-
-    // Next piece area placeholder (4x4 grid)
-    const nextBg = this.add.graphics();
-    nextBg.fillStyle(0x071021, 1);
-    nextBg.fillRect(0, 0, 160, 160); // Larger for 4x4 grid
-    const nextBorder = this.add.graphics();
-
-    // Boosters grid container (3x3 larger slots)
-    const boostersContainer = this.add.container(0, 0);
-    const boosterSlots: Phaser.GameObjects.Rectangle[] = [];
-    const boosterSlotSize = 128; // Much larger booster icons (2x scale)
-    for (let row = 0; row < 3; row++) {
-      for (let col = 0; col < 3; col++) {
-        const slot = this.add
-          .rectangle(
-            col * (boosterSlotSize + 8),
-            row * (boosterSlotSize + 8),
-            boosterSlotSize,
-            boosterSlotSize,
-            0x000000,
-            0.0
-          )
-          .setStrokeStyle(1, 0x00ff88, 0.25)
-          .setOrigin(0, 0);
-        boostersContainer.add(slot);
-        boosterSlots.push(slot);
-      }
-    }
-
-    // Border for boosters
-    const boostersBorder = this.add.graphics();
-
-    // Control buttons grid (3x2 layout)
-    const controlsContainer = this.add.container(0, 0);
-    const controlButtons: Phaser.GameObjects.Rectangle[] = [];
-    const controlLabels: Phaser.GameObjects.Text[] = [];
-    const controlSize = 112; // Much larger control buttons (2x scale)
-    const controlGap = 12; // Slightly larger gap too
-
-    // Control button data: [row, col, symbol, action]
-    const controlData: Array<[number, number, string, string]> = [
-      [0, 0, '↺', 'rotateLeft'], // Rotate Counter-Clockwise
-      [0, 1, '⇊', 'softDrop'], // 2-Down Arrows (soft drop)
-      [0, 2, '↻', 'rotateRight'], // Rotate Clockwise
-      [1, 0, '←', 'moveLeft'], // Move Left
-      [1, 1, '⇓', 'hardDrop'], // 3-Down Arrows (hard drop)
-      [1, 2, '→', 'moveRight'], // Move Right
-    ];
-
-    controlData.forEach(([row, col, symbol, action]) => {
-      const x = col * (controlSize + controlGap);
-      const y = row * (controlSize + controlGap);
-
-      // Button background
-      const button = this.add
-        .rectangle(x, y, controlSize, controlSize, 0x1a1a2e, 1.0)
-        .setStrokeStyle(2, 0x00ff88, 0.8)
-        .setOrigin(0, 0)
-        .setInteractive({ useHandCursor: true });
-
-      // Button label
-      const label = this.add
-        .text(x + controlSize / 2, y + controlSize / 2, symbol, {
-          fontFamily: 'Arial Black',
-          fontSize: '48px', // Larger font for bigger buttons
-          color: '#00ff88',
-          stroke: '#000000',
-          strokeThickness: 2, // Thicker stroke for larger text
-        })
-        .setOrigin(0.5, 0.5);
-
-      // Store action for later use
-      (button as any).controlAction = action;
-
-      controlsContainer.add([button, label]);
-      controlButtons.push(button);
-      controlLabels.push(label);
-    });
-
-    // Border for controls
-    const controlsBorder = this.add.graphics();
-
-    // Add children to sideContainer in order
-    sideContainer.add([
-      nextLabel,
-      nextBg,
-      nextBorder,
-      boostersContainer,
-      boostersBorder,
-      controlsContainer,
-      controlsBorder,
-    ]);
-
-    // Add the two major containers to root
-    root.add([boardContainer, sideContainer]);
-
-    // Store references for layout update
-    (this as any)._layout = {
-      root,
-      boardContainer,
-      boardBg,
-      boardBorder,
-      scoreLabel,
-      scoreValue,
-      sideContainer,
-      nextLabel,
-      nextBg,
-      nextBorder,
-      nextGridLines: undefined, // Will be created in renderGridPlaceholder
-      activeSprites: [], // Array of sprites for multi-die active piece
-      nextSprites: [], // Array of sprites for multi-die next piece
-      boostersContainer,
-      boostersBorder,
-      boosterSlots,
-      controlsContainer,
-      controlsBorder,
-      controlButtons,
-      controlLabels,
-    };
-
-    // Initial layout
-    this.updateLayout(width, height);
-
-    // Listen for resize
-    this.scale.on('resize', (gameSize: Phaser.Structs.Size) => {
-      const { width, height } = gameSize;
-      this.updateLayout(width, height);
-      // Re-render grid and pieces after layout change
-      this.renderGridPlaceholder();
-    });
-
-    // Add escape key to return to menu
-    try {
-      const escKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
-      escKey?.on('down', () => {
-        this.scene.start('StartMenu');
-      });
-      if (!escKey) {
-        window.addEventListener('keydown', (ev) => {
-          if ((ev as KeyboardEvent).key === 'Escape') this.scene.start('StartMenu');
-        });
-      }
-    } catch (err) {
-      Logger.log('Keyboard setup failed, falling back to window listener ' + String(err));
-      window.addEventListener('keydown', (ev) => {
-        if ((ev as KeyboardEvent).key === 'Escape') this.scene.start('StartMenu');
-      });
-    }
-
-    Logger.log('Game scene: Layout initialized');
-
-    // Read selected mode from registry and apply config via GameMode factory
+    // Read selected mode from registry and apply config
     const selectedMode =
       (this.registry.get('selectedMode') as string) || settings.get('selectedMode') || 'medium';
     const mode = getMode(selectedMode);
@@ -856,310 +745,117 @@ export class Game extends Scene {
     this.registry.set('gameMode', mode.id);
     this.registry.set('gameConfig', cfg);
 
-    // Initialize authoritative game board and render placeholder dice
-    const gameBoard = new GameBoard(10, 20);
-    // Save board reference
-    (this as any).gameBoard = gameBoard;
+    // Initialize game board and coordinate converter
+    this.gameBoard = new GameBoard(10, 20);
+    this.coordinateConverter = new CoordinateConverter(20);
 
-    // Spawn an initial piece and start the timed drop according to config
-    Logger.log('About to spawn initial piece and start timer');
+    // Create UI with game callbacks
+    const uiCallbacks: GameUICallbacks = {
+      onMoveLeft: () => this.movePiece(-1, 0),
+      onMoveRight: () => this.movePiece(1, 0),
+      onMoveDown: () => this.movePiece(0, GAME_CONSTANTS.FALL_STEP), // Use FALL_STEP (-1) for downward movement
+      onRotateClockwise: () => this.rotatePiece(1),
+      onRotateCounterClockwise: () => this.rotatePiece(-1),
+      onHardDrop: () => this.hardDrop(),
+      onPause: () => this.scene.start('StartMenu'),
+      onBoardTouch: (gridX, gridY) => this.handleBoardTouch(gridX, gridY),
+    };
+
+    this.gameUI = new GameUI(this, uiCallbacks);
+
+    // Initialize the piece generation system
+    Logger.log('Initializing piece generation system');
+    
+    // First, generate the initial next piece
+    this.nextPiece = this.generateMultiDiePiece();
+    Logger.log(`Generated initial next piece: ${this.nextPiece.shape}`);
+    
+    // Then spawn the first active piece (which will use the next piece)
     this.spawnPiece();
+    
     const cfgAny: any = cfg;
     const ms = Number(cfgAny?.fallSpeed) || 800;
     Logger.log(`Setting up drop timer with ${ms}ms delay`);
 
-    // clear previous timer if any
-    if ((this as any).dropTimer) {
-      Logger.log('Removing existing timer');
-      (this as any).dropTimer.remove(false);
-    }
-
-    (this as any).dropTimer = this.time.addEvent({
+    this.dropTimer = this.time.addEvent({
       delay: ms,
       callback: () => this.stepDrop(),
       loop: true,
     });
-    Logger.log('Drop timer created successfully');
 
-    // Set up gravity timer for individual dice falling (if gravity is enabled)
-    const allowGravity = (cfgAny?.allowGravity !== false); // Default to true unless explicitly false
-    
-    // clear previous gravity timer if any
-    if ((this as any).gravityTimer) {
-      Logger.log('Removing existing gravity timer');
-      (this as any).gravityTimer.remove(false);
-      (this as any).gravityTimer = null;
-    }
-
+    // Set up gravity timer (if enabled)
+    const allowGravity = (cfgAny?.allowGravity !== false);
     if (allowGravity) {
-      const gravityMs = Math.max(100, Math.floor(ms / 4)); // Gravity 4x faster than piece drops
-      Logger.log(`Setting up gravity timer with ${gravityMs}ms delay`);
-
-      (this as any).gravityTimer = this.time.addEvent({
+      const gravityMs = Math.max(100, Math.floor(ms / 4));
+      this.gravityTimer = this.time.addEvent({
         delay: gravityMs,
         callback: () => this.stepGravity(),
         loop: true,
       });
       Logger.log('Gravity timer created successfully');
     } else {
-      Logger.log('Gravity disabled for this mode (Zen mode)');
+      Logger.log('Gravity disabled for this mode');
     }
 
-    // Set up control button handlers
-    this.setupControlHandlers();
-
-    // Render an initial empty grid placeholder (draw cell outlines)
-    this.renderGridPlaceholder();
+    // Initial render
+    this.renderGameState();
+    Logger.log('Game scene initialized with new UI system');
   }
 
-  private updateLayout(width: number, height: number): void {
-    const l = (this as any)._layout;
-    if (!l) return;
 
-    // Layout math
-    const padding = 20;
-    const leftWidth = Math.floor(width * 0.62);
-
-    // Board area
-    const boardX = padding;
-    const boardY = padding;
-    const boardW = leftWidth - padding;
-    const boardH = height - padding * 2;
-
-    // Calculate grid dimensions to ensure perfect alignment
-    const cols = 10;
-    const rows = 20;
-    const scoreAreaHeight = 48;
-    const availableGridHeight = boardH - scoreAreaHeight;
-    
-    // Calculate cell size to fit exactly in available space
-    const cellW = Math.floor(boardW / cols);
-    const cellH = Math.floor(availableGridHeight / rows);
-    
-    // Recalculate actual grid dimensions based on cell size
-    const actualGridW = cellW * cols;
-    const actualGridH = cellH * rows;
-
-    // persist canonical board metrics for rendering to consume
-    if (!l.boardMetrics) l.boardMetrics = {};
-    l.boardMetrics.boardW = actualGridW;
-    l.boardMetrics.boardH = actualGridH + scoreAreaHeight;
-    l.boardMetrics.cols = cols;
-    l.boardMetrics.rows = rows;
-    l.boardMetrics.cellW = cellW;
-    l.boardMetrics.cellH = cellH;
-    l.boardMetrics.boardAreaY = scoreAreaHeight;
-
-    l.boardContainer.setPosition(boardX, boardY);
-
-    // Score at top inside board: left label and right-aligned value
-    const scorePadding = 12;
-    const scoreLabelX = 12;
-    const scoreLabelY = 8;
-    l.scoreLabel.setPosition(scoreLabelX, scoreLabelY);
-    const scoreValueX = actualGridW - scorePadding;
-    l.scoreValue.setPosition(scoreValueX, scoreLabelY);
-
-    // Board background - exactly match the grid area with no padding
-    l.boardBg.clear();
-    l.boardBg.fillStyle(0x071021, 1);
-    l.boardBg.fillRect(0, scoreAreaHeight, actualGridW, actualGridH);
-
-    // Side container position
-    const sideX = boardX + leftWidth + padding;
-    const sideY = padding;
-    l.sideContainer.setPosition(sideX, sideY);
-
-    // Compute right panel width available for side content
-    const rightPanelWidth = Math.max(0, width - sideX - padding);
-
-    // Responsive scaling based on available space
-    const baseSize = Math.min(rightPanelWidth / 4, height / 12); // Responsive base unit
-    
-    // Next label centered vertically aligned with score label
-    const nextLabelY = scoreLabelY;
-    l.nextLabel.setPosition(rightPanelWidth / 2, nextLabelY);
-
-    // Next piece area: align top with board area Y so it lines up with grid (4x4 grid)
-    const nextY = scoreAreaHeight;
-    l.nextBg.clear();
-    l.nextBg.fillStyle(0x071021, 1);
-    const nextW = Math.min(baseSize * 4, rightPanelWidth - 20);
-    const nextBgX = Math.max(0, Math.floor((rightPanelWidth - nextW) / 2));
-    l.nextBg.fillRect(nextBgX, nextY, nextW, nextW);
-    l.nextBorder.clear();
-    l.nextBorder.lineStyle(2, 0x00ff88, 0.25);
-    l.nextBorder.strokeRect(nextBgX - 4, nextY - 4, nextW + 8, nextW + 8);
-    // store next-panel metrics for renderer
-    l.nextMetrics = { nextBgX, nextW, nextY };
-
-    // Boosters group below next piece - responsive sizing
-    const boostersY = nextY + nextW + 20;
-    const boosterCols = 3;
-    const boosterRows = 3;
-    const boosterGap = Math.max(4, Math.floor(baseSize / 8));
-    const boosterSlotSize = Math.max(32, Math.floor(baseSize * 0.8));
-
-    const boostersW = boosterCols * boosterSlotSize + (boosterCols - 1) * boosterGap;
-    const boostersH = boosterRows * boosterSlotSize + (boosterRows - 1) * boosterGap;
-    const boostersX = Math.max(0, Math.floor((rightPanelWidth - boostersW) / 2));
-
-    l.boostersContainer.setPosition(boostersX, boostersY);
-
-    // Update individual booster slots to new size and positions
-    l.boosterSlots.forEach((slot: Phaser.GameObjects.Rectangle, idx: number) => {
-      const col = idx % boosterCols;
-      const row = Math.floor(idx / boosterCols);
-      slot.setSize(boosterSlotSize, boosterSlotSize);
-      slot.setPosition(col * (boosterSlotSize + boosterGap), row * (boosterSlotSize + boosterGap));
-    });
-
-    // boosters border (global coords)
-    l.boostersBorder.clear();
-    l.boostersBorder.lineStyle(2, 0x00ff88, 0.25);
-    const borderGlobalX = sideX + boostersX - 4;
-    const borderGlobalY = sideY + boostersY - 4;
-    l.boostersBorder.strokeRect(borderGlobalX, borderGlobalY, boostersW + 8, boostersH + 8);
-
-    // Controls group below boosters - responsive sizing
-    const controlsY = boostersY + boostersH + 20;
-    const controlSize = Math.max(48, Math.floor(baseSize * 1.2));
-    const controlGap = Math.max(4, Math.floor(baseSize / 8));
-    const controlCols = 3;
-    const controlRows = 2;
-
-    const controlsW = controlCols * controlSize + (controlCols - 1) * controlGap;
-    const controlsH = controlRows * controlSize + (controlRows - 1) * controlGap;
-    const controlsX = Math.max(0, Math.floor((rightPanelWidth - controlsW) / 2));
-
-    l.controlsContainer.setPosition(controlsX, controlsY);
-
-    // Update control button positions and sizes
-    l.controlButtons.forEach((button: Phaser.GameObjects.Rectangle, idx: number) => {
-      const col = idx % controlCols;
-      const row = Math.floor(idx / controlCols);
-      const x = col * (controlSize + controlGap);
-      const y = row * (controlSize + controlGap);
-
-      button.setSize(controlSize, controlSize);
-      button.setPosition(x, y);
-
-      // Update corresponding label position and font size
-      const label = l.controlLabels[idx];
-      if (label) {
-        label.setPosition(x + controlSize / 2, y + controlSize / 2);
-        const fontSize = Math.max(16, Math.floor(controlSize / 3));
-        label.setFontSize(fontSize);
-      }
-    });
-
-    // controls border (global coords)
-    l.controlsBorder.clear();
-    l.controlsBorder.lineStyle(2, 0x00ff88, 0.25);
-    const controlBorderGlobalX = sideX + controlsX - 4;
-    const controlBorderGlobalY = sideY + controlsY - 4;
-    l.controlsBorder.strokeRect(
-      controlBorderGlobalX,
-      controlBorderGlobalY,
-      controlsW + 8,
-      controlsH + 8
-    );
-  }
-
-  private setupControlHandlers(): void {
-    const l = (this as any)._layout;
-    if (!l || !l.controlButtons) return;
-
-    l.controlButtons.forEach((button: any) => {
-      button.on('pointerdown', () => {
-        const action = button.controlAction;
-        Logger.log(`Control button pressed: ${action}`);
-        this.handleControlAction(action);
-      });
-
-      // Visual feedback
-      button.on('pointerover', () => {
-        button.setStrokeStyle(2, 0x00ff88, 1.0);
-      });
-
-      button.on('pointerout', () => {
-        button.setStrokeStyle(2, 0x00ff88, 0.8);
-      });
-    });
-  }
-
-  private handleControlAction(action: string): void {
-    const active = (this as any).activePiece;
-    if (!active) return;
-
-    Logger.log(`Handling control action: ${action}`);
-
-    switch (action) {
-      case 'moveLeft':
-        this.movePiece(-1, 0);
-        break;
-      case 'moveRight':
-        this.movePiece(1, 0);
-        break;
-      case 'softDrop':
-        this.movePiece(0, 1);
-        break;
-      case 'hardDrop':
-        this.hardDrop();
-        break;
-      case 'rotateLeft':
-        this.rotatePiece(-1);
-        break;
-      case 'rotateRight':
-        this.rotatePiece(1);
-        break;
-    }
-  }
 
   private movePiece(dx: number, dy: number): void {
-    const active = (this as any).activePiece;
-    const lg = (this as any).gameBoard;
-    if (!active || !lg) return;
+    if (!this.activePiece || !this.gameBoard) return;
 
     // If no dice remain in the piece, it's already fully locked
-    if (!active.dice || active.dice.length === 0) {
+    if (!this.activePiece.dice || this.activePiece.dice.length === 0) {
       Logger.log('Cannot move piece - no dice remaining (all locked)');
       return;
     }
 
-    const newX = active.x + dx;
-    const newY = active.y + dy;
+    const newX = this.activePiece.x + dx;
+    const newY = this.activePiece.y + dy;
+
+    Logger.log(`Attempting to move piece from bottom-left (${this.activePiece.x}, ${this.activePiece.y}) to (${newX}, ${newY})`);
+    
+    // For downward movement (dy < 0), we're decreasing Y which moves the piece down in bottom-left coordinates
+    // For left/right movement (dx != 0), X coordinates remain unchanged in behavior
+    // For upward movement (dy > 0), we're increasing Y which moves the piece up in bottom-left coordinates
 
     // Check if the new position is valid for remaining dice in the piece
-    if (this.canPlacePiece(active, newX, newY)) {
-      active.x = newX;
-      active.y = newY;
-      this.renderGridPlaceholder();
-      Logger.log(`Moved piece to x=${newX}, y=${newY}`);
+    if (this.canPlacePiece(this.activePiece, newX, newY)) {
+      this.activePiece.x = newX;
+      this.activePiece.y = newY;
+      this.renderGameState();
+      Logger.log(`Successfully moved piece to bottom-left (${newX}, ${newY})`);
     } else {
-      Logger.log(`Cannot move piece to x=${newX}, y=${newY} - blocked`);
+      Logger.log(`Cannot move piece to bottom-left (${newX}, ${newY}) - collision detected`);
     }
   }
 
   private hardDrop(): void {
-    const active = (this as any).activePiece;
-    const lg = (this as any).gameBoard;
-    if (!active || !lg) return;
+    if (!this.activePiece || !this.gameBoard) return;
 
     // If no dice remain in the piece, it's already fully locked
-    if (!active.dice || active.dice.length === 0) {
+    if (!this.activePiece.dice || this.activePiece.dice.length === 0) {
       Logger.log('Cannot hard drop - no dice remaining (all locked)');
       return;
     }
 
-    // Find the lowest valid position for the remaining dice in the piece
-    let dropY = active.y;
-    while (this.canPlacePiece(active, active.x, dropY + 1)) {
-      dropY++;
+    // Find the lowest valid Y position for the remaining dice in the piece
+    // In bottom-left system, we need to find the smallest Y where the piece can still be placed
+    // Start from current position and move down (decrease Y) until we find a collision
+    let dropY = this.activePiece.y;
+    let testY = dropY + GAME_CONSTANTS.FALL_STEP; // Start testing one step down
+    
+    // Keep moving down (decreasing Y) while the piece can still be placed
+    while (testY >= GAME_CONSTANTS.MIN_VALID_Y && this.canPlacePiece(this.activePiece, this.activePiece.x, testY)) {
+      dropY = testY;
+      testY += GAME_CONSTANTS.FALL_STEP; // FALL_STEP is -1, so this decreases Y (moves down)
     }
 
-    active.y = dropY;
-    Logger.log(`Hard dropped piece to y=${dropY}`);
+    this.activePiece.y = dropY;
+    Logger.log(`Hard dropped piece to lowest valid Y=${dropY}`);
 
     // Force immediate collision detection by calling stepDrop
     this.stepDrop();
@@ -1213,8 +909,7 @@ export class Game extends Scene {
     newY: number,
     newPositions?: Array<{ x: number; y: number }>
   ): boolean {
-    const gb = (this as any).gameBoard;
-    if (!gb) {
+    if (!this.gameBoard) {
       Logger.log('canPlacePiece: No gameBoard available');
       return false;
     }
@@ -1231,86 +926,771 @@ export class Game extends Scene {
         y: die.relativePos.y,
       }));
 
-    // Check each remaining die position
+    // Check each remaining die position using bottom-left coordinate system
     for (let i = 0; i < positions.length; i++) {
       const pos = positions[i];
       const absoluteX = newX + pos.x;
       const absoluteY = newY + pos.y;
 
-      // Check bounds
-      if (
-        absoluteX < 0 ||
-        absoluteX >= gb.state.width ||
-        absoluteY < 0 ||
-        absoluteY >= gb.state.height
-      ) {
-        Logger.log(`canPlacePiece: Die ${i} out of bounds at (${absoluteX}, ${absoluteY})`);
+      // Check X bounds (must be within grid width)
+      if (absoluteX < 0 || absoluteX >= this.gameBoard.state.width) {
+        Logger.log(`canPlacePiece: Die ${i} out of X bounds at bottom-left (${absoluteX}, ${absoluteY})`);
         return false;
       }
 
-      // Check collision with existing pieces
-      if (!gb.isEmpty(absoluteX, absoluteY)) {
-        Logger.log(`canPlacePiece: Die ${i} collision detected at (${absoluteX}, ${absoluteY})`);
+      // Check Y bounds: pieces can be above the grid (Y > MAX_VALID_Y) but not below (Y < MIN_VALID_Y)
+      if (absoluteY < GAME_CONSTANTS.MIN_VALID_Y) {
+        Logger.log(`canPlacePiece: Die ${i} below grid bottom at bottom-left (${absoluteX}, ${absoluteY})`);
+        return false;
+      }
+
+      // Check collision with existing pieces (only if within visible grid bounds)
+      if (absoluteY >= GAME_CONSTANTS.MIN_VALID_Y && 
+          absoluteY <= GAME_CONSTANTS.MAX_VALID_Y && 
+          !this.gameBoard.isEmpty(absoluteX, absoluteY)) {
+        Logger.log(`canPlacePiece: Die ${i} collision with existing piece at bottom-left (${absoluteX}, ${absoluteY})`);
         return false;
       }
     }
+    
+    Logger.log(`canPlacePiece: All ${positions.length} dice positions valid for piece at bottom-left (${newX}, ${newY})`);
     return true;
   }
 
   private rotatePiece(direction: number): void {
-    const active = (this as any).activePiece;
-    if (!active || !active.dice || active.dice.length === 0) {
+    if (!this.activePiece || !this.activePiece.dice || this.activePiece.dice.length === 0) {
       Logger.log('No active dice to rotate - piece fully locked');
       return;
     }
 
-    Logger.log(`Rotating piece ${direction > 0 ? 'clockwise' : 'counter-clockwise'} with ${active.dice.length} remaining dice`);
+    Logger.log(`Rotating piece ${direction > 0 ? 'clockwise' : 'counter-clockwise'} with ${this.activePiece.dice.length} remaining dice`);
 
     // Get current relative positions of remaining dice
-    const currentPositions = active.dice.map((die: any) => die.relativePos);
+    const currentPositions = this.activePiece.dice.map((die: any) => die.relativePos);
     Logger.log(`Current positions before rotation: ${JSON.stringify(currentPositions)}`);
 
     // Calculate rotated positions
     const rotatedPositions = this.rotateMatrix(currentPositions, direction > 0);
     Logger.log(`Rotated positions: ${JSON.stringify(rotatedPositions)}`);
 
-    // Check if rotation is valid for remaining dice
-    if (this.canPlacePiece(active, active.x, active.y, rotatedPositions)) {
-      // Apply rotation to remaining dice
-      active.dice.forEach((die: any, index: number) => {
-        Logger.log(`Die ${index}: ${JSON.stringify(die.relativePos)} -> ${JSON.stringify(rotatedPositions[index])}`);
-        die.relativePos = rotatedPositions[index];
-      });
-
-      // Update rotation angle for reference
-      active.rotation = (active.rotation + (direction > 0 ? 90 : -90) + 360) % 360;
-
-      this.renderGridPlaceholder();
-      Logger.log(`Piece rotated successfully to ${active.rotation}°`);
-      
-      // Verify the positions after rotation
-      Logger.log(`Final positions after rotation: ${JSON.stringify(active.dice.map((die: any) => die.relativePos))}`);
-    } else {
-      Logger.log('Rotation blocked - would cause collision or go out of bounds');
+    // Try rotation at current position first
+    if (this.canPlacePiece(this.activePiece, this.activePiece.x, this.activePiece.y, rotatedPositions)) {
+      this.applyRotation(rotatedPositions, direction);
+      return;
     }
+
+    // If rotation fails at current position, try wall kicks
+    Logger.log('Rotation blocked at current position, attempting wall kicks');
+    const wallKickOffsets = this.getWallKickOffsets(direction > 0);
+    
+    for (const offset of wallKickOffsets) {
+      const testX = this.activePiece.x + offset.x;
+      const testY = this.activePiece.y + offset.y;
+      
+      Logger.log(`Trying wall kick at offset (${offset.x}, ${offset.y}) -> position (${testX}, ${testY})`);
+      
+      if (this.canPlacePiece(this.activePiece, testX, testY, rotatedPositions)) {
+        // Apply wall kick and rotation
+        this.activePiece.x = testX;
+        this.activePiece.y = testY;
+        this.applyRotation(rotatedPositions, direction);
+        Logger.log(`Wall kick successful at offset (${offset.x}, ${offset.y})`);
+        return;
+      }
+    }
+
+    Logger.log('Rotation blocked - no valid wall kick positions found');
+  }
+
+  private getWallKickOffsets(_clockwise: boolean): Array<{ x: number; y: number }> {
+    // Wall kick offsets for bottom-left coordinate system
+    // Try moving left, right, up, and combinations
+    // Note: Could be customized based on rotation direction in the future
+    return [
+      { x: -1, y: 0 },  // Try one left
+      { x: 1, y: 0 },   // Try one right
+      { x: -2, y: 0 },  // Try two left
+      { x: 2, y: 0 },   // Try two right
+      { x: 0, y: 1 },   // Try one up
+      { x: -1, y: 1 },  // Try left and up
+      { x: 1, y: 1 },   // Try right and up
+      { x: 0, y: -1 },  // Try one down (if above ground)
+    ];
+  }
+
+  private applyRotation(rotatedPositions: Array<{ x: number; y: number }>, direction: number): void {
+    // Apply rotation to remaining dice
+    this.activePiece.dice.forEach((die: any, index: number) => {
+      Logger.log(`Die ${index}: ${JSON.stringify(die.relativePos)} -> ${JSON.stringify(rotatedPositions[index])}`);
+      die.relativePos = rotatedPositions[index];
+    });
+
+    // Update rotation angle for reference
+    this.activePiece.rotation = (this.activePiece.rotation + (direction > 0 ? 90 : -90) + 360) % 360;
+
+    // Validate the rotation result
+    this.validateRotationResult();
+
+    this.renderGameState();
+    Logger.log(`Piece rotated successfully to ${this.activePiece.rotation}°`);
+    
+    // Verify the positions after rotation
+    Logger.log(`Final positions after rotation: ${JSON.stringify(this.activePiece.dice.map((die: any) => die.relativePos))}`);
+  }
+
+  private validateRotationResult(): void {
+    if (!this.activePiece || !this.activePiece.dice) return;
+
+    // Ensure all dice positions are valid after rotation
+    for (let i = 0; i < this.activePiece.dice.length; i++) {
+      const die = this.activePiece.dice[i];
+      const absoluteX = this.activePiece.x + die.relativePos.x;
+      const absoluteY = this.activePiece.y + die.relativePos.y;
+
+      // Validate coordinates are within expected bounds
+      if (absoluteX < 0 || absoluteX >= this.gameBoard.state.width) {
+        Logger.log(`WARNING: Die ${i} has invalid X coordinate after rotation: ${absoluteX}`);
+      }
+
+      if (absoluteY < GAME_CONSTANTS.MIN_VALID_Y) {
+        Logger.log(`WARNING: Die ${i} has invalid Y coordinate after rotation: ${absoluteY} (below grid)`);
+      }
+
+      // Check relative positions are non-negative (normalized correctly)
+      if (die.relativePos.x < 0 || die.relativePos.y < 0) {
+        Logger.log(`WARNING: Die ${i} has negative relative position after rotation: (${die.relativePos.x}, ${die.relativePos.y})`);
+      }
+    }
+
+    Logger.log(`Rotation validation complete for piece at (${this.activePiece.x}, ${this.activePiece.y})`);
+  }
+
+  /**
+   * Safely removes dice from the active piece by indices in reverse order to maintain array integrity
+   * Enhanced with detailed logging for debugging collision detection issues
+   * @param indices Array of dice indices to remove
+   * @returns Number of dice actually removed
+   */
+  private safeRemoveDiceByIndices(indices: number[]): number {
+    Logger.log('DICE REMOVAL: Starting enhanced safe dice removal process');
+    
+    // Enhanced validation for active piece state
+    if (!this.activePiece) {
+      Logger.log('DICE REMOVAL ERROR: No active piece exists - cannot remove dice');
+      return 0;
+    }
+    
+    if (!this.activePiece.dice) {
+      Logger.log('DICE REMOVAL ERROR: Active piece has no dice property - initializing empty array');
+      this.activePiece.dice = [];
+      return 0;
+    }
+    
+    if (!Array.isArray(this.activePiece.dice)) {
+      Logger.log('DICE REMOVAL ERROR: Active piece dice is not an array - attempting recovery');
+      Logger.log(`DICE REMOVAL ERROR: dice type: ${typeof this.activePiece.dice}, value: ${JSON.stringify(this.activePiece.dice)}`);
+      
+      // Attempt to recover by converting to array or resetting
+      try {
+        if (typeof this.activePiece.dice === 'object' && this.activePiece.dice !== null) {
+          // Try to convert object to array if it has array-like properties
+          const keys = Object.keys(this.activePiece.dice);
+          const isArrayLike = keys.every(key => /^\d+$/.test(key));
+          if (isArrayLike) {
+            Logger.log('DICE REMOVAL RECOVERY: Converting array-like object to proper array');
+            this.activePiece.dice = Object.values(this.activePiece.dice);
+          } else {
+            throw new Error('Not array-like object');
+          }
+        } else {
+          throw new Error('Invalid dice data type');
+        }
+      } catch (recoveryError) {
+        Logger.log(`DICE REMOVAL RECOVERY FAILED: ${recoveryError} - resetting to empty array`);
+        this.activePiece.dice = [];
+        return 0;
+      }
+    }
+
+    // Enhanced input validation
+    if (!indices || !Array.isArray(indices)) {
+      Logger.log('DICE REMOVAL ERROR: Invalid indices parameter - must be an array');
+      Logger.log(`DICE REMOVAL ERROR: indices type: ${typeof indices}, value: ${JSON.stringify(indices)}`);
+      return 0;
+    }
+
+    if (indices.length === 0) {
+      Logger.log('DICE REMOVAL: No dice indices provided for removal - nothing to do');
+      return 0;
+    }
+
+    // Check for empty dice array edge case
+    if (this.activePiece.dice.length === 0) {
+      Logger.log('DICE REMOVAL WARNING: Active piece has empty dice array - cannot remove any dice');
+      return 0;
+    }
+
+    const originalLength = this.activePiece.dice.length;
+    Logger.log(`DICE REMOVAL: Attempting to remove ${indices.length} dice from active piece`);
+    Logger.log(`DICE REMOVAL: Current active piece state - length: ${originalLength}, shape: ${this.activePiece.shape || 'unknown'}`);
+    Logger.log(`DICE REMOVAL: Indices to remove: [${indices.join(', ')}]`);
+
+    // Log current dice state before removal
+    Logger.log(`DICE REMOVAL: Current dice before removal:`);
+    this.activePiece.dice.forEach((die: any, index: number) => {
+      Logger.log(`  - Index ${index}: ID=${die.id}, pos=(${die.relativePos?.x}, ${die.relativePos?.y}), color=${die.color}`);
+    });
+
+    // Enhanced validation for all indices with detailed error reporting
+    const maxValidIndex = originalLength - 1;
+    const validIndices: number[] = [];
+    const invalidIndices: Array<{index: any, reason: string}> = [];
+    
+    indices.forEach(index => {
+      // Check for various types of invalid indices
+      if (index === null || index === undefined) {
+        invalidIndices.push({index, reason: 'null or undefined'});
+      } else if (!Number.isInteger(index)) {
+        invalidIndices.push({index, reason: `not an integer (type: ${typeof index})`});
+      } else if (index < 0) {
+        invalidIndices.push({index, reason: 'negative index'});
+      } else if (index > maxValidIndex) {
+        invalidIndices.push({index, reason: `index exceeds array bounds (max: ${maxValidIndex})`});
+      } else if (isNaN(index)) {
+        invalidIndices.push({index, reason: 'NaN value'});
+      } else if (!isFinite(index)) {
+        invalidIndices.push({index, reason: 'infinite value'});
+      } else {
+        validIndices.push(index);
+      }
+    });
+    
+    // Log detailed validation results
+    if (invalidIndices.length > 0) {
+      Logger.log(`DICE REMOVAL VALIDATION: Found ${invalidIndices.length} invalid indices:`);
+      invalidIndices.forEach(({index, reason}) => {
+        Logger.log(`  - Index ${index}: ${reason}`);
+      });
+    }
+
+    if (validIndices.length === 0) {
+      Logger.log('DICE REMOVAL WARNING: No valid indices found for dice removal - all indices were invalid');
+      return 0;
+    }
+
+    if (validIndices.length !== indices.length) {
+      const invalidCount = indices.length - validIndices.length;
+      Logger.log(`DICE REMOVAL WARNING: ${invalidCount} invalid indices detected and skipped`);
+      Logger.log(`DICE REMOVAL WARNING: Valid indices: [${validIndices.join(', ')}]`);
+    }
+
+    // Enhanced array modification safety validation
+    const safetyValidation = this.validateArrayModificationSafety(validIndices, originalLength);
+    
+    // Log safety validation results
+    if (safetyValidation.warnings.length > 0) {
+      Logger.log(`DICE REMOVAL SAFETY WARNINGS:`);
+      safetyValidation.warnings.forEach(warning => {
+        Logger.log(`  - ${warning}`);
+      });
+    }
+    
+    if (safetyValidation.errors.length > 0) {
+      Logger.log(`DICE REMOVAL SAFETY ERRORS:`);
+      safetyValidation.errors.forEach(error => {
+        Logger.log(`  - ${error}`);
+      });
+    }
+    
+    if (!safetyValidation.isSafe) {
+      Logger.log('DICE REMOVAL ABORTED: Array modification safety validation failed');
+      return 0;
+    }
+    
+    const uniqueIndices = safetyValidation.safeIndices;
+    Logger.log(`DICE REMOVAL SAFETY: Using ${uniqueIndices.length} validated indices for safe removal: [${uniqueIndices.join(', ')}]`);
+
+    // Remove dice in reverse order with detailed logging
+    let removedCount = 0;
+    const removedDice: Array<{index: number, die: any}> = [];
+    
+    Logger.log(`DICE REMOVAL: Processing ${uniqueIndices.length} unique indices in reverse order`);
+    
+    uniqueIndices.forEach((index, removalStep) => {
+      const currentLength = this.activePiece.dice.length;
+      Logger.log(`DICE REMOVAL STEP ${removalStep + 1}: Attempting to remove index ${index} (current array length: ${currentLength})`);
+      
+      if (index < currentLength) { // Double-check bounds before each removal
+        const dieToRemove = this.activePiece.dice[index];
+        Logger.log(`DICE REMOVAL STEP ${removalStep + 1}: Removing die at index ${index} - ID: ${dieToRemove.id}, color: ${dieToRemove.color}`);
+        
+        this.activePiece.dice.splice(index, 1);
+        removedDice.push({ index, die: dieToRemove });
+        removedCount++;
+        
+        Logger.log(`DICE REMOVAL STEP ${removalStep + 1}: Successfully removed die, new array length: ${this.activePiece.dice.length}`);
+      } else {
+        Logger.log(`DICE REMOVAL ERROR: Index ${index} out of bounds during removal (current array length: ${currentLength})`);
+        Logger.log(`DICE REMOVAL ERROR: This indicates an array manipulation error or race condition`);
+      }
+    });
+
+    // Log removed dice details
+    if (removedDice.length > 0) {
+      Logger.log(`DICE REMOVAL SUMMARY: Successfully removed ${removedDice.length} dice:`);
+      removedDice.forEach(({ index, die }) => {
+        Logger.log(`  - Original index ${index}: ID=${die.id}, color=${die.color}, pos=(${die.relativePos?.x}, ${die.relativePos?.y})`);
+      });
+    }
+
+    // Validate final state with detailed logging
+    const finalLength = this.activePiece.dice.length;
+    const expectedLength = originalLength - removedCount;
+    
+    Logger.log(`DICE REMOVAL VALIDATION:`);
+    Logger.log(`  - Original length: ${originalLength}`);
+    Logger.log(`  - Removed count: ${removedCount}`);
+    Logger.log(`  - Expected final length: ${expectedLength}`);
+    Logger.log(`  - Actual final length: ${finalLength}`);
+    
+    if (finalLength !== expectedLength) {
+      Logger.log(`DICE REMOVAL ERROR: Unexpected dice count after removal - length mismatch detected`);
+      Logger.log(`DICE REMOVAL ERROR: This indicates a critical array manipulation error`);
+    }
+
+    if (finalLength < 0) {
+      Logger.log(`DICE REMOVAL ERROR: Invalid negative dice count after removal: ${finalLength}`);
+      Logger.log(`DICE REMOVAL RECOVERY: Resetting dice array to empty to prevent further errors`);
+      this.activePiece.dice = [];
+      return originalLength; // All dice were effectively removed
+    }
+
+    // Log final dice state after removal
+    if (finalLength > 0) {
+      Logger.log(`DICE REMOVAL: Remaining dice after removal:`);
+      this.activePiece.dice.forEach((die: any, index: number) => {
+        Logger.log(`  - Index ${index}: ID=${die.id}, pos=(${die.relativePos?.x}, ${die.relativePos?.y}), color=${die.color}`);
+      });
+    } else {
+      Logger.log(`DICE REMOVAL: No dice remaining in active piece - piece will be finalized`);
+    }
+
+    Logger.log(`DICE REMOVAL COMPLETE: Successfully removed ${removedCount} dice. Active piece now has ${finalLength} dice remaining`);
+    return removedCount;
+  }
+
+  /**
+   * Validates the consistency of the active piece state with detailed logging
+   * @returns true if the active piece state is valid, false otherwise
+   */
+  private validateActivePieceState(): boolean {
+    Logger.log('VALIDATION: Starting enhanced active piece state validation');
+    
+    if (!this.activePiece) {
+      Logger.log('VALIDATION RESULT: No active piece - valid state');
+      return true; // No piece is a valid state
+    }
+
+    Logger.log(`VALIDATION: Checking piece "${this.activePiece.shape || 'unknown'}" (ID: ${this.activePiece.id || 'unknown'})`);
+    
+    // Enhanced position validation
+    const pieceX = this.activePiece.x;
+    const pieceY = this.activePiece.y;
+    const rotation = this.activePiece.rotation || 0;
+    
+    Logger.log(`VALIDATION: Piece position: (${pieceX}, ${pieceY}), rotation: ${rotation}°`);
+    
+    // Validate piece position coordinates
+    if (typeof pieceX !== 'number' || typeof pieceY !== 'number') {
+      Logger.log(`VALIDATION ERROR: Invalid piece position coordinates - x: ${typeof pieceX}, y: ${typeof pieceY}`);
+      return false;
+    }
+    
+    if (!isFinite(pieceX) || !isFinite(pieceY)) {
+      Logger.log(`VALIDATION ERROR: Non-finite piece position coordinates - x: ${pieceX}, y: ${pieceY}`);
+      return false;
+    }
+    
+    if (isNaN(pieceX) || isNaN(pieceY)) {
+      Logger.log(`VALIDATION ERROR: NaN piece position coordinates - x: ${pieceX}, y: ${pieceY}`);
+      return false;
+    }
+    
+    // Validate rotation value
+    if (typeof rotation !== 'number' || !isFinite(rotation) || isNaN(rotation)) {
+      Logger.log(`VALIDATION ERROR: Invalid rotation value - type: ${typeof rotation}, value: ${rotation}`);
+      return false;
+    }
+
+    if (!this.activePiece.dice || !Array.isArray(this.activePiece.dice)) {
+      Logger.log('VALIDATION ERROR: Active piece has invalid dice array');
+      Logger.log(`VALIDATION ERROR: dice property type: ${typeof this.activePiece.dice}, isArray: ${Array.isArray(this.activePiece.dice)}`);
+      return false;
+    }
+
+    const diceCount = this.activePiece.dice.length;
+    Logger.log(`VALIDATION: Checking ${diceCount} dice in active piece`);
+
+    if (diceCount < 0) {
+      Logger.log(`VALIDATION ERROR: Active piece has negative dice count: ${diceCount}`);
+      return false;
+    }
+
+    // Check for duplicate dice IDs
+    const diceIds = this.activePiece.dice.map((die: any) => die.id).filter((id: any) => id !== undefined);
+    const uniqueIds = new Set(diceIds);
+    Logger.log(`VALIDATION: Dice ID check - ${diceIds.length} IDs found, ${uniqueIds.size} unique`);
+    
+    if (diceIds.length !== uniqueIds.size) {
+      Logger.log('VALIDATION ERROR: Duplicate dice IDs detected in active piece');
+      const duplicates = diceIds.filter((id: any, index: number) => diceIds.indexOf(id) !== index);
+      Logger.log(`VALIDATION ERROR: Duplicate IDs: ${JSON.stringify([...new Set(duplicates)])}`);
+      return false;
+    }
+
+    // Enhanced dice structure validation with boundary checks
+    let validationErrors = 0;
+    const gameBoard = this.gameBoard;
+    
+    for (let i = 0; i < this.activePiece.dice.length; i++) {
+      const die = this.activePiece.dice[i];
+      Logger.log(`VALIDATION: Checking die ${i} - ID: ${die?.id || 'undefined'}`);
+      
+      if (!die || typeof die !== 'object') {
+        Logger.log(`VALIDATION ERROR: Invalid die object at index ${i} - type: ${typeof die}`);
+        validationErrors++;
+        continue;
+      }
+      
+      // Check required die properties with enhanced validation
+      const requiredProps = ['id', 'sides', 'number', 'color', 'relativePos'];
+      for (const prop of requiredProps) {
+        if (!(prop in die)) {
+          Logger.log(`VALIDATION ERROR: Die ${i} missing required property: ${prop}`);
+          validationErrors++;
+        } else if (die[prop] === null || die[prop] === undefined) {
+          Logger.log(`VALIDATION ERROR: Die ${i} has null/undefined value for property: ${prop}`);
+          validationErrors++;
+        }
+      }
+      
+      // Enhanced relative position validation
+      if (!die.relativePos || typeof die.relativePos !== 'object') {
+        Logger.log(`VALIDATION ERROR: Die ${i} has invalid relativePos object - type: ${typeof die.relativePos}`);
+        validationErrors++;
+      } else {
+        const relX = die.relativePos.x;
+        const relY = die.relativePos.y;
+        
+        // Validate coordinate types and values
+        if (typeof relX !== 'number' || typeof relY !== 'number') {
+          Logger.log(`VALIDATION ERROR: Die ${i} has invalid relative position coordinate types - x: ${typeof relX}, y: ${typeof relY}`);
+          validationErrors++;
+        } else if (!isFinite(relX) || !isFinite(relY)) {
+          Logger.log(`VALIDATION ERROR: Die ${i} has non-finite relative position coordinates - x: ${relX}, y: ${relY}`);
+          validationErrors++;
+        } else if (isNaN(relX) || isNaN(relY)) {
+          Logger.log(`VALIDATION ERROR: Die ${i} has NaN relative position coordinates - x: ${relX}, y: ${relY}`);
+          validationErrors++;
+        } else {
+          // Calculate absolute position and validate boundaries
+          const absX = pieceX + relX;
+          const absY = pieceY + relY;
+          
+          Logger.log(`VALIDATION: Die ${i} position analysis - relative (${relX}, ${relY}) -> absolute (${absX}, ${absY})`);
+          
+          // Enhanced boundary validation using GridBoundaryValidator
+          if (gameBoard) {
+            const isWithinBounds = GridBoundaryValidator.validatePosition(absX, absY, gameBoard.state.width, gameBoard.state.height);
+            const isAboveGrid = GridBoundaryValidator.isAboveGrid(absY, gameBoard.state.height);
+            const isBelowGrid = GridBoundaryValidator.isBelowGrid(absY);
+            
+            Logger.log(`VALIDATION: Die ${i} boundary checks - withinBounds: ${isWithinBounds}, aboveGrid: ${isAboveGrid}, belowGrid: ${isBelowGrid}`);
+            
+            // Allow dice to be above grid (spawn area) but warn about other boundary issues
+            if (absX < 0 || absX >= gameBoard.state.width) {
+              Logger.log(`VALIDATION WARNING: Die ${i} has X coordinate outside grid bounds: ${absX} (valid: 0-${gameBoard.state.width - 1})`);
+            }
+            
+            if (isBelowGrid) {
+              Logger.log(`VALIDATION WARNING: Die ${i} is below grid bottom: Y=${absY} (should be >= 0)`);
+            }
+            
+            // Check for extremely large coordinates that might indicate corruption
+            const maxReasonableCoord = 1000;
+            if (Math.abs(absX) > maxReasonableCoord || Math.abs(absY) > maxReasonableCoord) {
+              Logger.log(`VALIDATION ERROR: Die ${i} has unreasonably large coordinates - absolute (${absX}, ${absY})`);
+              validationErrors++;
+            }
+          }
+          
+          Logger.log(`VALIDATION: Die ${i} coordinate validation complete`);
+        }
+      }
+      
+      // Validate other die properties
+      if (die.sides && (typeof die.sides !== 'number' || die.sides < 1 || !Number.isInteger(die.sides))) {
+        Logger.log(`VALIDATION ERROR: Die ${i} has invalid sides value: ${die.sides} (must be positive integer)`);
+        validationErrors++;
+      }
+      
+      if (die.number && (typeof die.number !== 'number' || die.number < 1 || !Number.isInteger(die.number))) {
+        Logger.log(`VALIDATION ERROR: Die ${i} has invalid number value: ${die.number} (must be positive integer)`);
+        validationErrors++;
+      }
+      
+      if (die.color && typeof die.color !== 'string') {
+        Logger.log(`VALIDATION ERROR: Die ${i} has invalid color value: ${die.color} (must be string)`);
+        validationErrors++;
+      }
+    }
+
+    if (validationErrors > 0) {
+      Logger.log(`VALIDATION FAILED: ${validationErrors} validation errors found in active piece`);
+      return false;
+    }
+
+    Logger.log(`VALIDATION PASSED: Active piece state is valid - ${diceCount} dice, shape: ${this.activePiece.shape || 'unknown'}`);
+    return true;
+  }
+
+  /**
+   * Enhanced error handling and recovery for edge cases
+   * @param context Description of the operation context for logging
+   * @returns True if recovery was successful, false if critical error
+   */
+  private handleActivePieceErrors(context: string): boolean {
+    Logger.log(`ERROR HANDLING: Starting error recovery for context: ${context}`);
+    
+    if (!this.activePiece) {
+      Logger.log('ERROR HANDLING: No active piece - spawning new piece');
+      this.spawnPiece();
+      return true;
+    }
+    
+    // Handle corrupted dice array
+    if (!this.activePiece.dice || !Array.isArray(this.activePiece.dice)) {
+      Logger.log('ERROR HANDLING: Corrupted dice array detected - attempting recovery');
+      
+      try {
+        if (this.activePiece.dice === null || this.activePiece.dice === undefined) {
+          Logger.log('ERROR RECOVERY: Dice array is null/undefined - initializing empty array');
+          this.activePiece.dice = [];
+        } else if (typeof this.activePiece.dice === 'object') {
+          Logger.log('ERROR RECOVERY: Dice is object but not array - attempting conversion');
+          const keys = Object.keys(this.activePiece.dice);
+          if (keys.length === 0) {
+            this.activePiece.dice = [];
+          } else {
+            // Try to extract array-like values
+            const values = Object.values(this.activePiece.dice);
+            if (values.every(v => v && typeof v === 'object' && 'id' in v)) {
+              Logger.log('ERROR RECOVERY: Converting object to dice array');
+              this.activePiece.dice = values;
+            } else {
+              Logger.log('ERROR RECOVERY: Object values are not valid dice - resetting to empty');
+              this.activePiece.dice = [];
+            }
+          }
+        } else {
+          Logger.log('ERROR RECOVERY: Dice array is invalid type - resetting to empty');
+          this.activePiece.dice = [];
+        }
+        
+        Logger.log(`ERROR RECOVERY: Dice array recovered with ${this.activePiece.dice.length} dice`);
+      } catch (recoveryError) {
+        Logger.log(`ERROR RECOVERY FAILED: ${recoveryError} - finalizing corrupted piece`);
+        this.finalizePieceLocking(this.activePiece);
+        return false;
+      }
+    }
+    
+    // Handle invalid piece position
+    if (typeof this.activePiece.x !== 'number' || typeof this.activePiece.y !== 'number' ||
+        !isFinite(this.activePiece.x) || !isFinite(this.activePiece.y) ||
+        isNaN(this.activePiece.x) || isNaN(this.activePiece.y)) {
+      Logger.log('ERROR HANDLING: Invalid piece position detected - applying emergency positioning');
+      
+      this.activePiece.x = GAME_CONSTANTS.SPAWN_X_CENTER;
+      this.activePiece.y = GAME_CONSTANTS.SPAWN_Y;
+      
+      Logger.log(`ERROR RECOVERY: Reset piece position to (${this.activePiece.x}, ${this.activePiece.y})`);
+    }
+    
+    // Validate and clean up dice array
+    if (this.activePiece.dice.length > 0) {
+      const validDice: any[] = [];
+      const invalidDiceIndices: number[] = [];
+      
+      this.activePiece.dice.forEach((die: any, index: number) => {
+        if (this.validateDieStructure(die, index)) {
+          validDice.push(die);
+        } else {
+          invalidDiceIndices.push(index);
+        }
+      });
+      
+      if (invalidDiceIndices.length > 0) {
+        Logger.log(`ERROR RECOVERY: Removed ${invalidDiceIndices.length} invalid dice from active piece`);
+        this.activePiece.dice = validDice;
+      }
+      
+      // If no valid dice remain, finalize the piece
+      if (validDice.length === 0) {
+        Logger.log('ERROR RECOVERY: No valid dice remaining - finalizing piece');
+        this.finalizePieceLocking(this.activePiece);
+        return false;
+      }
+    }
+    
+    Logger.log(`ERROR HANDLING: Recovery complete for context: ${context}`);
+    return true;
+  }
+
+  /**
+   * Validate individual die structure for error recovery
+   * @param die Die object to validate
+   * @param index Die index for logging
+   * @returns True if die is valid
+   */
+  private validateDieStructure(die: any, index: number): boolean {
+    if (!die || typeof die !== 'object') {
+      Logger.log(`DIE VALIDATION: Die ${index} is not a valid object`);
+      return false;
+    }
+    
+    const requiredProps = ['id', 'sides', 'number', 'color', 'relativePos'];
+    for (const prop of requiredProps) {
+      if (!(prop in die) || die[prop] === null || die[prop] === undefined) {
+        Logger.log(`DIE VALIDATION: Die ${index} missing or null property: ${prop}`);
+        return false;
+      }
+    }
+    
+    // Validate relativePos structure
+    if (!die.relativePos || typeof die.relativePos !== 'object' ||
+        typeof die.relativePos.x !== 'number' || typeof die.relativePos.y !== 'number' ||
+        !isFinite(die.relativePos.x) || !isFinite(die.relativePos.y) ||
+        isNaN(die.relativePos.x) || isNaN(die.relativePos.y)) {
+      Logger.log(`DIE VALIDATION: Die ${index} has invalid relativePos structure`);
+      return false;
+    }
+    
+    // Validate numeric properties
+    if (typeof die.sides !== 'number' || die.sides < 1 || !Number.isInteger(die.sides) ||
+        typeof die.number !== 'number' || die.number < 1 || !Number.isInteger(die.number)) {
+      Logger.log(`DIE VALIDATION: Die ${index} has invalid numeric properties`);
+      return false;
+    }
+    
+    // Validate color
+    if (typeof die.color !== 'string' || die.color.length === 0) {
+      Logger.log(`DIE VALIDATION: Die ${index} has invalid color property`);
+      return false;
+    }
+    
+    return true;
+  }
+
+  /**
+   * Validates array modification safety before performing dice removal operations
+   * @param indices Array of indices to be removed
+   * @param arrayLength Current length of the dice array
+   * @returns Validation result with safety recommendations
+   */
+  private validateArrayModificationSafety(indices: number[], arrayLength: number): {
+    isSafe: boolean;
+    safeIndices: number[];
+    warnings: string[];
+    errors: string[];
+  } {
+    const result = {
+      isSafe: true,
+      safeIndices: [] as number[],
+      warnings: [] as string[],
+      errors: [] as string[]
+    };
+    
+    Logger.log(`ARRAY SAFETY: Validating modification safety for ${indices.length} indices on array of length ${arrayLength}`);
+    
+    if (arrayLength <= 0) {
+      result.isSafe = false;
+      result.errors.push('Cannot modify empty or invalid array');
+      return result;
+    }
+    
+    if (indices.length === 0) {
+      result.warnings.push('No indices provided for modification');
+      return result;
+    }
+    
+    // Check for various safety issues
+    const uniqueIndices = [...new Set(indices)];
+    if (uniqueIndices.length !== indices.length) {
+      result.warnings.push(`Duplicate indices detected: ${indices.length - uniqueIndices.length} duplicates removed`);
+    }
+    
+    const maxValidIndex = arrayLength - 1;
+    const validIndices: number[] = [];
+    const invalidIndices: number[] = [];
+    
+    uniqueIndices.forEach(index => {
+      if (Number.isInteger(index) && index >= 0 && index <= maxValidIndex) {
+        validIndices.push(index);
+      } else {
+        invalidIndices.push(index);
+      }
+    });
+    
+    if (invalidIndices.length > 0) {
+      result.warnings.push(`Invalid indices detected: [${invalidIndices.join(', ')}] (valid range: 0-${maxValidIndex})`);
+    }
+    
+    // Check for potential array modification issues
+    if (validIndices.length === arrayLength) {
+      result.warnings.push('All array elements will be removed - array will become empty');
+    }
+    
+    if (validIndices.length > arrayLength / 2) {
+      result.warnings.push(`Removing ${validIndices.length}/${arrayLength} elements (>${Math.round(arrayLength/2*100)/100}%) - consider array reconstruction`);
+    }
+    
+    // Sort indices for safe removal (descending order)
+    result.safeIndices = validIndices.sort((a, b) => b - a);
+    
+    if (result.errors.length > 0) {
+      result.isSafe = false;
+    }
+    
+    Logger.log(`ARRAY SAFETY RESULT: Safe=${result.isSafe}, ValidIndices=${result.safeIndices.length}, Warnings=${result.warnings.length}, Errors=${result.errors.length}`);
+    
+    return result;
   }
 
   override update(): void {
-    // Game loop will go here
+    // Update UI system
+    if (this.gameUI) {
+      this.gameUI.update();
+    }
   }
 
   shutdown(): void {
     // Clean up timers when scene shuts down
-    if ((this as any).dropTimer) {
-      (this as any).dropTimer.remove(false);
-      (this as any).dropTimer = null;
+    if (this.dropTimer) {
+      this.dropTimer.remove(false);
+      this.dropTimer = null;
     }
     
-    if ((this as any).gravityTimer) {
-      (this as any).gravityTimer.remove(false);
-      (this as any).gravityTimer = null;
+    if (this.gravityTimer) {
+      this.gravityTimer.remove(false);
+      this.gravityTimer = null;
+    }
+
+    // Clean up UI
+    if (this.gameUI) {
+      this.gameUI.destroy();
     }
     
-    Logger.log('Game scene: Timers cleaned up');
+    Logger.log('Game scene: Timers and UI cleaned up');
   }
 }

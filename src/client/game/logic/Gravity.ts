@@ -1,26 +1,34 @@
 import { GridState } from './types';
+import { CoordinateConverter } from '../../../shared/utils/CoordinateConverter';
 
 // Apply gravity to the grid: move cells down into empty spaces. Returns true if changed.
 export function applyGravity(grid: GridState): { grid: GridState; changed: boolean } {
   const { width, height } = grid;
+  const converter = new CoordinateConverter(height);
   let changed = false;
 
-  // For each column, compact non-null cells downward
+  // For each column, compact non-null cells toward Y=0 (bottom)
   for (let x = 0; x < width; x++) {
-    let writeY = height - 1;
-    for (let readY = height - 1; readY >= 0; readY--) {
-      const row = grid.cells[readY];
+    let writeGridY = 0; // Start writing at bottom (Y=0)
+    
+    // Read from bottom to top in grid coordinates (Y=0 to Y=height-1)
+    for (let readGridY = 0; readGridY < height; readGridY++) {
+      const readArrayY = converter.gridToArrayY(readGridY);
+      const row = grid.cells[readArrayY];
       const cell = row ? row[x] : null;
+      
       if (cell) {
-        if (writeY !== readY) {
-          // move
-          if (!grid.cells[writeY]) grid.cells[writeY] = new Array(width).fill(null);
-          grid.cells[writeY]![x] = cell;
-          if (!grid.cells[readY]) grid.cells[readY] = new Array(width).fill(null);
-          grid.cells[readY]![x] = null;
+        const writeArrayY = converter.gridToArrayY(writeGridY);
+        
+        if (writeGridY !== readGridY) {
+          // Move cell to lower position
+          if (!grid.cells[writeArrayY]) grid.cells[writeArrayY] = new Array(width).fill(null);
+          grid.cells[writeArrayY]![x] = cell;
+          if (!grid.cells[readArrayY]) grid.cells[readArrayY] = new Array(width).fill(null);
+          grid.cells[readArrayY]![x] = null;
           changed = true;
         }
-        writeY--;
+        writeGridY++; // Move to next higher position for writing
       }
     }
   }
@@ -31,30 +39,35 @@ export function applyGravity(grid: GridState): { grid: GridState; changed: boole
 // Apply individual die gravity: each die falls one step if there's empty space below
 export function applyIndividualGravity(grid: GridState): { grid: GridState; changed: boolean } {
   const { width, height } = grid;
+  const converter = new CoordinateConverter(height);
   let changed = false;
 
-  // Check each die from bottom to top, left to right
-  for (let y = height - 2; y >= 0; y--) { // Start from second-to-bottom row
+  // Check each die from bottom to top in grid coordinates, left to right
+  // Start from Y=1 (second row from bottom) and go up to Y=height-1 (top)
+  for (let gridY = 1; gridY < height; gridY++) {
     for (let x = 0; x < width; x++) {
-      const currentRow = grid.cells[y];
+      const currentArrayY = converter.gridToArrayY(gridY);
+      const currentRow = grid.cells[currentArrayY];
       const die = currentRow ? currentRow[x] : null;
       
       if (die) {
-        // Check if there's empty space below
-        const belowRow = grid.cells[y + 1];
+        // Check if there's empty space below (gridY - 1)
+        const belowGridY = gridY - 1;
+        const belowArrayY = converter.gridToArrayY(belowGridY);
+        const belowRow = grid.cells[belowArrayY];
         const spaceBelow = belowRow ? belowRow[x] : null;
         
         if (!spaceBelow) {
-          // Move die down one cell
-          if (!grid.cells[y + 1]) {
-            grid.cells[y + 1] = new Array(width).fill(null);
+          // Move die down one cell (decrease Y coordinate)
+          if (!grid.cells[belowArrayY]) {
+            grid.cells[belowArrayY] = new Array(width).fill(null);
           }
-          grid.cells[y + 1]![x] = die;
+          grid.cells[belowArrayY]![x] = die;
           
-          if (!grid.cells[y]) {
-            grid.cells[y] = new Array(width).fill(null);
+          if (!grid.cells[currentArrayY]) {
+            grid.cells[currentArrayY] = new Array(width).fill(null);
           }
-          grid.cells[y]![x] = null;
+          grid.cells[currentArrayY]![x] = null;
           
           changed = true;
         }
