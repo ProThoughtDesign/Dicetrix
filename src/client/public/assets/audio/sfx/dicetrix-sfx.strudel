@@ -1,0 +1,271 @@
+// Dicetrix Game Sound Effects - Strudel Live Coding
+// This file contains algorithmic sound effect patterns for the Dicetrix game
+// Use with Strudel (https://strudel.tidalcycles.org/) to generate sound effects
+
+// ===== UI SOUNDS =====
+
+// Menu selection - clean, modern click
+const menuSelect = note("c5").s("sine")
+  .attack(0.01).decay(0.1).sustain(0).release(0.1)
+  .lpf(2000).gain(0.7);
+
+// Menu hover - subtle feedback
+const menuHover = note("g4").s("triangle")
+  .attack(0.005).decay(0.05).sustain(0).release(0.05)
+  .lpf(1500).gain(0.4);
+
+// Menu back/cancel - lower pitched
+const menuBack = note("f4").s("square")
+  .attack(0.01).decay(0.15).sustain(0).release(0.1)
+  .lpf(800).gain(0.6);
+
+// ===== PIECE MOVEMENT SOUNDS =====
+
+// Piece move - subtle whoosh
+const pieceMove = noise()
+  .lpf(sine.range(200, 800).fast(20))
+  .attack(0.01).decay(0.08).sustain(0).release(0.02)
+  .gain(0.3);
+
+// Piece rotate - mechanical click with pitch bend
+const pieceRotate = note("c4").s("square")
+  .add(note("g4").s("triangle").gain(0.3))
+  .attack(0.005).decay(0.06).sustain(0).release(0.04)
+  .lpf(1200).gain(0.5);
+
+// Piece lock - satisfying thunk
+const pieceLock = stack(
+  note("c3").s("square").lpf(300),
+  noise().lpf(150).hpf(50)
+).attack(0.01).decay(0.12).sustain(0).release(0.08)
+ .gain(0.8);
+
+// ===== MATCH CLEARING SOUNDS =====
+
+// Basic match clear - bright and satisfying
+const matchClear = stack(
+  note("c5 e5 g5").s("sine").slow(0.1),
+  noise().lpf(2000).hpf(1000)
+).attack(0.01).decay(0.2).sustain(0).release(0.15)
+ .gain(0.7).room(0.3);
+
+// Medium match clear - more complex harmony
+const matchClearMedium = stack(
+  note("c5 e5 g5 c6").s("sine").slow(0.08),
+  note("c4 e4 g4").s("triangle").slow(0.12),
+  noise().lpf(2500).hpf(800)
+).attack(0.01).decay(0.25).sustain(0).release(0.2)
+ .gain(0.8).room(0.4);
+
+// Large match clear - rich, rewarding sound
+const matchClearLarge = stack(
+  note("c5 e5 g5 c6 e6").s("sine").slow(0.06),
+  note("c4 e4 g4 c5").s("sawtooth").lpf(1000).slow(0.1),
+  noise().lpf(3000).hpf(600)
+).attack(0.01).decay(0.3).sustain(0.1).release(0.25)
+ .gain(0.9).room(0.5);
+
+// Massive match clear - epic, celebratory
+const matchClearMassive = stack(
+  note("c5 e5 g5 c6 e6 g6").s("sine").slow(0.04),
+  note("c4 e4 g4 c5 e5").s("sawtooth").lpf(1200).slow(0.08),
+  note("c3 g3").s("square").lpf(400).slow(0.15),
+  noise().lpf(4000).hpf(400)
+).attack(0.01).decay(0.4).sustain(0.2).release(0.3)
+ .gain(1.0).room(0.6).delay(0.1);
+
+// ===== CASCADE SOUNDS =====
+
+// Basic cascade - building excitement
+const cascade = note("c4 e4 g4").s("sine")
+  .fast(3).attack(0.01).decay(0.1).sustain(0).release(0.08)
+  .lpf(sine.range(800, 1600).fast(2))
+  .gain(0.6);
+
+// Big cascade - more intense
+const cascadeBig = note("c4 e4 g4 c5").s("sawtooth")
+  .fast(4).attack(0.005).decay(0.12).sustain(0).release(0.1)
+  .lpf(sine.range(1000, 2000).fast(3))
+  .distort(0.1).gain(0.7);
+
+// Epic cascade - maximum excitement
+const cascadeEpic = stack(
+  note("c4 e4 g4 c5 e5").s("sawtooth").fast(5),
+  note("c3 g3").s("square").lpf(300).fast(2.5),
+  noise().lpf(3000).hpf(1000).fast(8)
+).attack(0.005).decay(0.15).sustain(0.05).release(0.12)
+ .lpf(sine.range(1200, 2500).fast(4))
+ .distort(0.2).gain(0.8).room(0.3);
+
+// ===== SPECIAL EVENT SOUNDS =====
+
+// Ultimate combo - rare, special sound
+const ultimateCombo = stack(
+  note("c5 e5 g5 c6 e6 g6 c7").s("sine").slow(0.3),
+  note("c4 e4 g4 c5").s("sawtooth").lpf(1500).slow(0.5),
+  note("c2 c3").s("square").lpf(200).slow(1),
+  noise().lpf(5000).hpf(200).fast(10)
+).attack(0.01).decay(0.5).sustain(0.3).release(0.4)
+ .room(0.8).delay(0.2).gain(0.9);
+
+// Wild die spawn - magical appearance
+const wildDieSpawn = stack(
+  note("c5").add(sine.range(0, 12).fast(20)).s("sine"),
+  noise().lpf(sine.range(1000, 3000).fast(15))
+).attack(0.02).decay(0.3).sustain(0).release(0.2)
+ .room(0.5).gain(0.6);
+
+// Black die debuff - ominous sound
+const blackDieDebuff = stack(
+  note("c3").s("square").lpf(200),
+  noise().lpf(400).hpf(50)
+).attack(0.05).decay(0.4).sustain(0.2).release(0.3)
+ .distort(0.3).gain(0.7);
+
+// ===== GAME EVENT SOUNDS =====
+
+// Level up - achievement sound
+const levelUp = stack(
+  note("c4 e4 g4 c5 e5 g5").s("sine").slow(0.2),
+  note("c3 g3 c4").s("triangle").slow(0.4)
+).attack(0.01).decay(0.3).sustain(0.1).release(0.25)
+ .room(0.4).gain(0.8);
+
+// Game over - somber but not harsh
+const gameOver = stack(
+  note("c4 bb3 ab3 f3").s("sine").slow(0.8),
+  note("c2 f2").s("square").lpf(150).slow(1.6)
+).attack(0.02).decay(0.6).sustain(0.3).release(0.5)
+ .lpf(800).gain(0.7);
+
+// High score - celebratory fanfare
+const highScore = stack(
+  note("c5 e5 g5 c6 g5 c6 e6 g6").s("sine").slow(0.15),
+  note("c4 e4 g4 c5").s("triangle").slow(0.3),
+  note("c3 g3").s("square").lpf(300).slow(0.6)
+).attack(0.01).decay(0.25).sustain(0.1).release(0.2)
+ .room(0.5).gain(0.9);
+
+// Warning - attention-getting but not annoying
+const warning = note("g4 f4").s("square")
+  .slow(0.3).repeat(3)
+  .attack(0.01).decay(0.1).sustain(0.05).release(0.08)
+  .lpf(1000).gain(0.6);
+
+// ===== BOOSTER SOUNDS =====
+
+// Generic booster activation
+const boosterActivate = stack(
+  note("c5").add(sine.range(0, 7).fast(10)).s("sine"),
+  noise().lpf(2000).hpf(1000)
+).attack(0.01).decay(0.15).sustain(0).release(0.1)
+ .room(0.3).gain(0.7);
+
+// Booster deactivation
+const boosterDeactivate = note("c4 g3").s("triangle")
+  .slow(0.2).attack(0.01).decay(0.2).sustain(0).release(0.15)
+  .lpf(800).gain(0.5);
+
+// Color-specific booster sounds (different pitches)
+const boosterRed = boosterActivate.add(note("0")); // C
+const boosterBlue = boosterActivate.add(note("4")); // E  
+const boosterGreen = boosterActivate.add(note("7")); // G
+const boosterYellow = boosterActivate.add(note("2")); // D
+const boosterPurple = boosterActivate.add(note("9")); // A
+const boosterOrange = boosterActivate.add(note("5")); // F
+const boosterCyan = boosterActivate.add(note("11")); // B
+
+// ===== GRAVITY AND PHYSICS =====
+
+// Gravity fall - pieces dropping
+const gravityFall = noise()
+  .lpf(sine.range(100, 400).fast(5))
+  .attack(0.02).decay(0.3).sustain(0).release(0.1)
+  .gain(0.4);
+
+// ===== PAUSE/RESUME SOUNDS =====
+
+// Game pause - gentle stop
+const gamePause = note("c4 g3").s("sine")
+  .slow(0.4).attack(0.02).decay(0.3).sustain(0).release(0.2)
+  .lpf(600).gain(0.6);
+
+// Game resume - gentle start
+const gameResume = note("g3 c4").s("sine")
+  .slow(0.4).attack(0.02).decay(0.3).sustain(0).release(0.2)
+  .lpf(600).gain(0.6);
+
+// ===== EXPORT PATTERNS =====
+export const sfxPatterns = {
+  // UI sounds
+  menuSelect,
+  menuHover,
+  menuBack,
+  
+  // Piece actions
+  pieceMove,
+  pieceRotate,
+  pieceLock,
+  
+  // Match clearing
+  matchClear,
+  matchClearMedium,
+  matchClearLarge,
+  matchClearMassive,
+  
+  // Cascades
+  cascade,
+  cascadeBig,
+  cascadeEpic,
+  
+  // Special events
+  ultimateCombo,
+  wildDieSpawn,
+  blackDieDebuff,
+  
+  // Game events
+  levelUp,
+  gameOver,
+  highScore,
+  warning,
+  
+  // Boosters
+  boosterActivate,
+  boosterDeactivate,
+  boosterRed,
+  boosterBlue,
+  boosterGreen,
+  boosterYellow,
+  boosterPurple,
+  boosterOrange,
+  boosterCyan,
+  
+  // Physics
+  gravityFall,
+  
+  // Pause/Resume
+  gamePause,
+  gameResume
+};
+
+// ===== USAGE INSTRUCTIONS =====
+/*
+To generate sound effects from these patterns:
+
+1. Copy individual patterns to Strudel editor
+2. Play once: menuSelect.play()
+3. Record the output using browser recording or audio interface
+4. Trim to appropriate length (usually 0.1-3 seconds for SFX)
+5. Export as MP3 files
+6. Name files according to the audio README specifications
+7. Place in /assets/audio/sfx/ directory
+
+For procedural variations:
+- Add .sometimes(rev) for occasional reverse
+- Use .degradeBy(0.1) for slight randomness  
+- Chain .add(note("2")) to transpose up
+- Modify .gain() values to adjust volume
+
+Example workflow:
+menuSelect.once().record() // Play once and record
+*/
