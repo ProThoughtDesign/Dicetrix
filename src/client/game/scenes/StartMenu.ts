@@ -226,7 +226,7 @@ export class StartMenu extends Scene {
         .text(startImg.x, startImg.y, 'START GAME', {
           fontSize: `${labelFontSize}px`,
           color: '#ffffff',
-          fontFamily: 'Asimovian',
+          fontFamily: 'Asimovian, "Arial Black", Arial, sans-serif',
           stroke: '#000000',
           strokeThickness: 2,
         })
@@ -239,7 +239,7 @@ export class StartMenu extends Scene {
         .text(width / 2, height * 0.6, 'START GAME', {
           fontSize: '40px',
           color: '#ffffff',
-          fontFamily: 'Asimovian',
+          fontFamily: 'Asimovian, "Arial Black", Arial, sans-serif',
           backgroundColor: '#00ff88',
           padding: { x: 20, y: 10 },
           stroke: '#000000',
@@ -317,7 +317,7 @@ export class StartMenu extends Scene {
       .text(dropdownX, dropdownY, `Mode: ${modeLabels[defaultMode]}`, {
         fontSize: `${18 * UI_SCALE}px`,
         color: dropdownLabelColor,
-        fontFamily: 'Asimovian',
+        fontFamily: 'Asimovian, "Arial Black", Arial, sans-serif',
         stroke: '#000000',
         strokeThickness: 1,
       })
@@ -358,7 +358,7 @@ export class StartMenu extends Scene {
             .text(startX + 10 * UI_SCALE, y + optHeight / 2, String(label), {
               fontSize: `${18 * UI_SCALE}px`,
               color: optColor,
-              fontFamily: 'Asimovian',
+              fontFamily: 'Asimovian, "Arial Black", Arial, sans-serif',
               stroke: '#000000',
               strokeThickness: 1,
             })
@@ -421,7 +421,7 @@ export class StartMenu extends Scene {
       .text(layout.settingsButtonX, layout.settingsButtonY, 'SETTINGS', {
         fontSize: `${24 * UI_SCALE}px`,
         color: '#ffffff',
-        fontFamily: 'Asimovian',
+        fontFamily: 'Asimovian, "Arial Black", Arial, sans-serif',
         backgroundColor: '#666666',
         padding: { x: 25 * UI_SCALE, y: 12 * UI_SCALE },
         stroke: '#000000',

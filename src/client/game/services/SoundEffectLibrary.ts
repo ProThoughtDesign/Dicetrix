@@ -1,5 +1,6 @@
 import * as Phaser from 'phaser';
 import Logger from '../../utils/Logger';
+import { audioHandler } from './AudioHandler';
 
 /**
  * Sound effect categories for organization and control
@@ -133,7 +134,12 @@ export class SoundEffectLibrary {
    * Play a sound effect with category and cooldown checks
    */
   private playSound(key: string, volumeOverride?: number): void {
-    // Check if sound effects are globally enabled
+    // Check if sound effects are globally enabled in AudioHandler settings
+    if (!audioHandler.getSoundEnabled()) {
+      return;
+    }
+
+    // Check if sound effects are locally enabled
     if (!this.config.enabled) {
       return;
     }
@@ -171,9 +177,13 @@ export class SoundEffectLibrary {
     }
 
     try {
-      // Calculate effective volume
+      // Calculate effective volume using AudioHandler settings
       const baseVolume = volumeOverride !== undefined ? volumeOverride : metadata.volume;
-      const effectiveVolume = baseVolume * this.config.volume;
+      const localVolume = baseVolume * this.config.volume;
+      
+      // Apply AudioHandler sound volume setting
+      const audioHandlerVolume = audioHandler.getSoundEnabled() ? 1.0 : 0.0;
+      const effectiveVolume = localVolume * audioHandlerVolume;
 
       // Create and play sound
       const sound = this.scene.sound.add(key, {
@@ -274,6 +284,27 @@ export class SoundEffectLibrary {
   updateConfig(newConfig: Partial<SoundEffectConfig>): void {
     this.config = { ...this.config, ...newConfig };
     Logger.log(`SoundEffectLibrary: Configuration updated ${JSON.stringify(this.config)}`);
+  }
+
+  /**
+   * Sync settings with AudioHandler
+   * Call this method when audio settings change to ensure consistency
+   */
+  syncWithAudioHandler(): void {
+    const soundEnabled = audioHandler.getSoundEnabled();
+    
+    this.config.enabled = soundEnabled;
+    this.config.categories = {
+      [SoundCategory.UI]: soundEnabled,
+      [SoundCategory.GAMEPLAY]: soundEnabled,
+      [SoundCategory.EFFECTS]: soundEnabled,
+    };
+
+    if (!soundEnabled) {
+      this.stopAllSounds();
+    }
+
+    Logger.log(`SoundEffectLibrary: Synced with AudioHandler - enabled: ${soundEnabled}`);
   }
 
   /**

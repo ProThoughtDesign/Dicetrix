@@ -1,5 +1,6 @@
 import { Scene } from 'phaser';
 import Logger from '../../utils/Logger';
+import FontLoader from '../../utils/FontLoader';
 
 interface FallingDie {
   sprite: Phaser.GameObjects.Image;
@@ -48,7 +49,7 @@ export class SplashScreen extends Scene {
     // No additional assets needed - dice textures are already loaded in Preloader
   }
 
-  create(): void {
+  async create(): Promise<void> {
     // Set background color to match game theme
     this.cameras.main.setBackgroundColor('#1a1a2e');
 
@@ -57,6 +58,9 @@ export class SplashScreen extends Scene {
 
     // Initialize dice object pool
     this.initializeDicePool();
+
+    // Load fonts before creating text elements
+    await this.loadFonts();
 
     // Create interactive flash text
     this.createFlashText();
@@ -73,6 +77,25 @@ export class SplashScreen extends Scene {
     }
 
     Logger.log('SplashScreen: Scene created');
+  }
+
+  /**
+   * Load fonts asynchronously before creating text elements
+   * Uses the shared FontLoader utility for consistent font loading across scenes
+   * Requirements: 1.1, 1.2, 1.3, 1.4, 1.5
+   */
+  private async loadFonts(): Promise<void> {
+    try {
+      Logger.log('SplashScreen: Starting font loading using FontLoader utility');
+      
+      // Use FontLoader utility to load both Nabla and Asimovian fonts
+      await FontLoader.loadFonts(['Asimovian', 'Nabla'], 3000);
+      
+      Logger.log('SplashScreen: Font loading completed via FontLoader utility');
+    } catch (error) {
+      // FontLoader handles all error logging and fallback behavior internally
+      Logger.log(`SplashScreen: FontLoader completed with fallback behavior - ${error}`);
+    }
   }
 
   override update(): void {
@@ -93,12 +116,13 @@ export class SplashScreen extends Scene {
       const { width, height } = this.scale;
 
       // Create text object with "Press any key to play Dicetrix" content
+      // Use FontLoader utility to create font family with fallback chain
       this.flashText = this.add.text(
         width / 2, // Center horizontally
         height / 2, // Center vertically
         'Press any key to play Dicetrix',
         {
-          fontFamily: 'Asimovian', // Apply Asimovian font
+          fontFamily: FontLoader.createFontFamily('Asimovian'), // Primary font with comprehensive fallback chain
           fontSize: '48px', // Initial size, will be scaled
           color: '#ffffff', // White color
           stroke: '#000000', // Black stroke for contrast
@@ -119,7 +143,7 @@ export class SplashScreen extends Scene {
       // Create pulsing animation with alpha oscillation
       this.createFlashTextAnimation();
 
-      Logger.log('SplashScreen: Flash text created and styled');
+      Logger.log('SplashScreen: Flash text created with Asimovian font and fallback chain');
     } catch (error) {
       Logger.log(`SplashScreen: Error creating flash text - ${error}`);
       // Fallback: Create simple text without custom font
@@ -131,9 +155,13 @@ export class SplashScreen extends Scene {
     try {
       const { width, height } = this.scale;
 
-      // Fallback text with system font
+      // Log fallback usage for debugging and monitoring
+      Logger.log('SplashScreen: Using fallback text creation due to font loading issues');
+      Logger.log('SplashScreen: Fallback fonts will be used to maintain text readability');
+
+      // Fallback text with system font using FontLoader utility
       this.flashText = this.add.text(width / 2, height / 2, 'Press any key to play Dicetrix', {
-        fontFamily: 'Arial, sans-serif', // Fallback to system font
+        fontFamily: FontLoader.createFontFamily('Arial'), // Use FontLoader for consistent fallback chain
         fontSize: '32px',
         color: '#ffffff',
         stroke: '#000000',
@@ -151,16 +179,27 @@ export class SplashScreen extends Scene {
 
       this.createFlashTextAnimation();
 
-      Logger.log('SplashScreen: Fallback text created successfully');
+      Logger.log('SplashScreen: Fallback text created successfully with system fonts');
+      Logger.log('SplashScreen: Text readability and positioning maintained with fallback fonts');
     } catch (error) {
       Logger.log(`SplashScreen: Critical error creating fallback text - ${error}`);
+      Logger.log('SplashScreen: Attempting last resort minimal text creation');
+      
       // Last resort: create minimal text
-      const { width, height } = this.scale;
-      this.flashText = this.add.text(width / 2, height / 2, 'Press any key to play', {
-        fontSize: '24px',
-        color: '#ffffff',
-      });
-      this.flashText.setOrigin(0.5, 0.5);
+      try {
+        const { width, height } = this.scale;
+        this.flashText = this.add.text(width / 2, height / 2, 'Press any key to play', {
+          fontSize: '24px',
+          color: '#ffffff',
+          fontFamily: 'Arial, sans-serif', // Basic fallback
+        });
+        this.flashText.setOrigin(0.5, 0.5);
+        
+        Logger.log('SplashScreen: Minimal fallback text created as last resort');
+      } catch (criticalError) {
+        Logger.log(`SplashScreen: Critical failure in text creation - ${criticalError}`);
+        // Scene will continue without text element
+      }
     }
   }
 

@@ -8,6 +8,7 @@ import { detectMatches } from '../logic/MatchDetector';
 import { applyGravity } from '../logic/Gravity';
 // import { applyIndividualGravity } from '../logic/Gravity'; // Disabled for now
 import Logger from '../../utils/Logger';
+import FontLoader from '../../utils/FontLoader';
 import { GameUI, GameUICallbacks } from '../ui/GameUI';
 import { GAME_CONSTANTS, SPAWN_POSITIONS } from '../../../shared/constants/GameConstants';
 import { CoordinateConverter } from '../../../shared/utils/CoordinateConverter';
@@ -71,7 +72,11 @@ export class Game extends Scene {
     try {
       // Initialize SoundEffectLibrary for comprehensive sound effects
       this.soundEffectLibrary = new SoundEffectLibrary(this);
-      Logger.log('Game: SoundEffectLibrary initialized successfully');
+      
+      // Sync with AudioHandler settings
+      this.soundEffectLibrary.syncWithAudioHandler();
+      
+      Logger.log('Game: SoundEffectLibrary initialized and synced with AudioHandler');
 
       // Start appropriate music for the current game mode
       this.startGameModeMusic();
@@ -89,6 +94,12 @@ export class Game extends Scene {
    */
   private startGameModeMusic(): void {
     try {
+      // Check if music is enabled in settings
+      if (!audioHandler.getMusicEnabled()) {
+        Logger.log(`Game: Music is disabled in settings, skipping game mode music`);
+        return;
+      }
+
       // Map game modes to music keys
       const musicKey = this.getMusicKeyForMode(this.currentGameMode);
       
@@ -122,6 +133,25 @@ export class Game extends Scene {
       default:
         Logger.log(`Game: Unknown game mode '${gameMode}', using medium-mode music`);
         return 'medium-mode';
+    }
+  }
+
+  /**
+   * Load fonts asynchronously before creating UI elements
+   * Uses the shared FontLoader utility for consistent font loading across scenes
+   * Requirements: 1.1, 1.2, 1.3, 1.4, 1.5
+   */
+  private async loadFonts(): Promise<void> {
+    try {
+      Logger.log('Game: Starting font loading using FontLoader utility');
+      
+      // Use FontLoader utility to load Asimovian font (primary game font)
+      await FontLoader.loadAsimovianFont(3000);
+      
+      Logger.log('Game: Font loading completed via FontLoader utility');
+    } catch (error) {
+      // FontLoader handles all error logging and fallback behavior internally
+      Logger.log(`Game: FontLoader completed with fallback behavior - ${error}`);
     }
   }
 
@@ -266,9 +296,11 @@ export class Game extends Scene {
         this.pauseMenuUI = null;
       }
 
-      // Stop game music and return to menu music
+      // Stop game music and return to menu music (only if music is enabled)
       audioHandler.stopMusic();
-      audioHandler.playMusic('menu-theme', true);
+      if (audioHandler.getMusicEnabled()) {
+        audioHandler.playMusic('menu-theme', true);
+      }
 
       // Go to start menu
       this.scene.start('StartMenu');
@@ -1008,8 +1040,56 @@ export class Game extends Scene {
 
   private handleBoardTouch(gridX: number, gridY: number): void {
     Logger.log(`Board touched at bottom-left grid position (${gridX}, ${gridY})`);
-    // TODO: Implement touch-based piece movement
-    // For now, just log the touch position
+    
+    if (!this.activePiece || !this.activePiece.dice || this.activePiece.dice.length === 0) {
+      Logger.log('No active piece to move via touch');
+      return;
+    }
+
+    // Calculate the target X position for the piece based on touch
+    const targetX = gridX;
+    
+    // Try to move the piece horizontally to align with the touched column
+    const currentX = this.activePiece.x;
+    const deltaX = targetX - currentX;
+    
+    Logger.log(`Touch-based movement: current X=${currentX}, target X=${targetX}, delta=${deltaX}`);
+    
+    if (deltaX !== 0) {
+      // Move piece horizontally towards the touched position
+      const moveDirection = deltaX > 0 ? 1 : -1;
+      const movesNeeded = Math.abs(deltaX);
+      
+      // Perform multiple single-step moves to reach the target position
+      // This ensures collision detection works properly for each step
+      let movesMade = 0;
+      for (let i = 0; i < movesNeeded; i++) {
+        const newX = this.activePiece.x + moveDirection;
+        
+        if (this.canPlacePiece(this.activePiece, newX, this.activePiece.y)) {
+          this.activePiece.x = newX;
+          movesMade++;
+          Logger.log(`Touch move step ${i + 1}: moved to X=${this.activePiece.x}`);
+        } else {
+          Logger.log(`Touch move blocked at step ${i + 1}: cannot move to X=${newX}`);
+          break; // Stop if we hit an obstacle
+        }
+      }
+      
+      if (movesMade > 0) {
+        // Play movement sound effect for successful touch movement
+        if (this.soundEffectLibrary) {
+          this.soundEffectLibrary.playPieceRotation(); // Use rotation sound for touch movement
+        }
+        
+        this.renderGameState();
+        Logger.log(`Touch movement complete: moved ${movesMade} steps to X=${this.activePiece.x}`);
+      } else {
+        Logger.log('Touch movement failed: no valid moves possible');
+      }
+    } else {
+      Logger.log('Touch movement: piece already at target X position');
+    }
   }
 
   private spawnPiece(): void {
@@ -1825,7 +1905,7 @@ export class Game extends Scene {
     // }
   }
 
-  create(): void {
+  async create(): Promise<void> {
     // DIAGNOSTIC: Start timing the initialization sequence
     this.initializationMetrics.sceneCreateStart = performance.now();
     Logger.log('=== INITIALIZATION DIAGNOSTIC: Scene create() started ===');
@@ -1877,8 +1957,12 @@ export class Game extends Scene {
     );
     Logger.log(`INIT STATE: CoordinateConverter ready for grid height: ${GAME_CONSTANTS.GRID_HEIGHT}`);
 
+    // Load fonts before creating UI elements
+    Logger.log('INIT STEP 4: Loading fonts before UI creation');
+    await this.loadFonts();
+
     // Create UI with game callbacks
-    Logger.log('INIT STEP 4: Creating GameUI system');
+    Logger.log('INIT STEP 5: Creating GameUI system');
     this.initializationMetrics.gameUICreateStart = performance.now();
     Logger.log(
       `INIT TIMING: GameUI creation started at ${this.initializationMetrics.gameUICreateStart}ms`
@@ -1902,14 +1986,14 @@ export class Game extends Scene {
     );
 
     // Initialize enhanced audio system
-    Logger.log('INIT STEP 4.5: Initializing enhanced audio system');
+    Logger.log('INIT STEP 5.5: Initializing enhanced audio system');
     this.initializeAudioSystem();
 
     // Validate UI system readiness
     this.validateUISystemReadiness();
 
     // Initialize the piece generation system
-    Logger.log('INIT STEP 5: Initializing piece generation system');
+    Logger.log('INIT STEP 6: Initializing piece generation system');
     this.initializationMetrics.firstPieceGenerationStart = performance.now();
     Logger.log(
       `INIT TIMING: First piece generation started at ${this.initializationMetrics.firstPieceGenerationStart}ms`
@@ -1926,7 +2010,7 @@ export class Game extends Scene {
     );
 
     // Then spawn the first active piece (which will use the next piece)
-    Logger.log('INIT STEP 6: Spawning first active piece');
+    Logger.log('INIT STEP 7: Spawning first active piece');
     this.initializationMetrics.firstPieceSpawnStart = performance.now();
     Logger.log(
       `INIT TIMING: First piece spawn started at ${this.initializationMetrics.firstPieceSpawnStart}ms`
@@ -1944,7 +2028,7 @@ export class Game extends Scene {
     this.validateFirstPieceSpawn();
 
     // Set up timers
-    Logger.log('INIT STEP 7: Setting up game timers');
+    Logger.log('INIT STEP 8: Setting up game timers');
     const cfgAny: any = cfg;
     const ms = Number(cfgAny?.fallSpeed) || 800;
     Logger.log(`INIT CONFIG: Setting up drop timer with ${ms}ms delay`);
@@ -1975,7 +2059,7 @@ export class Game extends Scene {
     );
 
     // Initial render
-    Logger.log('INIT STEP 8: Performing initial render');
+    Logger.log('INIT STEP 9: Performing initial render');
     this.initializationMetrics.initialRenderStart = performance.now();
     Logger.log(
       `INIT TIMING: Initial render started at ${this.initializationMetrics.initialRenderStart}ms`

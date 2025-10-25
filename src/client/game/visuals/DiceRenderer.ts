@@ -54,11 +54,13 @@ export function drawDie(scene: Scene, x: number, y: number, w: number, h: number
       const img = scene.add.image(w / 2, h / 2, key);
       img.setDisplaySize(w, h);
       if (tint) img.setTint(tint);
-      // overlay number centered in the die
+      // overlay number centered in the die - gold, 50% larger, with black stroke
+      const baseFontSize = Math.max(12, Math.floor(w / 3));
+      const enlargedFontSize = Math.floor(baseFontSize * 1.5); // 50% larger
       const txt = scene.add.text(w / 2, h / 2, String(die.number), {
         fontFamily: 'Arial',
-        fontSize: `${Math.max(12, Math.floor(w / 3))}px`,
-        color: contrastTextColor(tint),
+        fontSize: `${enlargedFontSize}px`,
+        color: '#FFD700', // Gold color
         stroke: '#000000',
         strokeThickness: 1,
       }).setOrigin(0.5);
@@ -77,10 +79,13 @@ export function drawDie(scene: Scene, x: number, y: number, w: number, h: number
   g.fillRect(0, 0, w, h);
   g.lineStyle(2, 0x000000, 1);
   g.strokeRect(0, 0, w, h);
+  // Fallback text - gold, 50% larger, with black stroke
+  const baseFontSize = Math.max(12, Math.floor(w / 3));
+  const enlargedFontSize = Math.floor(baseFontSize * 1.5); // 50% larger
   const txt = scene.add.text(w / 2, h / 2, String(die.number), {
     fontFamily: 'Arial',
-    fontSize: `${Math.max(12, Math.floor(w / 3))}px`,
-    color: contrastTextColor(fill),
+    fontSize: `${enlargedFontSize}px`,
+    color: '#FFD700', // Gold color
     stroke: '#000000',
     strokeThickness: 1,
   }).setOrigin(0.5);

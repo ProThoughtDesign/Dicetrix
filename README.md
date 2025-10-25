@@ -1,69 +1,84 @@
 # Dicetrix
 
-A revolutionary gravity-matching puzzle game that combines Tetris-style piece mechanics with dice-based matching and groundbreaking individual die collision physics. Built for Reddit using Phaser.js and the Devvit platform, featuring a comprehensive audio system with algorithmic musical compositions and professional sound effects management for immersive gameplay.
+A revolutionary gravity-matching puzzle game that combines Tetris-style piece mechanics with dice-based matching and groundbreaking individual die collision physics. Built for Reddit using Phaser.js and the Devvit platform.
 
-## 🎮 Game Overview
+## 🎮 What is Dicetrix?
 
-**Dicetrix** is a complete, fully-playable puzzle game that takes the familiar concept of falling pieces and revolutionizes it with individual die physics. Unlike traditional Tetris where entire pieces lock as units, each die in a multi-die piece can collide and lock independently, creating dynamic piece fragmentation that adds unprecedented strategic depth.
+**Dicetrix** is a complete puzzle game that revolutionizes the falling-piece genre with **individual die physics**. Unlike traditional Tetris where entire pieces lock as units, each die in a multi-die piece can collide and lock independently, creating dynamic piece fragmentation that adds unprecedented strategic depth.
+
+**Core Gameplay**: Multi-die pieces (containing 1-4 dice each) fall down an 8×16 grid. Players control these pieces using keyboard, touch, or on-screen controls. The revolutionary twist is that when some dice in a piece hit obstacles and lock to the grid, the remaining dice continue falling as a smaller active piece. Players create matches by connecting 3+ adjacent dice with the same number to clear them and score points.
 
 **Key Features:**
-- 🧩 **8 Piece Types**: Single die, Line2-4, L3-4, Square, T-shape containing 1-4 dice each
-- 🎲 **5 Difficulty Modes**: Easy (d4-d6) to Expert (d4-d20) with varying fall speeds and dice complexity
+- 🧩 **8 Piece Types**: Single die, Line2-4, L3-4, Square, T-shape
+- 🎲 **5 Difficulty Modes**: Easy (d4-d6) to Expert (d4-d20) with varying fall speeds
 - ⚡ **Individual Die Physics**: Revolutionary collision system where pieces dynamically break apart
-- 🎵 **Algorithmic Music**: Procedurally generated compositions for each game mode
+- 🎵 **Hybrid Audio System**: Algorithmic music generation with comprehensive sound effects
 - 📱 **Cross-Platform**: Responsive design supporting keyboard, touch, and on-screen controls
-- 🔊 **Professional Audio**: Comprehensive sound effects with dice-matching specific audio feedback
+- 🔊 **Professional Audio**: Comprehensive sound effects with dice-matching specific feedback
+- 🎮 **Complete Game Experience**: Full scene progression with animated splash screen, settings, and game over screens
+- 🎯 **Advanced UI**: Responsive layout with next piece preview, control buttons, and real-time scoring
+- 🎨 **Enhanced Visuals**: Gold dice numbers with black stroke for improved visibility and contrast
 
-## What is Dicetrix?
+## 🚀 What Makes Dicetrix Innovative?
 
-Dicetrix is a revolutionary gravity-matching puzzle game that combines Tetris-style piece mechanics with dice-based matching and groundbreaking individual die collision physics. Built for Reddit using Phaser.js and the Devvit platform, it features a comprehensive audio system with algorithmic musical compositions and professional sound effects management for immersive gameplay.
+### Revolutionary Individual Die Physics System
 
-**The Core Innovation**: Dicetrix introduces a groundbreaking collision detection system where each die in multi-die pieces can collide and lock independently. This creates dynamic gameplay scenarios impossible in traditional puzzle games - pieces naturally break apart as individual dice encounter obstacles, creating terrain-based strategy where players must predict how pieces will fragment based on the existing grid layout.
-
-### Core Innovation: Individual Die Physics System
-
-The game's signature innovation is its **individual die collision detection system**. Unlike traditional Tetris where entire pieces lock as units, Dicetrix features groundbreaking physics where each die in a multi-piece can collide independently:
+**The Core Innovation**: Dicetrix introduces a groundbreaking collision detection system where each die in multi-die pieces can collide and lock independently. This creates dynamic gameplay scenarios impossible in traditional puzzle games:
 
 - **Dynamic Piece Fragmentation**: Multi-die pieces naturally break apart as individual dice encounter obstacles - a T-shaped piece might have its center die lock while the arms continue falling
 - **Terrain-Based Strategy**: Players must predict how pieces will fragment based on the existing grid layout - uneven terrain causes pieces to break apart in unique ways  
 - **Continuous Action**: Unlike Tetris where pieces lock as complete units, Dicetrix pieces can partially lock while remaining dice continue falling, maintaining constant gameplay flow
 - **Strategic Depth**: Combines traditional spatial reasoning with fragmentation prediction and number matching - players must think in three dimensions simultaneously
+- **Bottom-Left Coordinate System**: Uses intuitive Y=0 at bottom physics where pieces fall by decreasing Y coordinates (Y=15→14→13→...→0)
 
-**Technical Implementation**: Each game tick processes every die individually for collision detection. When a piece falls, each die checks for collisions against the bottom boundary, grid walls, and existing pieces. Only dice that would collide are immediately locked to the grid, while remaining dice continue falling as a smaller active piece.
+**Technical Implementation**: Each game tick processes every die individually for collision detection using a bottom-up approach. When a piece falls, each die checks for collisions against the bottom boundary (Y<0), grid walls, and existing pieces. Only dice that would collide are immediately locked to the grid using the `lockCell()` method, while remaining dice continue falling as a smaller active piece. The system processes dice from bottom to top so newly locked dice become obstacles for dice above them in the same tick.
 
 ### Three-Dimensional Puzzle Challenge
 
 Dicetrix successfully merges three distinct gaming mechanics that have never been combined before:
 
-1. **Tetris-Style Pieces**: 8 different multi-die shapes (single die, lines, L-shapes, squares, and T-shapes) fall down an 8x16 grid
+1. **Tetris-Style Pieces**: 8 different multi-die shapes (single die, lines, L-shapes, squares, and T-shapes) fall down an 8×16 grid
 2. **Dice Matching**: Create connected groups of 3+ adjacent dice with matching numbers to clear them and score points
 3. **Individual Die Physics**: Revolutionary system where each die can collide and lock independently, creating dynamic piece fragmentation
 
-**The Game Experience**: Players control falling multi-die pieces containing dice with numbered faces (d4, d6, d8, d10, d12, d20 depending on difficulty). The innovative twist is the **individual die collision system**: while multi-die pieces start as cohesive units, each die can hit obstacles independently. When some dice in a piece hit obstacles and lock to the grid, the remaining dice continue falling as a smaller active piece.
+**Example Scenarios**:
+- A 4-die line piece encounters an obstacle with its bottom die → that die locks immediately at the collision point, while the remaining 3 dice continue falling as a smaller line piece
+- An L-shaped piece hits uneven terrain → some dice lock in gaps while others continue falling until they encounter their own obstacles
+- A T-piece approaches the bottom → the center die locks first when it hits Y=0, while the side dice continue falling until they also reach the bottom or hit existing pieces
+- A square piece hits uneven terrain → bottom dice lock while top dice continue falling as a horizontal line piece
 
-**Current Game State**: Dicetrix is a complete, fully-playable puzzle game with all core systems implemented. The game features a professional scene flow from animated splash screen through multiple difficulty modes, comprehensive audio system with algorithmic music generation, and sophisticated individual die physics that creates unique gameplay scenarios impossible in traditional puzzle games.
+**Strategic Complexity**: This creates unprecedented strategic depth where players must simultaneously consider:
+- Traditional Tetris spatial reasoning and piece rotation
+- Dice number positioning for optimal matching opportunities
+- Predicting how pieces will dynamically fragment based on terrain
+- Setting up cascade chain reactions for bonus scoring
 
 ### Complete Game Experience
 
-Dicetrix is a **fully-featured puzzle game** that takes players on a journey from an animated splash screen through multiple difficulty modes with sophisticated gameplay mechanics. The game features a complete scene progression: Boot → Preloader → SplashScreen → StartMenu → Settings → Game → GameOver, each with polished visuals and smooth transitions.
+Dicetrix is a **fully-featured puzzle game** with a complete scene progression: Boot → Preloader → SplashScreen → StartMenu → Settings → Game → GameOver, each with polished visuals and smooth transitions.
 
-**Opening Experience**: Players are greeted with a captivating animated splash screen featuring falling dice with realistic physics, random color tints, and smooth animations. The interactive "Press any key to play Dicetrix" text pulses with professional typography, and the system supports keyboard, mouse, and touch input across all devices.
+**Opening Experience**: Players are greeted with a captivating animated splash screen featuring falling dice with realistic physics, random color tints, and smooth animations. The interactive "Press any key to play Dicetrix" text pulses with professional typography using custom Asimovian fonts with comprehensive fallback chains.
 
-**Menu System**: The start menu features the stylized "DICETRIX" title with custom Nabla font, a color-coded difficulty selection dropdown with visual feedback, and professional UI elements. Players can access a dedicated Settings scene for comprehensive audio configuration with independent music and sound effect controls.
+**Menu System**: The start menu features the stylized "DICETRIX" title with custom Nabla fonts, a color-coded difficulty selection dropdown with responsive design, and professional UI elements. Players can access a dedicated Settings scene for comprehensive audio configuration with independent music and sound effect controls.
 
-**Core Gameplay**: The main game presents an 8x16 grid where multi-die pieces (containing 1-4 dice each) fall from the top. The revolutionary innovation is the **individual die collision system** - while pieces start as cohesive units, each die can hit obstacles independently. When some dice in a piece collide and lock to the grid, the remaining dice continue falling as a smaller active piece.
+**Game Interface**: The main game features a sophisticated responsive layout:
+- **Centered Game Board**: 8×16 game grid positioned centrally with prominent score display above (42px font size)
+- **Next Piece Preview**: 4×4 grid positioned beside the board with "Next Piece" label and visual border
+- **Control Buttons**: 3×2 scaled control button layout (128×128 pixels) with clear symbols (↺ ⇊ ↻ / ← ⇓ →)
+- **Booster Slots**: 3×3 grid of booster slots in bottom-right section
+- **Visual Grouping**: Next Piece section has visual border for clear organization
 
-**Audio System**: Features an algorithmic music system that creates musical compositions for each game mode using Strudel patterns. Each difficulty mode has its own unique musical identity with layered arrangements and dynamic effects processing - all generated procedurally. The system includes comprehensive sound effects for gameplay actions, UI interactions, and special events, with professional audio controls and settings persistence.
+**Audio System**: Features a hybrid audio system combining algorithmic music generation with Phaser.js sound effects. Each difficulty mode has its own unique musical identity. The system includes comprehensive sound effects for gameplay actions, UI interactions, and special events including dice-match specific audio feedback with different sounds for 3, 4, 5, 7, and 9+ dice matches.
 
 ### Core Gameplay Loop
 
-**Piece Movement & Control**: Multi-die pieces spawn at the top center of an 8x16 grid and fall automatically. Players control them using responsive on-screen buttons (3x2 grid), keyboard controls (WASD/arrows), or touch input. Each piece contains 1-4 dice with numbered faces based on the selected difficulty mode.
+**Piece Movement & Control**: Multi-die pieces spawn at Y=16 (above the visible 8×16 grid) and fall automatically with configurable speeds. Players control them using responsive on-screen buttons (3×2 grid of 128×128 pixel buttons), keyboard controls (WASD/arrows), or touch input. Each piece contains 1-4 dice with numbered faces based on the selected difficulty mode.
 
-**Individual Die Physics**: As pieces fall, each die is checked for collisions independently. When some dice hit obstacles (bottom boundary, walls, or existing pieces), they lock to the grid immediately while remaining dice continue falling as a smaller active piece. This creates dynamic piece fragmentation based on terrain.
+**Individual Die Physics**: As pieces fall, each die is checked for collisions independently using bottom-up processing. When some dice hit obstacles (Y<0 boundary, walls, or existing pieces), they lock to the grid immediately using `lockCell()` while remaining dice continue falling as a smaller active piece. This creates dynamic piece fragmentation based on terrain.
 
-**Matching & Scoring**: Players create matches by connecting 3+ adjacent dice with the same number (horizontal/vertical only). Matched groups disappear immediately, and remaining dice fall to fill gaps, potentially creating cascade chain reactions for bonus scoring.
+**Matching & Scoring**: Players create matches by connecting 3+ adjacent dice with the same number (horizontal/vertical only) using flood-fill detection. Matched groups disappear immediately, and remaining dice fall to fill gaps using gravity application, potentially creating cascade chain reactions for bonus scoring with multipliers.
 
-**Progressive Difficulty**: Five modes from Easy (d4-d6 dice) to Expert (d4-d20 dice) with varying fall speeds and score multipliers, plus a relaxed Zen mode without cascades.
+**Progressive Difficulty**: Five modes from Easy (d4-d6 dice, 1000ms fall speed) to Expert (d4-d20 dice, 400ms fall speed) with varying fall speeds and score multipliers, plus a relaxed Zen mode (1200ms, no cascades) for stress-free play.
 
 ### Revolutionary Individual Die Collision Physics System
 
@@ -205,11 +220,11 @@ The game implements a sophisticated collision detection algorithm that handles e
 - **Cascade Planning**: Setting up chain reactions through strategic piece placement and match clearing
 - **Progressive Difficulty**: Five modes with increasing dice complexity (d4 to d20) and faster fall speeds
 
-### 🎵 Comprehensive Audio System
+### 🎵 Hybrid Audio System
 
-Dicetrix features a comprehensive audio system that combines algorithmic music generation with professional sound effects management:
+Dicetrix features a sophisticated hybrid audio system that combines Strudel algorithmic music generation with Phaser.js sound effects management:
 
-**Algorithmic Music System**:
+**Algorithmic Music System (Strudel Integration)**:
 - **Mode-Specific Musical Compositions**: Each difficulty mode has its own unique musical identity:
   - **Menu Theme**: Welcoming ambient atmosphere for navigation
   - **Easy Mode**: Relaxed, encouraging gameplay music with gentle rhythms
@@ -217,33 +232,34 @@ Dicetrix features a comprehensive audio system that combines algorithmic music g
   - **Hard Mode**: Intense, driving music with complex patterns
   - **Expert Mode**: Maximum intensity with polyrhythmic elements
   - **Zen Mode**: Calm, meditative compositions for relaxed gameplay
-- **Algorithmic Composition**: Uses procedural music generation with multi-layered musical arrangements
+- **Strudel Integration**: Uses Strudel's live coding environment for procedural music generation
 - **Music Transition System**: Smooth crossfading between different game states and modes
-- **Procedural Generation**: All music generated algorithmically using code patterns
+- **Real-Time Generation**: All music generated algorithmically using Strudel patterns
 
-**Professional Audio Management**:
-- **Cross-Browser Compatibility**: Automatic format detection and fallback support (MP3 primary format)
+**Professional Audio Management (Phaser.js Integration)**:
+- **Hybrid Service Architecture**: Combines Strudel for music with Phaser for sound effects
+- **Cross-Browser Compatibility**: Automatic AudioContext initialization with fallback support
 - **Development-Friendly Features**: Graceful handling of missing audio files with silent placeholders
-- **Browser-Specific Optimization**: Format preferences optimized for universal compatibility
+- **Browser Autoplay Policy Compliance**: Proper AudioContext activation after user interaction
 - **Memory Management**: Efficient audio loading and cleanup systems
 
 **Advanced Audio Controls System**:
 - **Interactive Audio Button**: One-click audio activation with visual state management (muted 🔇 / unmuted 🔊)
 - **Real-Time Audio Feedback**: Immediate volume adjustment with visual feedback
-- **Settings Persistence**: Automatic save/load of audio preferences to localStorage
+- **Settings Persistence**: Automatic save/load of audio preferences via Settings service
 - **Mobile-Responsive Design**: Adaptive layout optimized for all device types with proper touch target sizing
-- **Browser Compatibility**: Handles autoplay policies and AudioContext initialization properly
+- **Cross-Platform Compatibility**: Handles different AudioContext implementations across browsers
 
 **Comprehensive Sound Effects Library**:
 - **Dice-Matching Sounds**: Specialized sound effects for different dice match sizes (3, 4, 5, 7, 9+ dice matches)
 - **Gameplay Sounds**: Piece placement, rotation, drop, dice matches, level up, game over, pause/resume
 - **UI Interaction Sounds**: Button clicks, menu navigation, settings changes, mode selection
-- **Special Effect Sounds**: Combo effects (2x, 3x, 4x+), perfect clear, warning alerts
+- **Special Effect Sounds**: Combo effects (2x, 3x, 4x+), cascade chain reactions, warning alerts
 - **Advanced Audio Management**: 
-  - Volume control and enable/disable for sound effects
+  - Independent volume control for music and sound effects
   - Cooldown system prevents audio spam during rapid interactions
   - Graceful handling of missing audio files with automatic fallbacks
-  - Real-time volume adjustment and persistent settings
+  - Real-time volume adjustment and persistent settings via AudioHandler service
 - **Enhanced Pause Menu Audio**: Compact audio controls in pause menu for in-game adjustments
 - **Settings Integration**: Dedicated Settings scene with independent music/sound effect controls
 
@@ -251,15 +267,16 @@ Dicetrix features a comprehensive audio system that combines algorithmic music g
 
 The game opens with a captivating animated splash screen that sets the tone for the entire experience:
 
-- **Falling Dice Animation**: 1-3 dice spawn at random intervals (200-800ms) with realistic gravity physics
+- **Falling Dice Animation**: 1-3 dice spawn at random intervals (200-800ms) with realistic gravity physics using object pooling
 - **Visual Variety**: Six different dice types (d4, d6, d8, d10, d12, d20) with random color tints from a carefully curated palette
-- **Interactive Design**: Pulsing "Press any key to play Dicetrix" text with smooth alpha transitions (0.6-1.0)
+- **Interactive Design**: Pulsing "Press any key to play Dicetrix" text with smooth alpha transitions (0.6-1.0) using Asimovian fonts
 - **Multi-Platform Input**: Supports keyboard, mouse clicks, and touch input for seamless game entry
-- **Audio Integration**: Automatically initializes the game's algorithmic audio system on first user interaction
+- **Font Loading Integration**: Uses FontLoader utility for consistent Asimovian and Nabla font loading with fallback chains
 - **Professional Polish**: Proper cleanup of animations and timers during scene transitions
 - **Performance Optimized**: Object pooling system with 30 pooled dice sprites and mobile-specific optimizations
 - **Error Handling**: Comprehensive error handling with graceful fallbacks and performance monitoring
-- **Mobile Features**: Touch feedback system and battery-conscious animation timing for mobile devices
+- **Mobile Features**: Touch feedback system, battery-conscious animation timing, and responsive design for mobile devices
+- **Memory Management**: Efficient sprite pooling and cleanup to prevent memory leaks
 
 ## 🎵 Enhanced Audio System
 
@@ -289,103 +306,200 @@ The start menu includes a responsive audio button with cross-platform support:
 - **Error Handling**: Graceful degradation when audio systems fail, maintaining button functionality
 - **Browser Compatibility**: Handles autoplay policies and AudioContext initialization properly
 
-## How to Play Dicetrix
+## 🎮 How to Play Dicetrix
 
 ### 🚀 Getting Started
 
 1. **Launch the Game**: Run `npm run dev` and open the provided Reddit playtest URL in your browser
 2. **Experience the Splash Screen**: The game opens with a captivating animated introduction featuring:
-   - Falling dice with random color tints and realistic physics simulation
+   - Falling dice with random color tints and realistic physics simulation using object pooling
    - Six different dice types (d4, d6, d8, d10, d12, d20) spawning at random intervals
-   - Interactive "Press any key to play Dicetrix" text - press any key, click, or tap to continue
-   - Automatic audio system initialization for the full musical experience
+   - Interactive "Press any key to play Dicetrix" text with Asimovian fonts - press any key, click, or tap to continue
+   - Automatic font loading with comprehensive fallback chains for cross-browser compatibility
 3. **Navigate the Menu**: Choose from 5 color-coded difficulty modes:
    - 🟢 **Easy** (d4-d6 dice, 1000ms fall speed) - Perfect for learning the mechanics
    - 🟡 **Medium** (d4-d10 dice, 800ms fall speed) - Recommended starting point
    - 🔴 **Hard** (d4-d12 dice, 600ms fall speed) - Challenging gameplay
    - 🟠 **Expert** (d4-d20 dice, 400ms fall speed) - Ultimate challenge with rare d20 matches
-   - 🟣 **Zen** (d4-d10 dice, 1200ms fall speed, no gravity) - Focus on pure matching without time pressure
-4. **Configure Audio**: Click the audio button (🔇/🔊) to enable/disable music and sound effects
+   - 🟣 **Zen** (d4-d10 dice, 1200ms fall speed, no cascades) - Focus on pure matching without chain reactions
+4. **Configure Audio**: Click the responsive audio button (🔇/🔊) to enable/disable the hybrid audio system
 5. **Access Settings**: Click "SETTINGS" for detailed audio configuration with independent music/sound effect controls
-6. **Start Playing**: Click "START GAME" to begin your Dicetrix adventure
+6. **Start Playing**: Click the scaled "START GAME" button to begin your Dicetrix adventure
 
-### 🎯 Basic Gameplay Rules
+### 🎯 Game Objective
 
-**Objective**: Create connected groups of 3+ adjacent dice with matching numbers to clear them and score points while managing falling multi-die pieces that can fragment dynamically.
+**Primary Goal**: Create connected groups of 3+ adjacent dice with matching numbers to clear them and score points while managing falling multi-die pieces that can fragment dynamically.
 
-**Game Over**: Occurs when a new piece cannot spawn due to collision at the spawn position (Y=16).
+**Victory Condition**: There is no traditional "win" state - the goal is to achieve the highest score possible before the grid fills up.
 
-**Scoring**: Points are awarded based on match size, dice face values, and cascade multipliers. Larger matches and chain reactions yield higher scores.
+**Game Over**: The game ends when a new piece cannot spawn due to collision at the spawn position (Y=16 above the visible grid).
 
-### 🎮 Controls
+### 🎮 Game Controls
+
+**On-Screen Control Grid (3×2 layout with 128×128 pixel buttons)**:
+- **Top Row**: ↺ (rotate clockwise) | ⇊ (soft drop) | ↻ (rotate counter-clockwise)  
+- **Bottom Row**: ← (move left) | ⇓ (hard drop) | → (move right)
 
 **Keyboard Controls**:
-- **WASD** or **Arrow Keys**: Move piece left/right/down, rotate
-- **A/Left Arrow**: Move piece left
-- **D/Right Arrow**: Move piece right  
-- **S/Down Arrow**: Soft drop (move piece down faster)
-- **W/Up Arrow**: Rotate piece clockwise
-- **Q**: Rotate piece counter-clockwise
-- **Space**: Hard drop (instantly drop piece to lowest valid position)
+- **Arrow Keys**: ← → (move horizontally), ↓ (soft drop), ↑ (rotate clockwise)
+- **WASD**: A/D (move left/right), S (soft drop), W (rotate clockwise)  
+- **Additional**: Q (rotate counter-clockwise), Space (hard drop), Esc (pause)
 
-**On-Screen Controls** (3x2 button grid):
-- **Top Row**: Rotate Counter-Clockwise (↺) | Hard Drop (⇊) | Rotate Clockwise (↻)
-- **Bottom Row**: Move Left (←) | Soft Drop (⇓) | Move Right (→)
+**Touch/Mobile Controls**:
+- **Tap Controls**: Use the responsive 128×128 pixel on-screen button grid for all actions
+- **Board Touch**: Tap grid positions to move pieces horizontally toward the touched column using coordinate conversion
+- **Responsive Design**: Controls automatically scale with proper touch target sizing for mobile accessibility
+- **Cross-Platform Input**: InputHandler supports both mouse and touch events seamlessly
 
-**Touch Controls**:
-- **Tap buttons**: Use on-screen control buttons
-- **Touch/Drag**: Direct piece manipulation (experimental)
+### 🎲 Step-by-Step Gameplay Guide
 
-### 🎲 Understanding Individual Die Physics
+#### Step 1: Understanding the Game Board
 
-**The Revolutionary Innovation**: Unlike traditional Tetris where entire pieces lock as units, Dicetrix features individual die collision detection:
+**Game Interface Layout**:
+- **Centered Game Board**: 8×16 main game grid positioned centrally with real-time score display above
+- **Next Piece Preview**: 4×4 grid positioned beside the board with "Next Piece" label and green borders
+- **Control Section**: 3×2 scaled control button layout in bottom-left with 128×128 pixel buttons
+- **Booster Section**: 3×3 grid of booster slots in bottom-right with visual borders
+- **Coordinate System**: Bottom-left origin where Y=0 is at the bottom, Y=15 is at the top
+- **Visual Elements**: Green grid lines, dark blue background, and color-coded dice with gold numbers and black stroke
 
-1. **Multi-Die Pieces**: Pieces contain 1-4 dice that start as cohesive units
-2. **Independent Collision**: Each die is checked for collisions individually every game tick
-3. **Selective Locking**: Only dice that hit obstacles lock to the grid immediately
-4. **Dynamic Fragmentation**: Remaining dice continue falling as a smaller active piece
-5. **Terrain-Based Breaking**: Pieces fragment differently based on existing grid layout
+#### Step 2: Master Piece Movement
 
-**Example Scenarios**:
-- **T-Piece on Uneven Ground**: Center die hits obstacle and locks, while arm dice continue falling
-- **Line Piece Partial Landing**: Bottom dice lock when hitting existing pieces, top dice keep falling
-- **L-Piece Corner Collision**: Corner die locks in a gap, rest of piece continues as smaller unit
+**8 Piece Types Available**:
+- **Single Die**: 1 die piece for precise placement
+- **Line Pieces**: Line2 (2 dice), Line3 (3 dice), Line4 (4 dice) - horizontal formations
+- **L-Shaped Pieces**: L3 (3 dice), L4 (4 dice) - corner formations
+- **Square**: 2×2 formation of 4 dice
+- **T-Shape**: 4 dice in T formation
 
-### 🎮 Game Flow & Scenes
+**Piece Control**:
+- **Spawning**: Pieces spawn at the top center (X=3, Y=16) above the visible grid
+- **Movement**: Use controls to move left/right, rotate, or drop pieces faster
+- **Rotation**: Matrix-based rotation with intelligent wall kicks when blocked
+- **Preview**: Always check the next piece in the 4×4 preview grid to plan ahead
 
-The game follows a complete scene progression with professional architecture:
+#### Step 3: Master Individual Die Physics (The Revolutionary System)
 
-1. **Boot Scene**: Initializes Phaser and loads essential assets
+**How It Works**:
+1. **Independent Collision**: Each die in a multi-die piece is checked for collisions individually every game tick using bottom-up processing
+2. **Selective Locking**: Only dice that hit obstacles (Y<0 boundary, walls, or existing pieces) lock to the grid immediately using `lockCell()`
+3. **Dynamic Fragmentation**: Remaining dice continue falling as a smaller active piece until they also collide
+4. **Bottom-Up Processing**: Dice are processed from lowest Y to highest Y so newly locked dice become obstacles for dice above them
+5. **Safe Array Management**: Locked dice are removed from the active piece in reverse index order to maintain array integrity
+
+**Real Examples**:
+- **T-Piece Fragmentation**: Center die hits an obstacle and locks via `lockCell()`, while the two arm dice continue falling separately
+- **Line Piece Partial Landing**: Bottom 2 dice of a 4-dice line lock when hitting existing pieces, top 2 continue as a smaller line
+- **L-Piece Terrain Interaction**: Corner die locks in a gap using boundary validation, while the rest continues falling and may fragment further
+- **Square Split**: Bottom row locks on uneven terrain, top row continues falling as a horizontal line with updated piece state
+
+#### Step 4: Create Dice Matches
+
+**Matching Rules**:
+- **Objective**: Connect 3+ adjacent dice showing the same number
+- **Adjacency**: Only horizontal and vertical connections count (no diagonal)
+- **Detection**: Advanced flood-fill algorithm using `detectMatches()` function
+- **Clearing**: Matched groups disappear immediately and trigger cascade processing
+- **Gravity**: Remaining dice fall to fill gaps using `applyGravity()` function
+- **Chain Reactions**: New matches formed after gravity create cascade multipliers
+
+**Scoring System**:
+- **Base Scoring**: Points awarded based on match size and dice numbers
+- **Cascade Multipliers**: Chain reactions multiply score (2x, 3x, 4x+)
+- **Audio Feedback**: Different sound effects for 3, 4, 5, 7, and 9+ dice matches
+- **Visual Feedback**: Match footer displays match information and combo statusill algorithm finds all connected groups automatically
+- **Clearing**: Matched groups disappear with animated visual feedback and specialized sound effects
+
+**Dice Types by Difficulty**:
+- **Easy Mode**: d4 (red, numbers 1-4) and d6 (blue, numbers 1-6)
+- **Medium Mode**: Adds d8 (green, numbers 1-8) and d10 (yellow, numbers 1-10)
+- **Hard Mode**: Adds d12 (purple, numbers 1-12)
+- **Expert Mode**: Adds d20 (orange, numbers 1-20) for ultimate challenge
+- **Zen Mode**: Same as Medium but with relaxed timing and no cascades
+
+#### Step 5: Trigger Cascade Chain Reactions
+
+**Cascade System** (Disabled in Zen Mode):
+1. **Match Clearing**: When matches are cleared, remaining dice fall using column-based gravity
+2. **Chain Formation**: Falling dice can form new matches automatically, creating cascade chains
+3. **Multiplier Bonus**: Each cascade level increases your score multiplier (1x → 2x → 3x → 4x+)
+4. **Audio Feedback**: Special combo sound effects play for chain multipliers
+5. **Strategic Setup**: Plan initial matches to create maximum chain reactions
+
+**Scoring Formula**: Points = (match size × dice number + total die faces) × cascade multiplier
+
+#### Step 6: Advanced Strategy
+
+**Triple-Layer Strategy** (The Core Challenge):
+1. **Spatial Reasoning**: Traditional Tetris-style piece fitting and rotation planning
+2. **Number Positioning**: Strategic placement for optimal dice matching opportunities
+3. **Fragmentation Prediction**: Anticipating how pieces will break apart when hitting terrain
+
+**Pro Tips**:
+- **Terrain Management**: Create strategic gaps and platforms to control piece fragmentation
+- **Height Control**: Keep top rows (Y=14-15) clear to prevent spawn collision game over
+- **Cascade Planning**: Set up matches that will cause falling dice to form additional matches
+- **Pattern Recognition**: Look for opportunities to create large matches (5, 7, 9+ dice) for bonus scoring
+- **Audio Cues**: Listen to specialized dice-match sound effects to understand match sizes without looking
+
+### 🎲 Understanding Individual Die Physics (The Core Innovation)
+
+**The Revolutionary System**: Unlike traditional Tetris where entire pieces lock as units, Dicetrix features individual die collision detection that processes each die independently:
+
+1. **Multi-Die Pieces**: Pieces contain 1-4 dice that start as cohesive units (8 different shapes)
+2. **Independent Collision Detection**: Each die is checked for collisions individually every game tick
+3. **Selective Locking**: Only dice that hit obstacles (bottom, walls, or existing pieces) lock to the grid immediately
+4. **Dynamic Fragmentation**: Remaining dice continue falling as a smaller active piece until they also collide
+5. **Terrain-Based Breaking**: Pieces fragment differently based on the existing grid layout they encounter
+
+**Real Gameplay Examples**:
+- **T-Piece on Uneven Ground**: Center die hits an obstacle and locks immediately, while the two arm dice continue falling until they hit their own obstacles
+- **Line Piece Partial Landing**: Bottom 2 dice lock when hitting existing pieces, while the top 2 dice continue falling as a smaller line piece
+- **L-Piece Corner Collision**: Corner die locks in a gap between existing pieces, while the rest of the L-shape continues falling and may fragment further
+- **Square Piece Split**: If only the bottom row of a square hits obstacles, those 2 dice lock while the top 2 dice continue falling as a horizontal line
+
+**Strategic Impact**: This system requires players to think about traditional piece placement AND predict how pieces will naturally break apart based on the terrain they encounter.
+
+### 🎮 Complete Game Experience & Scene Flow
+
+Dicetrix features a professional game architecture with polished scene progression:
+
+1. **Boot Scene**: Initializes Phaser engine and loads essential system assets
 2. **Preloader Scene**: 
-   - Loads dice assets (d4, d6, d8, d10, d12, d20) from `/assets/dice/` directory
-   - Features loading screen with high-contrast text (white with black stroke)
-   - No audio files to load - all audio is generated algorithmically
-   - Transitions to SplashScreen for audio system initialization
+   - Loads all dice assets (d4, d6, d8, d10, d12, d20) from `/assets/dice/` directory
+   - Features loading screen with high-contrast text for visibility
+   - All audio is generated algorithmically (no audio files to load)
+   - Smooth transition to animated splash screen
 3. **Splash Screen Scene**: 
-   - Animated introduction with falling dice featuring random color tints and physics
+   - Captivating animated introduction with falling dice physics simulation
+   - Six different dice types with random color tints from curated palette
    - Object pooling system for optimal performance (30 pooled sprites, max 20 active)
-   - Interactive text prompting "Press any key to play Dicetrix" with pulsing animation
+   - Interactive "Press any key to play Dicetrix" text with smooth pulsing animation
    - Mobile detection and optimization with touch feedback system
    - Performance monitoring with FPS tracking and battery-conscious mode
-   - Handles critical audio initialization on first user interaction
-   - Comprehensive error handling with graceful fallbacks
+   - Critical audio system initialization on first user interaction
 4. **Start Menu Scene**: 
-   - Features the stylized "DICETRIX" title using custom Nabla font with auto-scaling
+   - Stylized "DICETRIX" title using custom Nabla font with auto-scaling
    - Color-coded difficulty selection dropdown with visual feedback
-   - Large "START GAME" button with image-based design and fallback text button
-   - Settings access button for audio configuration
-   - Font loading system with fallbacks for browser compatibility
+   - Large "START GAME" button with professional image-based design
+   - Audio control button (🔇/🔊) for immediate music/sound toggle
+   - Settings access button for detailed audio configuration
 5. **Settings Scene**: 
-   - Complete audio configuration with independent music/sound effect toggles
+   - Comprehensive audio configuration with independent music/sound effect controls
    - Volume sliders and test buttons for immediate feedback
-   - Settings persistence using the Settings service
-   - Professional UI with 2x scaling factor for optimal visibility
+   - Settings persistence using localStorage with validation
+   - Professional UI with responsive scaling for all devices
 6. **Game Scene**: 
-   - Main gameplay experience with individual die physics system
-   - Comprehensive UI with responsive controls and next piece preview
+   - Main gameplay experience featuring the revolutionary individual die physics system
+   - Responsive UI with 60/40 split layout (game board / controls)
    - Real-time score tracking and cascade multiplier system
+   - Next piece preview in 4x4 grid with grid-aligned positioning
    - Multi-input support (keyboard, touch, on-screen buttons)
-7. **Game Over Scene**: End game results and restart options
+   - Pause menu with compact audio controls for in-game adjustments
+7. **Game Over Scene**: 
+   - End game results display with final score
+   - Options to restart or return to main menu
+   - Smooth transition back to menu music
 
 ### 🎮 Step-by-Step Gameplay Guide
 
@@ -393,14 +507,16 @@ The game follows a complete scene progression with professional architecture:
 
 **Left Side (Main Game Area - 60% of screen)**:
 - **Score Display**: Current score shown at the top in gold text with black stroke for visibility
-- **Main Grid**: 8x16 playing field with green grid lines and dark blue background (#071021)
+- **Main Grid**: 8×16 playing field with green grid lines and dark blue background
 - **Bottom-Left Coordinates**: Y=0 is at the bottom, Y=15 is at the top of the visible grid (intuitive physics)
 - **Visual Feedback**: Dice are rendered with colors based on type (d4=red, d6=blue, d8=green, etc.) and clearly show their face numbers
 - **Active Pieces**: Multi-die pieces fall and can be controlled until individual dice lock to the grid
 - **Match Footer**: Dynamic text showing match results and cascade information
 
 **Right Side (Controls & Info - 40% of screen)**:
-- **Next Piece Preview**: 4x4 grid showing your upcoming piece with green border and grid-aligned positioning
+- **Next Piece Preview**: 4×4 grid showing the upcoming piece with grid-aligned positioning
+- **Control Panel**: 3×2 grid of interactive control buttons with clear symbols (↺ ⇊ ↻ / ← ⇓ →)
+- **Pause Button**: Access pause menu with audio controls and game optionsur upcoming piece with green border and grid-aligned positioning
 - **Control Panel**: 3x2 grid of interactive control buttons with clear symbols (↺ ⇊ ↻ / ← ⇓ →)
 - **Booster Slots**: 3x3 grid for future power-ups (currently placeholder with green borders)
 - **Leaderboard**: Hidden on mobile devices for optimal space utilization
@@ -408,52 +524,58 @@ The game follows a complete scene progression with professional architecture:
 #### Core Gameplay Mechanics
 
 **1. Piece Movement & Control**
-- **Multi-Die Pieces**: 8 different piece types spawn at the top center (X=3, Y=16) containing 1-4 dice each
-- **Control Options**: Use keyboard (WASD/arrows), on-screen buttons, or touch/drag input
+- **8 Piece Types**: Single die, Line2-4, L3-4, Square, T-shape containing 1-4 dice each
+- **Spawn System**: Pieces spawn at the top center (X=3, Y=16) above the visible grid
+- **Control Options**: Use keyboard (WASD/arrows), on-screen buttons, or touch input
 - **Individual Die Physics**: Each die in a piece can collide and lock independently - this is the game's revolutionary innovation
 - **Bottom-Left Coordinate System**: Y=0 at bottom, Y=15 at top - pieces fall by decreasing Y coordinates
 
-**2. Individual Die Collision System**
-- **Dynamic Fragmentation**: When a multi-die piece falls, each die is checked for collisions individually
-- **Selective Locking**: Only dice that hit obstacles (bottom, walls, or existing pieces) lock to the grid immediately
-- **Continued Falling**: Remaining dice continue falling as a smaller active piece until they also hit obstacles
-- **Terrain-Based Breaking**: Pieces naturally fragment based on the existing grid layout and obstacles
+**2. Individual Die Collision System (The Core Innovation)**
+- **Per-Die Processing**: Every game tick, each die is checked for collisions individually
+- **Selective Locking**: Only dice that hit obstacles (bottom boundary, walls, or existing pieces) lock to the grid immediately
+- **Dynamic Fragmentation**: Remaining dice continue falling as a smaller active piece until they also collide
+- **Terrain-Based Breaking**: Pieces naturally fragment based on the existing grid layout they encounter
+- **Bottom-Up Processing**: Dice are processed from bottom to top so newly locked dice become obstacles for dice above
 
 **3. Dice Matching & Scoring**
-- **Match Creation**: Connect 3+ adjacent dice with the same number (horizontal/vertical only)
-- **Cascade Chains**: Matched groups disappear, remaining dice fall, potentially creating chain reactions
-- **Scoring System**: Points based on match size, dice numbers, and cascade multipliers
-- **Match Sizes**: Different sound effects play for 3, 4, 5, 7, and 9+ dice matches
+- **Match Creation**: Connect 3+ adjacent dice with the same number (horizontal/vertical adjacency only)
+- **Match Detection**: Advanced flood-fill algorithm finds all connected groups of matching numbers
+- **Cascade Chains**: Matched groups disappear with animation, remaining dice fall using gravity, potentially creating chain reactions
+- **Scoring Formula**: Points = (match size × dice number + total die faces) × cascade multiplier
+- **Audio Feedback**: Different sound effects play for 3, 4, 5, 7, and 9+ dice matches
 
 **4. Difficulty Progression**
-- **Easy Mode**: d4-d6 dice, 1000ms fall speed - perfect for learning the mechanics
-- **Medium Mode**: d4-d10 dice, 800ms fall speed - recommended starting point
-- **Hard Mode**: d4-d12 dice, 600ms fall speed - challenging gameplay
-- **Expert Mode**: d4-d20 dice, 400ms fall speed - ultimate challenge with rare d20 matches
-- **Zen Mode**: d4-d10 dice, 1200ms fall speed, no gravity - focus on pure matching
+- **🟢 Easy Mode**: d4-d6 dice, 1000ms fall speed, 1.0x multiplier - perfect for learning the mechanics
+- **🟡 Medium Mode**: d4-d10 dice, 800ms fall speed, 1.1x multiplier - recommended starting point
+- **🔴 Hard Mode**: d4-d12 dice, 600ms fall speed, 1.25x multiplier - challenging gameplay
+- **🟠 Expert Mode**: d4-d20 dice, 400ms fall speed, 1.5x multiplier - ultimate challenge with rare d20 matches
+- **🟣 Zen Mode**: d4-d10 dice, 1200ms fall speed, 0.9x multiplier, no cascades - focus on pure matching
 
 #### Strategic Gameplay Tips
 
-**1. Master Individual Die Physics**
-- **Fragmentation Prediction**: Anticipate how pieces will break apart when hitting uneven terrain
+**1. Master Individual Die Physics (Essential for Success)**
+- **Fragmentation Prediction**: Learn to anticipate how pieces will break apart when hitting uneven terrain
 - **Terrain Management**: Create strategic gaps and platforms to control how pieces fragment
-- **Partial Locking**: Use the fact that some dice lock while others continue falling to your advantage
+- **Partial Locking Strategy**: Use the fact that some dice lock while others continue falling to position dice optimally
+- **Collision Timing**: Understand that each die checks for collisions independently every game tick
 
 **2. Coordinate System Mastery**
 - **Bottom-Left Understanding**: Remember Y=0 is at the bottom - pieces fall by decreasing Y values
 - **Precise Placement**: Use the coordinate system for exact piece positioning and collision prediction
-- **Spawn Awareness**: Pieces spawn at Y=16 (above visible grid) and enter at Y=15
+- **Spawn Awareness**: Pieces spawn at Y=16 (above visible grid) and enter the visible area at Y=15
+- **Height Management**: Keep top rows (Y=14-15) clear to prevent spawn collision game over
 
 **3. Advanced Matching Strategy**
-- **Chain Setup**: Position dice to create cascade reactions when matches are cleared
-- **Number Management**: Balance different dice types to create matching opportunities
+- **Chain Setup**: Position dice strategically to create cascade reactions when matches are cleared
+- **Number Management**: Balance different dice types to maximize matching opportunities
 - **Combo Building**: Set up multiple matches to trigger combo multipliers (2x, 3x, 4x+)
+- **Pattern Recognition**: Look for opportunities to create large matches (5, 7, 9+ dice) for bonus scoring
 
-**4. Multi-Layer Strategy**
-- **Spatial Reasoning**: Traditional Tetris-style piece fitting
-- **Number Positioning**: Strategic placement for dice matching
-- **Fragmentation Planning**: Predicting and controlling how pieces will break apart buttons with clear symbols (↺ ⇊ ↻ / ← ⇓ →)
-- **Pause Menu**: Access audio controls and game options during gameplay
+**4. Multi-Dimensional Strategy (The Triple Challenge)**
+- **Spatial Reasoning**: Traditional Tetris-style piece fitting and rotation
+- **Number Positioning**: Strategic placement for optimal dice matching opportunities  
+- **Fragmentation Planning**: Predicting and controlling how pieces will dynamically break apart
+- **Cascade Planning**: Setting up chain reactions through strategic piece placement and match clearing
 
 #### How to Play: Complete Step-by-Step Guide
 

@@ -93,7 +93,7 @@ export class Settings extends Scene {
       .text(width * 0.3, testButtonsY, 'Test Music', {
         fontSize: `${20 * UI_SCALE}px`,
         color: '#ffffff',
-        fontFamily: 'Asimovian',
+        fontFamily: 'Asimovian, "Arial Black", Arial, sans-serif',
         backgroundColor: '#0066cc',
         padding: { x: 15 * UI_SCALE, y: 8 * UI_SCALE },
       })
@@ -108,7 +108,7 @@ export class Settings extends Scene {
       .text(width * 0.7, testButtonsY, 'Test SFX', {
         fontSize: `${20 * UI_SCALE}px`,
         color: '#ffffff',
-        fontFamily: 'Asimovian',
+        fontFamily: 'Asimovian, "Arial Black", Arial, sans-serif',
         backgroundColor: '#cc6600',
         padding: { x: 15 * UI_SCALE, y: 8 * UI_SCALE },
       })
@@ -123,7 +123,7 @@ export class Settings extends Scene {
       .text(width / 2, height * 0.9, 'BACK TO MENU', {
         fontSize: `${28 * UI_SCALE}px`,
         color: '#ffffff',
-        fontFamily: 'Asimovian',
+        fontFamily: 'Asimovian, "Arial Black", Arial, sans-serif',
         backgroundColor: '#00ff88',
         padding: { x: 30 * UI_SCALE, y: 15 * UI_SCALE },
         stroke: '#000000',
