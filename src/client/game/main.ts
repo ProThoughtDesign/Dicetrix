@@ -20,6 +20,13 @@ const config: Phaser.Types.Core.GameConfig = {
     width: 1080,
     height: 1920,
   },
+  physics: {
+    default: 'arcade',
+    arcade: {
+      gravity: { x: 0, y: 0 }, // No gravity for our bouncing background
+      debug: false // Set to true if you want to see physics bodies
+    }
+  },
   audio: {
     // Configure Phaser audio to work with browser autoplay policies
     // AudioContext will be properly initialized after user interaction

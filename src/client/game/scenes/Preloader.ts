@@ -36,6 +36,9 @@ export class Preloader extends Scene {
       this.load.image(key, path);
     }
 
+    // Preload background image
+    this.load.image('dicetrix-bg', '/assets/Dicetrix-Background.png');
+
     // Preload placeholder SFX files (music will be handled by Strudel)
     this.loadSFXAssets();
   }

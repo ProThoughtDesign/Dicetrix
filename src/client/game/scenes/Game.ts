@@ -3,7 +3,7 @@ import * as Phaser from 'phaser';
 import GameBoard from '../logic/GameBoard';
 import { settings } from '../services/Settings';
 import { getMode } from '../config/GameMode';
-import { drawDie } from '../visuals/DiceRenderer';
+import { drawDie, setBoosterChance, getBoosterChance, determineGlowColor } from '../visuals/DiceRenderer';
 import { detectMatches } from '../logic/MatchDetector';
 import { applyGravity } from '../logic/Gravity';
 // import { applyIndividualGravity } from '../logic/Gravity'; // Disabled for now
@@ -37,9 +37,15 @@ export class Game extends Scene {
   private soundEffectLibrary: SoundEffectLibrary | null = null;
   private currentGameMode: string = 'medium';
   
+  // Booster chance system for dice glow effects
+  private boosterChance: number = 0.15; // 15% chance by default
+  
   // Pause menu integration
   private pauseMenuUI: PauseMenuUI | null = null;
   private isPaused: boolean = false;
+  
+  // Bouncing background
+  private backgroundSprite: Phaser.Physics.Arcade.Sprite | null = null;
 
   // Diagnostic timing metrics for initialization debugging
   private initializationMetrics = {
@@ -133,6 +139,51 @@ export class Game extends Scene {
       default:
         Logger.log(`Game: Unknown game mode '${gameMode}', using medium-mode music`);
         return 'medium-mode';
+    }
+  }
+
+  /**
+   * Set the booster chance for dice glow effects
+   * @param chance Probability between 0 and 1 (0% to 100%)
+   */
+  public setBoosterChance(chance: number): void {
+    this.boosterChance = Math.max(0, Math.min(1, chance));
+    setBoosterChance(this.boosterChance);
+    Logger.log(`Game: Booster chance set to ${(this.boosterChance * 100).toFixed(1)}%`);
+  }
+
+  /**
+   * Get the current booster chance
+   * @returns Current booster chance (0-1)
+   */
+  public getBoosterChance(): number {
+    return this.boosterChance;
+  }
+
+  /**
+   * Initialize booster chance based on game mode
+   * Different modes can have different booster frequencies
+   */
+  private initializeBoosterChance(): void {
+    switch (this.currentGameMode.toLowerCase()) {
+      case 'easy':
+        this.setBoosterChance(0.20); // 20% chance in easy mode
+        break;
+      case 'medium':
+        this.setBoosterChance(0.15); // 15% chance in medium mode
+        break;
+      case 'hard':
+        this.setBoosterChance(0.10); // 10% chance in hard mode
+        break;
+      case 'expert':
+        this.setBoosterChance(0.05); // 5% chance in expert mode
+        break;
+      case 'zen':
+        this.setBoosterChance(0.25); // 25% chance in zen mode (more relaxed)
+        break;
+      default:
+        this.setBoosterChance(0.15); // Default 15%
+        break;
     }
   }
 
@@ -1000,13 +1051,19 @@ export class Game extends Scene {
         const color =
           palette[sides % palette.length || 0] ||
           palette[Math.floor(Math.random() * palette.length)];
-        return {
+        
+        const die = {
           id: `p-${Date.now()}-${index}`,
           sides,
           number: Math.ceil(Math.random() * sides),
-          color,
+          color, // Restore color property for game logic
           relativePos: pos,
         };
+        
+        // Determine and store glow color for this die
+        determineGlowColor(die);
+        
+        return die;
       });
       return {
         id: `piece-${Date.now()}`,
@@ -1021,13 +1078,19 @@ export class Game extends Scene {
       const sides = diceTypes[Math.floor(Math.random() * diceTypes.length)] || 6;
       const color =
         palette[sides % palette.length || 0] || palette[Math.floor(Math.random() * palette.length)];
-      return {
+      
+      const die = {
         id: `p-${Date.now()}-${index}`,
         sides,
         number: Math.ceil(Math.random() * sides),
-        color,
+        color, // Restore color property for game logic
         relativePos: pos,
       };
+      
+      // Determine and store glow color for this die
+      determineGlowColor(die);
+      
+      return die;
     });
 
     return {
@@ -1916,6 +1979,13 @@ export class Game extends Scene {
     // Set background
     Logger.log('INIT STEP 1: Setting background and registry');
     this.cameras.main.setBackgroundColor('#1a1a2e');
+    
+    // Set up physics world bounds
+    this.setupPhysicsWorld();
+    
+    // Create bouncing background
+    this.createBouncingBackground();
+    
     this.registry.set('gameSceneReady', true);
     this.initializationMetrics.backgroundSetComplete = performance.now();
     Logger.log(
@@ -1988,6 +2058,10 @@ export class Game extends Scene {
     // Initialize enhanced audio system
     Logger.log('INIT STEP 5.5: Initializing enhanced audio system');
     this.initializeAudioSystem();
+
+    // Initialize booster chance system for dice glow effects
+    Logger.log('INIT STEP 5.6: Initializing booster chance system');
+    this.initializeBoosterChance();
 
     // Validate UI system readiness
     this.validateUISystemReadiness();
@@ -3132,7 +3206,67 @@ export class Game extends Scene {
     if (this.gameUI) {
       this.gameUI.update();
     }
+    
+    // Physics system handles background movement automatically
+    // No manual collision detection needed
   }
+
+  /**
+   * Set up physics world bounds for proper collision detection
+   */
+  private setupPhysicsWorld(): void {
+    const { width, height } = this.scale;
+    
+    // Set up physics world bounds
+    this.physics.world.setBounds(0, 0, width, height);
+    
+    Logger.log(`Physics world bounds set to: (0, 0, ${width}, ${height})`);
+  }
+
+  /**
+   * Create a bouncing background sprite that moves around the screen
+   */
+  private createBouncingBackground(): void {
+    const { width, height } = this.scale;
+    
+    // Create the background sprite at screen center
+    this.backgroundSprite = this.physics.add.sprite(width / 2, height / 2, 'dicetrix-bg');
+    
+    if (!this.backgroundSprite) {
+      Logger.log('Failed to create background sprite');
+      return;
+    }
+    
+    // Set the background to be behind everything else
+    this.backgroundSprite.setDepth(-1000);
+    
+    // Set initial scale to 100% (no scaling)
+    this.backgroundSprite.setScale(1.0);
+    
+    // Center the background image properly
+    this.backgroundSprite.setOrigin(0.5, 0.5); // Center the sprite's origin
+    
+    // Enable physics for the background
+    this.backgroundSprite.setCollideWorldBounds(true);
+    this.backgroundSprite.setBounce(1.0, 1.0); // Perfect bounce on both axes (no energy loss)
+    this.backgroundSprite.setFriction(0, 0); // No friction
+    this.backgroundSprite.setDrag(0, 0); // No drag/resistance
+    
+    // Position the background so it's centered on screen
+    // The sprite position is now at the center of the image
+    this.backgroundSprite.setPosition(width / 2, height / 2);
+    
+    // Apply initial random velocity (medium-slow pace)
+    const speed = 50; // Medium-slow speed
+    const angle = Math.random() * Math.PI * 2; // Random direction
+    const velocityX = Math.cos(angle) * speed;
+    const velocityY = Math.sin(angle) * speed;
+    
+    this.backgroundSprite.setVelocity(velocityX, velocityY);
+    
+    Logger.log(`Background created at center (${width/2}, ${height/2}) with velocity: (${velocityX.toFixed(2)}, ${velocityY.toFixed(2)})`);
+  }
+
 
   shutdown(): void {
     // Clean up timers when scene shuts down
@@ -3163,6 +3297,12 @@ export class Game extends Scene {
       this.pauseMenuUI = null;
     }
 
-    Logger.log('Game scene: Timers, UI, audio, and pause menu cleaned up');
+    // Clean up background sprite
+    if (this.backgroundSprite) {
+      this.backgroundSprite.destroy();
+      this.backgroundSprite = null;
+    }
+
+    Logger.log('Game scene: Timers, UI, audio, pause menu, and background cleaned up');
   }
 }

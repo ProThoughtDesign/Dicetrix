@@ -356,10 +356,10 @@ The start menu includes a responsive audio button with cross-platform support:
 #### Step 1: Understanding the Game Board
 
 **Game Interface Layout**:
-- **Centered Game Board**: 8×16 main game grid positioned centrally with real-time score display above
-- **Next Piece Preview**: 4×4 grid positioned beside the board with "Next Piece" label and green borders
+- **Centered Game Board**: 8×16 main game grid positioned centrally with prominent score display above (42px font size)
+- **Next Piece Preview**: 4×4 grid positioned beside the board with "Next Piece" label and visual border
 - **Control Section**: 3×2 scaled control button layout in bottom-left with 128×128 pixel buttons
-- **Booster Section**: 3×3 grid of booster slots in bottom-right with visual borders
+- **Booster Section**: 3×3 grid of booster slots in bottom-right section
 - **Coordinate System**: Bottom-left origin where Y=0 is at the bottom, Y=15 is at the top
 - **Visual Elements**: Green grid lines, dark blue background, and color-coded dice with gold numbers and black stroke
 
@@ -373,7 +373,10 @@ The start menu includes a responsive audio button with cross-platform support:
 - **T-Shape**: 4 dice in T formation
 
 **Piece Control**:
-- **Spawning**: Pieces spawn at the top center (X=3, Y=16) above the visible grid
+- **Spawning**: Pieces spawn at Y=16 (above the visible grid) and fall automatically
+- **Movement**: Use keyboard, touch, or on-screen controls to move and rotate pieces
+- **Individual Die Physics**: Each die in a piece can collide and lock independently
+- **Dynamic Fragmentation**: Pieces break apart as individual dice hit obstaclest the top center (X=3, Y=16) above the visible grid
 - **Movement**: Use controls to move left/right, rotate, or drop pieces faster
 - **Rotation**: Matrix-based rotation with intelligent wall kicks when blocked
 - **Preview**: Always check the next piece in the 4×4 preview grid to plan ahead
