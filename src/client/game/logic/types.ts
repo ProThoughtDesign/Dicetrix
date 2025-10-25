@@ -9,6 +9,8 @@ export interface Die {
   color: DieColor;
   isWild?: boolean;
   isBlack?: boolean;
+  boosterType?: import('../../../shared/types/difficulty.js').BoosterType;
+  glowColor?: string;
 }
 
 export interface GridPosition {

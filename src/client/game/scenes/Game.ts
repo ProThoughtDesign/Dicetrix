@@ -3,8 +3,15 @@ import * as Phaser from 'phaser';
 import GameBoard from '../logic/GameBoard';
 import { settings } from '../services/Settings';
 import { getMode } from '../config/GameMode';
-import { drawDie, setBoosterChance, getBoosterChance, determineGlowColor } from '../visuals/DiceRenderer';
-import { detectMatches } from '../logic/MatchDetector';
+import { 
+  drawDie, 
+  setBoosterChance, 
+  determineGlowColor, 
+  cleanupDie, 
+  initializeGlowPool, 
+  cleanupGlowPool 
+} from '../visuals/DiceRenderer';
+import { detectMatches, detectMatchesWithBlackDieEffects } from '../logic/MatchDetector';
 import { applyGravity } from '../logic/Gravity';
 // import { applyIndividualGravity } from '../logic/Gravity'; // Disabled for now
 import Logger from '../../utils/Logger';
@@ -16,6 +23,12 @@ import { GridBoundaryValidator } from '../../../shared/utils/GridBoundaryValidat
 import { audioHandler } from '../services/AudioHandler';
 import { SoundEffectLibrary } from '../services/SoundEffectLibrary';
 import { PauseMenuUI, PauseMenuCallbacks } from '../ui/PauseMenuUI';
+import { BackgroundBouncer, BackgroundBouncerConfig } from '../utils/BackgroundBouncer';
+import { ProceduralPieceGenerator } from '../../../shared/utils/ProceduralPieceGenerator';
+import { BlackDieManager } from '../../../shared/utils/BlackDieManager';
+import { BoosterEffectSystem } from '../../../shared/utils/BoosterEffectSystem';
+import { ScoreMultiplierManager } from '../../../shared/utils/ScoreMultiplierManager';
+import { DifficultyModeConfig } from '../../../shared/types/difficulty';
 
 export class Game extends Scene {
   // Simple game phase state machine to manage scene flow
@@ -45,7 +58,14 @@ export class Game extends Scene {
   private isPaused: boolean = false;
   
   // Bouncing background
-  private backgroundSprite: Phaser.Physics.Arcade.Sprite | null = null;
+  private backgroundSprite: Phaser.GameObjects.Sprite | null = null;
+  private backgroundBouncer: BackgroundBouncer | null = null;
+
+  // Procedural generation systems
+  private blackDieManager: BlackDieManager | null = null;
+  private boosterEffectSystem: BoosterEffectSystem | null = null;
+  private scoreMultiplierManager: ScoreMultiplierManager | null = null;
+  private currentDifficultyConfig: DifficultyModeConfig | null = null;
 
   // Diagnostic timing metrics for initialization debugging
   private initializationMetrics = {
@@ -184,6 +204,88 @@ export class Game extends Scene {
       default:
         this.setBoosterChance(0.15); // Default 15%
         break;
+    }
+  }
+
+  /**
+   * Initialize procedural generation systems
+   * Requirements: 5.1, 5.2, 5.3, 5.4, 5.5
+   */
+  private initializeProceduralSystems(): void {
+    try {
+      Logger.log('Game: Initializing procedural generation systems');
+
+      // Initialize BlackDieManager for wild matching and area conversion
+      this.blackDieManager = new BlackDieManager();
+      Logger.log('Game: BlackDieManager initialized');
+
+      // Initialize BoosterEffectSystem for visual glow effects
+      this.boosterEffectSystem = new BoosterEffectSystem();
+      Logger.log('Game: BoosterEffectSystem initialized');
+
+      // Initialize ScoreMultiplierManager for difficulty-based score scaling
+      this.scoreMultiplierManager = new ScoreMultiplierManager();
+      Logger.log('Game: ScoreMultiplierManager initialized');
+
+      // Get current difficulty configuration
+      const gameConfig = this.registry.get('gameConfig') as any;
+      if (gameConfig) {
+        // Convert GameConfig to DifficultyModeConfig format
+        this.currentDifficultyConfig = {
+          id: this.currentGameMode as any,
+          fallSpeed: gameConfig.fallSpeed || 800,
+          scoreMultiplier: gameConfig.scoreMultiplier || 1.0,
+          allowGravity: gameConfig.allowGravity !== false,
+          maxPieceWidth: gameConfig.maxPieceWidth || 4,
+          maxPieceHeight: gameConfig.maxPieceHeight || 4,
+          maxDicePerPiece: gameConfig.maxDicePerPiece || 8,
+          diceTypes: gameConfig.diceTypes || [6],
+          allowBlackDice: gameConfig.allowBlackDice || false,
+          uniformDiceRule: gameConfig.uniformDiceRule || false,
+          boosterChance: gameConfig.boosterChance || 0.15
+        };
+        Logger.log(`Game: Difficulty config loaded for ${this.currentGameMode} mode`);
+        Logger.log(`Game: Constraints - ${this.currentDifficultyConfig.maxPieceWidth}×${this.currentDifficultyConfig.maxPieceHeight}×${this.currentDifficultyConfig.maxDicePerPiece}`);
+        Logger.log(`Game: Dice types: [${this.currentDifficultyConfig.diceTypes.join(', ')}]`);
+        Logger.log(`Game: Black dice allowed: ${this.currentDifficultyConfig.allowBlackDice}`);
+        Logger.log(`Game: Uniform dice rule: ${this.currentDifficultyConfig.uniformDiceRule}`);
+        Logger.log(`Game: Booster chance: ${(this.currentDifficultyConfig.boosterChance * 100).toFixed(1)}%`);
+        Logger.log(`Game: Score multiplier: ${this.currentDifficultyConfig.scoreMultiplier}x`);
+
+        // Set difficulty config in ScoreMultiplierManager
+        if (this.scoreMultiplierManager) {
+          this.scoreMultiplierManager.setDifficultyConfig(this.currentDifficultyConfig);
+        }
+      } else {
+        Logger.log('Game: Warning - No game config found, using default difficulty config');
+        this.currentDifficultyConfig = {
+          id: 'medium' as any,
+          fallSpeed: 800,
+          scoreMultiplier: 1.0,
+          allowGravity: true,
+          maxPieceWidth: 4,
+          maxPieceHeight: 4,
+          maxDicePerPiece: 8,
+          diceTypes: [6, 8, 10, 12],
+          allowBlackDice: false,
+          uniformDiceRule: false,
+          boosterChance: 0.15
+        };
+
+        // Set fallback difficulty config in ScoreMultiplierManager
+        if (this.scoreMultiplierManager) {
+          this.scoreMultiplierManager.setDifficultyConfig(this.currentDifficultyConfig);
+        }
+      }
+
+      Logger.log('Game: Procedural generation systems initialized successfully');
+    } catch (error) {
+      Logger.log(`Game: Failed to initialize procedural systems - ${error}`);
+      // Set fallback systems to null for graceful degradation
+      this.blackDieManager = null;
+      this.boosterEffectSystem = null;
+      this.scoreMultiplierManager = null;
+      this.currentDifficultyConfig = null;
     }
   }
 
@@ -674,7 +776,7 @@ export class Game extends Scene {
     // Clear active piece sprites
     this.activeSprites.forEach((sprite) => {
       try {
-        sprite.destroy();
+        cleanupDie(sprite);
       } catch (e) {
         /* ignore */
       }
@@ -684,7 +786,7 @@ export class Game extends Scene {
     // Clear next piece sprites
     this.nextSprites.forEach((sprite) => {
       try {
-        sprite.destroy();
+        cleanupDie(sprite);
       } catch (e) {
         /* ignore */
       }
@@ -931,7 +1033,7 @@ export class Game extends Scene {
     // Clear old locked sprites
     this.lockedSprites.forEach((sprite) => {
       try {
-        sprite.destroy();
+        cleanupDie(sprite);
       } catch (e) {
         /* ignore */
       }
@@ -968,7 +1070,88 @@ export class Game extends Scene {
     }
   }
 
+  /**
+   * Generate a multi-die piece using procedural generation system
+   * Requirements: 5.1, 5.2, 5.3, 5.4, 5.5
+   */
   private generateMultiDiePiece(): any {
+    try {
+      // Use procedural generation if systems are available
+      if (this.currentDifficultyConfig) {
+        Logger.log('Game: Generating piece using ProceduralPieceGenerator');
+        Logger.log(`Game: Using constraints - ${this.currentDifficultyConfig.maxPieceWidth}×${this.currentDifficultyConfig.maxPieceHeight}×${this.currentDifficultyConfig.maxDicePerPiece}`);
+        
+        const proceduralPiece = ProceduralPieceGenerator.generatePiece(this.currentDifficultyConfig);
+        
+        // Convert procedural piece to game-compatible format
+        const convertedDice = proceduralPiece.dice.map((enhancedDie) => {
+          const die: any = {
+            id: enhancedDie.id,
+            sides: enhancedDie.sides,
+            number: enhancedDie.number,
+            color: enhancedDie.color,
+            relativePos: enhancedDie.relativePos,
+            // Preserve enhanced properties for future use
+            isBlack: enhancedDie.isBlack,
+            isWild: enhancedDie.isWild,
+            boosterType: enhancedDie.boosterType
+          };
+          
+          // Only set glowColor if it exists
+          if (enhancedDie.glowColor) {
+            die.glowColor = enhancedDie.glowColor;
+          }
+          
+          // Apply existing glow color determination for compatibility
+          // This ensures the existing renderer can handle the dice
+          if (!die.glowColor && enhancedDie.boosterType && enhancedDie.boosterType !== 'none') {
+            determineGlowColor(die);
+          }
+          
+          return die;
+        });
+
+        // Generate a descriptive shape name based on piece characteristics
+        const shapeDescription = this.generateShapeDescription(proceduralPiece);
+
+        const piece = {
+          id: `procedural-piece-${Date.now()}`,
+          shape: shapeDescription,
+          dice: convertedDice,
+          rotation: 0,
+          // Store procedural metadata for debugging
+          proceduralMetadata: {
+            width: proceduralPiece.width,
+            height: proceduralPiece.height,
+            centerX: proceduralPiece.centerX,
+            centerY: proceduralPiece.centerY,
+            diceCount: proceduralPiece.dice.length,
+            hasBlackDice: proceduralPiece.dice.some(d => d.isBlack),
+            boosterCount: proceduralPiece.dice.filter(d => d.boosterType && d.boosterType !== 'none').length
+          }
+        };
+
+        Logger.log(`Game: Generated ${shapeDescription} piece with ${convertedDice.length} dice`);
+        Logger.log(`Game: Piece dimensions: ${proceduralPiece.width}×${proceduralPiece.height}`);
+        Logger.log(`Game: Black dice: ${piece.proceduralMetadata.hasBlackDice ? 'Yes' : 'No'}`);
+        Logger.log(`Game: Booster dice: ${piece.proceduralMetadata.boosterCount}/${convertedDice.length}`);
+
+        return piece;
+      }
+    } catch (error) {
+      Logger.log(`Game: Procedural generation failed, falling back to legacy system - ${error}`);
+    }
+
+    // Fallback to legacy hardcoded piece generation
+    Logger.log('Game: Using legacy piece generation system');
+    return this.generateLegacyPiece();
+  }
+
+  /**
+   * Legacy piece generation system as fallback
+   * Maintains compatibility with existing game logic
+   */
+  private generateLegacyPiece(): any {
     // Define piece shapes (relative positions from origin)
     const pieceShapes = [
       // Single die
@@ -989,15 +1172,6 @@ export class Game extends Scene {
           { x: 2, y: 0 },
         ],
       },
-      {
-        name: 'line4',
-        positions: [
-          { x: 0, y: 0 },
-          { x: 1, y: 0 },
-          { x: 2, y: 0 },
-          { x: 3, y: 0 },
-        ],
-      },
       // L-shapes
       {
         name: 'L3',
@@ -1005,15 +1179,6 @@ export class Game extends Scene {
           { x: 0, y: 0 },
           { x: 0, y: 1 },
           { x: 1, y: 1 },
-        ],
-      },
-      {
-        name: 'L4',
-        positions: [
-          { x: 0, y: 0 },
-          { x: 0, y: 1 },
-          { x: 0, y: 2 },
-          { x: 1, y: 2 },
         ],
       },
       // Square
@@ -1039,7 +1204,7 @@ export class Game extends Scene {
     ];
 
     const diceTypes: number[] = (this.registry.get('gameConfig') as any)?.diceTypes || [6];
-    const palette = ['red', 'blue', 'green', 'yellow', 'purple', 'orange', 'teal', 'gray'];
+    const palette: string[] = ['red', 'blue', 'green', 'yellow', 'purple', 'orange', 'teal', 'gray'];
 
     // Select random shape
     const shape = pieceShapes[Math.floor(Math.random() * pieceShapes.length)];
@@ -1048,15 +1213,13 @@ export class Game extends Scene {
       const fallbackShape = { name: 'single', positions: [{ x: 0, y: 0 }] };
       const dice = fallbackShape.positions.map((pos, index) => {
         const sides = diceTypes[Math.floor(Math.random() * diceTypes.length)] || 6;
-        const color =
-          palette[sides % palette.length || 0] ||
-          palette[Math.floor(Math.random() * palette.length)];
+        const color: string = palette[sides % palette.length] || 'gray';
         
         const die = {
-          id: `p-${Date.now()}-${index}`,
+          id: `legacy-${Date.now()}-${index}`,
           sides,
           number: Math.ceil(Math.random() * sides),
-          color, // Restore color property for game logic
+          color,
           relativePos: pos,
         };
         
@@ -1066,7 +1229,7 @@ export class Game extends Scene {
         return die;
       });
       return {
-        id: `piece-${Date.now()}`,
+        id: `legacy-piece-${Date.now()}`,
         shape: fallbackShape.name,
         dice,
         rotation: 0,
@@ -1076,14 +1239,13 @@ export class Game extends Scene {
     // Create dice for each position
     const dice = shape.positions.map((pos, index) => {
       const sides = diceTypes[Math.floor(Math.random() * diceTypes.length)] || 6;
-      const color =
-        palette[sides % palette.length || 0] || palette[Math.floor(Math.random() * palette.length)];
+      const color: string = palette[sides % palette.length] || 'gray';
       
       const die = {
-        id: `p-${Date.now()}-${index}`,
+        id: `legacy-${Date.now()}-${index}`,
         sides,
         number: Math.ceil(Math.random() * sides),
-        color, // Restore color property for game logic
+        color,
         relativePos: pos,
       };
       
@@ -1094,11 +1256,37 @@ export class Game extends Scene {
     });
 
     return {
-      id: `piece-${Date.now()}`,
+      id: `legacy-piece-${Date.now()}`,
       shape: shape.name,
       dice,
-      rotation: 0, // 0, 90, 180, 270 degrees
+      rotation: 0,
     };
+  }
+
+  /**
+   * Generate a descriptive shape name for procedurally generated pieces
+   * @param piece The procedural piece to describe
+   * @returns A descriptive shape name
+   */
+  private generateShapeDescription(piece: any): string {
+    const diceCount = piece.dice.length;
+    const width = piece.width;
+    const height = piece.height;
+
+    // Generate description based on piece characteristics
+    if (diceCount === 1) {
+      return 'single';
+    } else if (width === 1 && height > 1) {
+      return `vertical-line-${diceCount}`;
+    } else if (height === 1 && width > 1) {
+      return `horizontal-line-${diceCount}`;
+    } else if (width === height && width === 2) {
+      return 'square';
+    } else if (width === height) {
+      return `square-${width}x${height}`;
+    } else {
+      return `procedural-${width}x${height}-${diceCount}dice`;
+    }
   }
 
   private handleBoardTouch(gridX: number, gridY: number): void {
@@ -1533,7 +1721,8 @@ export class Game extends Scene {
         const boardMetrics = (this.gameUI && (this.gameUI as any).boardMetrics) || null;
 
         // Cascade loop: detect -> animate -> clear -> gravity -> repeat until no matches
-        let cascadeMatches: any[] = detectMatches(this.gameBoard.state);
+        // Use enhanced detection that handles Black Die area conversion effects
+        let cascadeMatches: any[] = detectMatchesWithBlackDieEffects(this.gameBoard.state, this.gameBoard);
         if (cascadeMatches && cascadeMatches.length > 0) {
           Logger.log(`INITIAL CASCADE: ${cascadeMatches.length} match groups detected`);
         }
@@ -1631,7 +1820,12 @@ export class Game extends Scene {
 
           // Update score for this cascade iteration and propagate to UI
           if (cascadeIterationScore > 0) {
-            this.score += cascadeIterationScore;
+            // Apply difficulty-based score multiplier
+            const multipliedScore = this.scoreMultiplierManager 
+              ? this.scoreMultiplierManager.applyMultiplier(cascadeIterationScore)
+              : cascadeIterationScore;
+            
+            this.score += multipliedScore;
             try {
               this.gameUI?.updateScore(this.score);
             } catch (e) {
@@ -1639,8 +1833,8 @@ export class Game extends Scene {
             }
           }
 
-          // Detect again for potential cascades
-          cascadeMatches = detectMatches(this.gameBoard.state);
+          // Detect again for potential cascades with Black Die effects
+          cascadeMatches = detectMatchesWithBlackDieEffects(this.gameBoard.state, this.gameBoard);
           if (cascadeMatches && cascadeMatches.length > 0) {
             Logger.log(`CASCADE CONTINUED: ${cascadeMatches.length} new match groups detected`);
           }
@@ -1784,7 +1978,7 @@ export class Game extends Scene {
             ease: 'Cubic.easeIn',
             onComplete: () => {
               try {
-                sprite.destroy();
+                cleanupDie(sprite);
               } catch (e) {
                 /* ignore */
               }
@@ -1890,7 +2084,7 @@ export class Game extends Scene {
           // destroy temp sprites and re-render authoritative locked pieces
           tempSprites.forEach((s) => {
             try {
-              s.destroy();
+              cleanupDie(s);
             } catch (e) {}
           });
           this.renderGameState();
@@ -1923,7 +2117,7 @@ export class Game extends Scene {
             ease: 'Cubic.easeOut',
             onComplete: () => {
               try {
-                spr.destroy();
+                cleanupDie(spr);
               } catch (e) {}
               onComplete();
             },
@@ -1940,7 +2134,7 @@ export class Game extends Scene {
         if (completed < moved.length) {
           tempSprites.forEach((s) => {
             try {
-              s.destroy();
+              cleanupDie(s);
             } catch (e) {}
           });
           this.renderGameState();
@@ -1976,14 +2170,15 @@ export class Game extends Scene {
       `INIT TIMING: Scene create start at ${this.initializationMetrics.sceneCreateStart}ms`
     );
 
+    // Initialize glow effect pool for booster rendering
+    Logger.log('INIT STEP 0: Initializing glow effect pool');
+    initializeGlowPool(this);
+
     // Set background
     Logger.log('INIT STEP 1: Setting background and registry');
     this.cameras.main.setBackgroundColor('#1a1a2e');
     
-    // Set up physics world bounds
-    this.setupPhysicsWorld();
-    
-    // Create bouncing background
+    // Create bouncing background using BackgroundBouncer utility (physics-free approach)
     this.createBouncingBackground();
     
     this.registry.set('gameSceneReady', true);
@@ -2055,6 +2250,13 @@ export class Game extends Scene {
       `INIT TIMING: GameUI creation complete at ${this.initializationMetrics.gameUICreateComplete}ms (took ${this.initializationMetrics.gameUICreateComplete - this.initializationMetrics.gameUICreateStart}ms)`
     );
 
+    // Update score multiplier display if available
+    if (this.scoreMultiplierManager) {
+      const multiplier = this.scoreMultiplierManager.getMultiplier();
+      this.gameUI.updateScoreMultiplier(multiplier);
+      Logger.log(`Game: Score multiplier display updated to ${multiplier}x`);
+    }
+
     // Initialize enhanced audio system
     Logger.log('INIT STEP 5.5: Initializing enhanced audio system');
     this.initializeAudioSystem();
@@ -2062,6 +2264,10 @@ export class Game extends Scene {
     // Initialize booster chance system for dice glow effects
     Logger.log('INIT STEP 5.6: Initializing booster chance system');
     this.initializeBoosterChance();
+
+    // Initialize procedural generation systems
+    Logger.log('INIT STEP 5.7: Initializing procedural generation systems');
+    this.initializeProceduralSystems();
 
     // Validate UI system readiness
     this.validateUISystemReadiness();
@@ -3201,108 +3407,209 @@ export class Game extends Scene {
     return result;
   }
 
-  override update(): void {
+  override update(time: number, delta: number): void {
     // Update UI system
     if (this.gameUI) {
       this.gameUI.update();
     }
     
-    // Physics system handles background movement automatically
-    // No manual collision detection needed
+    // Update background bouncing using BackgroundBouncer
+    if (this.backgroundBouncer && this.backgroundSprite) {
+      try {
+        // Update bouncer logic with delta time
+        this.backgroundBouncer.update(delta);
+        
+        // Get sprite dimensions for positioning calculation
+        const spriteWidth = this.backgroundSprite.width;
+        const spriteHeight = this.backgroundSprite.height;
+        const scaleX = this.backgroundSprite.scaleX;
+        const scaleY = this.backgroundSprite.scaleY;
+        
+        // Validate sprite dimensions
+        if (spriteWidth > 0 && spriteHeight > 0) {
+          // Update background sprite position based on BackgroundBouncer calculations
+          const position = this.backgroundBouncer.getBackgroundPosition(spriteWidth, spriteHeight, scaleX, scaleY);
+          
+          // Validate position before applying
+          if (isFinite(position.x) && isFinite(position.y)) {
+            this.backgroundSprite.setPosition(position.x, position.y);
+          } else {
+            Logger.log(`Background update warning: Invalid position calculated (${position.x}, ${position.y})`);
+          }
+        } else {
+          Logger.log(`Background update warning: Invalid sprite dimensions ${spriteWidth}x${spriteHeight}`);
+        }
+      } catch (error) {
+        Logger.log(`Background update error: ${error}`);
+        // Continue without background animation on error
+      }
+    }
   }
 
-  /**
-   * Set up physics world bounds for proper collision detection
-   */
-  private setupPhysicsWorld(): void {
-    const { width, height } = this.scale;
-    
-    // Set up physics world bounds
-    this.physics.world.setBounds(0, 0, width, height);
-    
-    Logger.log(`Physics world bounds set to: (0, 0, ${width}, ${height})`);
-  }
+
 
   /**
    * Create a bouncing background sprite that moves around the screen
    */
   private createBouncingBackground(): void {
-    const { width, height } = this.scale;
-    
-    // Create the background sprite at screen center
-    this.backgroundSprite = this.physics.add.sprite(width / 2, height / 2, 'dicetrix-bg');
-    
-    if (!this.backgroundSprite) {
-      Logger.log('Failed to create background sprite');
-      return;
+    try {
+      const { width, height } = this.scale;
+      
+      // Validate screen dimensions
+      if (width <= 0 || height <= 0) {
+        Logger.log(`Background creation failed: Invalid screen dimensions ${width}x${height}`);
+        return;
+      }
+      
+      // Create regular sprite (no physics body needed for BackgroundBouncer system)
+      this.backgroundSprite = this.add.sprite(width / 2, height / 2, 'dicetrix-bg');
+      
+      if (!this.backgroundSprite) {
+        Logger.log('Background creation failed: Unable to create background sprite');
+        return;
+      }
+      
+      // Set the background to be behind everything else
+      this.backgroundSprite.setDepth(-1000);
+      
+      // Set initial scale to 100% (no scaling)
+      this.backgroundSprite.setScale(1.0);
+      
+      // Center the background image properly
+      this.backgroundSprite.setOrigin(0.5, 0.5); // Center the sprite's origin
+      
+      // Initialize BackgroundBouncer with screen dimensions and 80% bounding box
+      const bouncerConfig: BackgroundBouncerConfig = {
+        screenWidth: width,
+        screenHeight: height,
+        boundingBoxScale: 0.8, // 80% of screen size
+        initialSpeed: 50 // Medium-slow speed to match original
+      };
+      
+      try {
+        this.backgroundBouncer = new BackgroundBouncer(bouncerConfig);
+        Logger.log(`Background created using non-physics BackgroundBouncer system at center (${width/2}, ${height/2})`);
+        Logger.log(`Logical point bouncing within 80% bounding box (${width * 0.8}x${height * 0.8})`);
+        Logger.log(`Physics system not required - using manual collision detection and movement calculations`);
+      } catch (bouncerError) {
+        Logger.log(`Background creation failed: BackgroundBouncer initialization error - ${bouncerError}`);
+        // Clean up sprite if bouncer creation fails
+        if (this.backgroundSprite) {
+          this.backgroundSprite.destroy();
+          this.backgroundSprite = null;
+        }
+      }
+    } catch (error) {
+      Logger.log(`Background creation failed: Unexpected error - ${error}`);
+      // Ensure cleanup on any error
+      if (this.backgroundSprite) {
+        this.backgroundSprite.destroy();
+        this.backgroundSprite = null;
+      }
+      this.backgroundBouncer = null;
     }
-    
-    // Set the background to be behind everything else
-    this.backgroundSprite.setDepth(-1000);
-    
-    // Set initial scale to 100% (no scaling)
-    this.backgroundSprite.setScale(1.0);
-    
-    // Center the background image properly
-    this.backgroundSprite.setOrigin(0.5, 0.5); // Center the sprite's origin
-    
-    // Enable physics for the background
-    this.backgroundSprite.setCollideWorldBounds(true);
-    this.backgroundSprite.setBounce(1.0, 1.0); // Perfect bounce on both axes (no energy loss)
-    this.backgroundSprite.setFriction(0, 0); // No friction
-    this.backgroundSprite.setDrag(0, 0); // No drag/resistance
-    
-    // Position the background so it's centered on screen
-    // The sprite position is now at the center of the image
-    this.backgroundSprite.setPosition(width / 2, height / 2);
-    
-    // Apply initial random velocity (medium-slow pace)
-    const speed = 50; // Medium-slow speed
-    const angle = Math.random() * Math.PI * 2; // Random direction
-    const velocityX = Math.cos(angle) * speed;
-    const velocityY = Math.sin(angle) * speed;
-    
-    this.backgroundSprite.setVelocity(velocityX, velocityY);
-    
-    Logger.log(`Background created at center (${width/2}, ${height/2}) with velocity: (${velocityX.toFixed(2)}, ${velocityY.toFixed(2)})`);
   }
 
 
   shutdown(): void {
-    // Clean up timers when scene shuts down
-    if (this.dropTimer) {
-      this.dropTimer.remove(false);
-      this.dropTimer = null;
-    }
+    try {
+      Logger.log('Game scene: Starting shutdown cleanup process');
 
-    if (this.gravityTimer) {
-      this.gravityTimer.remove(false);
-      this.gravityTimer = null;
-    }
+      // Clean up timers when scene shuts down
+      try {
+        if (this.dropTimer) {
+          this.dropTimer.remove(false);
+          this.dropTimer = null;
+        }
 
-    // Clean up UI
-    if (this.gameUI) {
-      this.gameUI.destroy();
-    }
+        if (this.gravityTimer) {
+          this.gravityTimer.remove(false);
+          this.gravityTimer = null;
+        }
+        Logger.log('Game scene: Timers cleaned up successfully');
+      } catch (error) {
+        Logger.log(`Game scene: Error cleaning up timers - ${error}`);
+      }
 
-    // Clean up audio
-    if (this.soundEffectLibrary) {
-      this.soundEffectLibrary.destroy();
+      // Clean up UI
+      try {
+        if (this.gameUI) {
+          this.gameUI.destroy();
+        }
+        Logger.log('Game scene: GameUI cleaned up successfully');
+      } catch (error) {
+        Logger.log(`Game scene: Error cleaning up GameUI - ${error}`);
+      }
+
+      // Clean up audio
+      try {
+        if (this.soundEffectLibrary) {
+          this.soundEffectLibrary.destroy();
+          this.soundEffectLibrary = null;
+        }
+        Logger.log('Game scene: Audio system cleaned up successfully');
+      } catch (error) {
+        Logger.log(`Game scene: Error cleaning up audio system - ${error}`);
+      }
+
+      // Clean up pause menu
+      try {
+        if (this.pauseMenuUI) {
+          this.pauseMenuUI.destroy();
+          this.pauseMenuUI = null;
+        }
+        Logger.log('Game scene: Pause menu cleaned up successfully');
+      } catch (error) {
+        Logger.log(`Game scene: Error cleaning up pause menu - ${error}`);
+      }
+
+      // Clean up background system (sprite and bouncer)
+      try {
+        // Clean up background sprite (regular sprite, not physics sprite)
+        if (this.backgroundSprite) {
+          this.backgroundSprite.destroy();
+          this.backgroundSprite = null;
+        }
+        
+        // Clean up BackgroundBouncer instance
+        if (this.backgroundBouncer) {
+          // BackgroundBouncer is a simple utility class with no explicit cleanup needed
+          // Just clear the reference to allow garbage collection
+          this.backgroundBouncer = null;
+        }
+        
+        Logger.log('Game scene: Background system (sprite and bouncer) cleaned up successfully');
+      } catch (error) {
+        Logger.log(`Game scene: Error cleaning up background system - ${error}`);
+        // Ensure references are cleared even if cleanup fails
+        this.backgroundSprite = null;
+        this.backgroundBouncer = null;
+      }
+
+      // Clean up sprite arrays
+      try {
+        this.clearSprites();
+        Logger.log('Game scene: Sprite arrays cleaned up successfully');
+      } catch (error) {
+        Logger.log(`Game scene: Error cleaning up sprite arrays - ${error}`);
+      }
+
+      // Clean up glow effect pool
+      try {
+        cleanupGlowPool();
+        Logger.log('Game scene: Glow effect pool cleaned up successfully');
+      } catch (error) {
+        Logger.log(`Game scene: Error cleaning up glow effect pool - ${error}`);
+      }
+
+      Logger.log('Game scene: Shutdown cleanup completed successfully');
+    } catch (error) {
+      Logger.log(`Game scene: Critical error during shutdown - ${error}`);
+      // Ensure critical references are cleared even if shutdown fails
+      this.backgroundSprite = null;
+      this.backgroundBouncer = null;
       this.soundEffectLibrary = null;
-    }
-
-    // Clean up pause menu
-    if (this.pauseMenuUI) {
-      this.pauseMenuUI.destroy();
       this.pauseMenuUI = null;
     }
-
-    // Clean up background sprite
-    if (this.backgroundSprite) {
-      this.backgroundSprite.destroy();
-      this.backgroundSprite = null;
-    }
-
-    Logger.log('Game scene: Timers, UI, audio, pause menu, and background cleaned up');
   }
 }

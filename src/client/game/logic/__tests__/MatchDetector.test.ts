@@ -1,5 +1,5 @@
-import { describe, test, expect } from 'vitest';
-import { detectMatches } from '../MatchDetector';
+import { describe, test, expect, vi } from 'vitest';
+import { detectMatches, detectMatchesWithBlackDieEffects } from '../MatchDetector';
 import { GridState } from '../types';
 import { GAME_CONSTANTS } from '../../../../shared/constants/GameConstants';
 
@@ -32,6 +32,52 @@ describe('MatchDetector', () => {
     const matches = detectMatches(grid, 3);
     expect(matches.length).toBeGreaterThanOrEqual(1);
     expect(matches[0].size).toBe(3);
+  });
+
+  test('Black Die matches any number wildly', () => {
+    const grid: GridState = { width: 3, height: 1, cells: [] } as any;
+    grid.cells = [new Array(3).fill(null)];
+    grid.cells[0][0] = { id: 'a', sides: 6, number: 4, color: 'red' } as any;
+    grid.cells[0][1] = { id: 'black', sides: 20, number: 15, color: 'black', isBlack: true, isWild: true } as any;
+    grid.cells[0][2] = { id: 'b', sides: 6, number: 4, color: 'red' } as any;
+
+    const matches = detectMatches(grid, 3);
+    expect(matches.length).toBeGreaterThanOrEqual(1);
+    expect(matches[0].size).toBe(3);
+  });
+
+  test('Black Die matches different numbers in same group', () => {
+    const grid: GridState = { width: 4, height: 1, cells: [] } as any;
+    grid.cells = [new Array(4).fill(null)];
+    grid.cells[0][0] = { id: 'a', sides: 6, number: 3, color: 'blue' } as any;
+    grid.cells[0][1] = { id: 'black1', sides: 20, number: 12, color: 'black', isBlack: true, isWild: true } as any;
+    grid.cells[0][2] = { id: 'black2', sides: 20, number: 8, color: 'black', isBlack: true, isWild: true } as any;
+    grid.cells[0][3] = { id: 'b', sides: 8, number: 3, color: 'green' } as any;
+
+    const matches = detectMatches(grid, 4);
+    expect(matches.length).toBeGreaterThanOrEqual(1);
+    expect(matches[0].size).toBe(4);
+  });
+
+  test('multiple Black Dice create large connected match', () => {
+    const grid: GridState = { width: 3, height: 3, cells: [] } as any;
+    grid.cells = [
+      new Array(3).fill(null),
+      new Array(3).fill(null),
+      new Array(3).fill(null)
+    ];
+    
+    // Create L-shaped pattern with Black Dice connecting different numbers
+    grid.cells[2][0] = { id: 'a1', sides: 6, number: 5, color: 'red' } as any;
+    grid.cells[2][1] = { id: 'black1', sides: 20, number: 10, color: 'black', isBlack: true, isWild: true } as any;
+    grid.cells[2][2] = { id: 'a2', sides: 8, number: 7, color: 'blue' } as any;
+    grid.cells[1][1] = { id: 'black2', sides: 20, number: 15, color: 'black', isBlack: true, isWild: true } as any;
+    grid.cells[0][1] = { id: 'b1', sides: 6, number: 5, color: 'red' } as any;
+
+    const matches = detectMatches(grid, 3);
+    expect(matches.length).toBeGreaterThanOrEqual(1);
+    const largeMatch = matches.find(m => m.size >= 5);
+    expect(largeMatch).toBeDefined();
   });
 
   describe('8x16 Grid Boundary Tests', () => {
@@ -148,6 +194,93 @@ describe('MatchDetector', () => {
 
       const matches = detectMatches(grid, 3);
       expect(matches.length).toBe(0);
+    });
+  });
+
+  describe('Black Die Area Conversion Effects', () => {
+    test('detectMatchesWithBlackDieEffects triggers area conversion for Black Dice in matches', () => {
+      const grid: GridState = { width: 3, height: 1, cells: [] } as any;
+      grid.cells = [new Array(3).fill(null)];
+      grid.cells[0][0] = { id: 'a', sides: 6, number: 4, color: 'red' } as any;
+      grid.cells[0][1] = { id: 'black', sides: 20, number: 15, color: 'black', isBlack: true, isWild: true } as any;
+      grid.cells[0][2] = { id: 'b', sides: 6, number: 4, color: 'red' } as any;
+
+      // Mock game board
+      const mockGameBoard = {
+        state: grid,
+        getCell: vi.fn((pos) => grid.cells[0][pos.x]),
+        lockCell: vi.fn(),
+        isValidPosition: vi.fn(() => true)
+      };
+
+      const matches = detectMatchesWithBlackDieEffects(grid, mockGameBoard, 3);
+      
+      expect(matches.length).toBeGreaterThanOrEqual(1);
+      expect(matches[0].size).toBe(3);
+      
+      // Verify that area conversion was attempted (lockCell should be called for area conversion)
+      expect(mockGameBoard.lockCell).toHaveBeenCalled();
+    });
+
+    test('detectMatchesWithBlackDieEffects works without game board', () => {
+      const grid: GridState = { width: 3, height: 1, cells: [] } as any;
+      grid.cells = [new Array(3).fill(null)];
+      grid.cells[0][0] = { id: 'a', sides: 6, number: 4, color: 'red' } as any;
+      grid.cells[0][1] = { id: 'black', sides: 20, number: 15, color: 'black', isBlack: true, isWild: true } as any;
+      grid.cells[0][2] = { id: 'b', sides: 6, number: 4, color: 'red' } as any;
+
+      // Should work without game board (no area conversion)
+      const matches = detectMatchesWithBlackDieEffects(grid, null, 3);
+      
+      expect(matches.length).toBeGreaterThanOrEqual(1);
+      expect(matches[0].size).toBe(3);
+    });
+
+    test('handles multiple Black Dice in same match', () => {
+      const grid: GridState = { width: 4, height: 1, cells: [] } as any;
+      grid.cells = [new Array(4).fill(null)];
+      grid.cells[0][0] = { id: 'a', sides: 6, number: 3, color: 'blue' } as any;
+      grid.cells[0][1] = { id: 'black1', sides: 20, number: 12, color: 'black', isBlack: true, isWild: true } as any;
+      grid.cells[0][2] = { id: 'black2', sides: 20, number: 8, color: 'black', isBlack: true, isWild: true } as any;
+      grid.cells[0][3] = { id: 'b', sides: 8, number: 3, color: 'green' } as any;
+
+      // Mock game board
+      const mockGameBoard = {
+        state: grid,
+        getCell: vi.fn((pos) => grid.cells[0][pos.x]),
+        lockCell: vi.fn(),
+        isValidPosition: vi.fn(() => true)
+      };
+
+      const matches = detectMatchesWithBlackDieEffects(grid, mockGameBoard, 4);
+      
+      expect(matches.length).toBeGreaterThanOrEqual(1);
+      expect(matches[0].size).toBe(4);
+      
+      // Should trigger area conversion for both Black Dice
+      expect(mockGameBoard.lockCell).toHaveBeenCalled();
+    });
+
+    test('gracefully handles area conversion errors', () => {
+      const grid: GridState = { width: 3, height: 1, cells: [] } as any;
+      grid.cells = [new Array(3).fill(null)];
+      grid.cells[0][0] = { id: 'a', sides: 6, number: 4, color: 'red' } as any;
+      grid.cells[0][1] = { id: 'black', sides: 20, number: 15, color: 'black', isBlack: true, isWild: true } as any;
+      grid.cells[0][2] = { id: 'b', sides: 6, number: 4, color: 'red' } as any;
+
+      // Mock game board that throws errors
+      const mockGameBoard = {
+        state: grid,
+        getCell: vi.fn(() => { throw new Error('Test error'); }),
+        lockCell: vi.fn(),
+        isValidPosition: vi.fn(() => true)
+      };
+
+      // Should not throw, just log warnings
+      const matches = detectMatchesWithBlackDieEffects(grid, mockGameBoard, 3);
+      
+      expect(matches.length).toBeGreaterThanOrEqual(1);
+      expect(matches[0].size).toBe(3);
     });
   });
 });

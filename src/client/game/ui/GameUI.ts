@@ -23,6 +23,7 @@ export class GameUI extends BaseUI {
   // Left Column Elements
   private scoreLabel: Phaser.GameObjects.Text;
   private scoreValue: Phaser.GameObjects.Text;
+  private scoreMultiplierLabel: Phaser.GameObjects.Text;
   private matchFooter: Phaser.GameObjects.Text;
   private boardContainer: Phaser.GameObjects.Container;
   private boardBackground: Phaser.GameObjects.Graphics;
@@ -149,6 +150,17 @@ export class GameUI extends BaseUI {
       })
       .setOrigin(1, 0);
 
+    this.scoreMultiplierLabel = this.scene.add
+      .text(0, 0, '', {
+        fontFamily: FontLoader.createFontFamily('Asimovian'),
+        fontSize: '24px',
+        color: '#00ff00',
+        stroke: '#000000',
+        strokeThickness: 2,
+      })
+      .setOrigin(1, 0)
+      .setVisible(false); // Initially hidden
+
     this.matchFooter = this.scene.add
       .text(0, 0, '', {
         fontFamily: FontLoader.createFontFamily('Asimovian'),
@@ -159,7 +171,7 @@ export class GameUI extends BaseUI {
       })
       .setOrigin(0, 0);
 
-    this.leftColumn.add([this.scoreLabel, this.scoreValue]);
+    this.leftColumn.add([this.scoreLabel, this.scoreValue, this.scoreMultiplierLabel]);
     this.leftColumn.add(this.matchFooter);
   }
 
@@ -319,6 +331,10 @@ export class GameUI extends BaseUI {
     // Score label left aligned, score value right aligned (full width)
     this.scoreLabel.setPosition(padding + 12, headerInnerY);
     this.scoreValue.setPosition(screenWidth - padding - 12, headerInnerY);
+    
+    // Position score multiplier below score value (right aligned)
+    this.scoreMultiplierLabel.setPosition(screenWidth - padding - 12, headerInnerY + 50);
+    
     // hide match footer for now
     if (this.matchFooter) this.matchFooter.setVisible(false);
 
@@ -855,6 +871,15 @@ export class GameUI extends BaseUI {
 
   public updateScore(score: number): void {
     this.scoreValue.setText(score.toString());
+  }
+
+  public updateScoreMultiplier(multiplier: number): void {
+    if (multiplier !== 1.0) {
+      this.scoreMultiplierLabel.setText(`${multiplier}x`);
+      this.scoreMultiplierLabel.setVisible(true);
+    } else {
+      this.scoreMultiplierLabel.setVisible(false);
+    }
   }
 
   public updateMatchFooter(text: string): void {
