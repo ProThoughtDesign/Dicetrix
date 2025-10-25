@@ -47,14 +47,14 @@ assets/audio/
 │   └── zen-mode.mp3         # Zen mode gameplay music
 └── sfx/                     # Sound effect files (0.05-3 seconds each)
     ├── piece-placement.mp3
-    │   ├── piece-rotation.ogg
-    │   ├── piece-rotation.mp3
-    │   ├── piece-drop.ogg
-    │   ├── piece-drop.mp3
+    │   ├── Xpiece-rotation.ogg
+    │   ├── Xpiece-rotation.mp3
+    │   ├── Xpiece-drop.ogg
+    │   ├── Xpiece-drop.mp3
     │   ├── piece-hold.ogg
     │   ├── piece-hold.mp3
     │   ├── dice-match-3.ogg
-    │   ├── dice-match-3.mp3
+    │   ├── Xdice-match-3.mp3
     │   ├── dice-match-4.ogg
     │   ├── dice-match-4.mp3
     │   ├── dice-match-5.ogg

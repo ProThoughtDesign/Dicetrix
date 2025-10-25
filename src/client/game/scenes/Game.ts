@@ -19,6 +19,7 @@ import FontLoader from '../../utils/FontLoader';
 import { GameUI, GameUICallbacks } from '../ui/GameUI';
 import { GAME_CONSTANTS, SPAWN_POSITIONS } from '../../../shared/constants/GameConstants';
 import { CoordinateConverter } from '../../../shared/utils/CoordinateConverter';
+import { ScoreBreakdown } from '../../../shared/types/game';
 import { GridBoundaryValidator } from '../../../shared/utils/GridBoundaryValidator';
 import { audioHandler } from '../services/AudioHandler';
 import { SoundEffectLibrary } from '../services/SoundEffectLibrary';
@@ -29,6 +30,8 @@ import { BlackDieManager } from '../../../shared/utils/BlackDieManager';
 import { BoosterEffectSystem } from '../../../shared/utils/BoosterEffectSystem';
 import { ScoreMultiplierManager } from '../../../shared/utils/ScoreMultiplierManager';
 import { DifficultyModeConfig } from '../../../shared/types/difficulty';
+import { ScoreSubmissionUI, GameEndData, ScoreSubmissionCallbacks } from '../ui/ScoreSubmissionUI';
+import { RedditScoreSubmissionRequest, RedditScoreSubmissionResponse } from '../../../shared/types/api';
 
 export class Game extends Scene {
   // Simple game phase state machine to manage scene flow
@@ -37,6 +40,21 @@ export class Game extends Scene {
   private gameBoard: GameBoard;
   private score: number = 0;
   private cascadeMultiplier: number = 1;
+  
+  // Score tracking for submission
+  private gameStartTime: number = 0;
+  private scoreAchievementTime: number = 0;
+  private currentLevel: number = 1;
+  private scoreBreakdown: ScoreBreakdown = {
+    baseScore: 0,
+    chainMultiplier: 1,
+    ultimateComboMultiplier: 1,
+    boosterModifiers: 0,
+    totalScore: 0
+  };
+  
+  // Score submission UI
+  private scoreSubmissionUI: ScoreSubmissionUI | null = null;
   private coordinateConverter: CoordinateConverter;
   private activePiece: any;
   private nextPiece: any;
@@ -1450,8 +1468,8 @@ export class Game extends Scene {
         this.soundEffectLibrary.playGameOver();
       }
       
-      // Game over - transition to GameOver scene
-      this.scene.start('GameOver');
+      // Show score submission interface instead of directly going to GameOver
+      this.showScoreSubmissionInterface();
       return;
     }
 
@@ -1494,6 +1512,114 @@ export class Game extends Scene {
     const totalSpawnTime = performance.now() - spawnStartTime;
     Logger.log(`SPAWN COMPLETE: Total spawnPiece() time: ${totalSpawnTime.toFixed(2)}ms`);
     Logger.log('=== SPAWN PIECE DIAGNOSTIC: spawnPiece() completed ===');
+  }
+
+  /**
+   * Show the score submission interface when the game ends
+   * Requirements: 1.1, 1.2, 1.4, 1.5
+   */
+  private showScoreSubmissionInterface(): void {
+    try {
+      Logger.log('Game: Showing score submission interface');
+      
+      // Pause any active timers
+      this.pauseGameTimers();
+      
+      // Prepare game end data
+      const gameEndData: GameEndData = {
+        score: this.score,
+        level: this.currentLevel,
+        mode: this.currentGameMode as any,
+        breakdown: this.scoreBreakdown,
+        timestamp: this.scoreAchievementTime
+      };
+      
+      // Create submission callbacks
+      const callbacks: ScoreSubmissionCallbacks = {
+        onSubmit: (data: RedditScoreSubmissionRequest) => this.handleScoreSubmission(data),
+        onCancel: () => this.handleScoreSubmissionCancel(),
+        onContinue: () => this.handleScoreSubmissionContinue()
+      };
+      
+      // Create and show the score submission UI
+      this.scoreSubmissionUI = new ScoreSubmissionUI(this, gameEndData, callbacks);
+      
+      Logger.log(`Game: Score submission interface created for score ${this.score} in ${this.currentGameMode} mode`);
+    } catch (error) {
+      Logger.log(`Game: Error showing score submission interface - ${error}`);
+      // Fallback to direct GameOver transition
+      this.scene.start('GameOver');
+    }
+  }
+
+  /**
+   * Handle score submission to the server
+   * Requirements: 1.2, 1.3, 1.4
+   */
+  private async handleScoreSubmission(data: RedditScoreSubmissionRequest): Promise<RedditScoreSubmissionResponse> {
+    try {
+      Logger.log(`Game: Submitting score ${data.score} for ${data.mode} mode, Reddit post: ${data.createPost}`);
+      
+      // Make API call to submit score
+      const response = await fetch('/api/reddit/submit-score', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const result: RedditScoreSubmissionResponse = await response.json();
+      
+      Logger.log(`Game: Score submission ${result.success ? 'successful' : 'failed'}: ${result.message}`);
+      if (result.leaderboardPosition) {
+        Logger.log(`Game: Leaderboard position: #${result.leaderboardPosition}`);
+      }
+      if (result.redditPostUrl) {
+        Logger.log(`Game: Reddit post created: ${result.redditPostUrl}`);
+      }
+      
+      return result;
+    } catch (error) {
+      Logger.log(`Game: Score submission error - ${error}`);
+      return {
+        success: false,
+        message: `Submission failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+      };
+    }
+  }
+
+  /**
+   * Handle score submission cancellation
+   */
+  private handleScoreSubmissionCancel(): void {
+    Logger.log('Game: Score submission cancelled');
+    this.cleanupScoreSubmissionUI();
+    this.scene.start('GameOver');
+  }
+
+  /**
+   * Handle score submission completion (continue to game over)
+   */
+  private handleScoreSubmissionContinue(): void {
+    Logger.log('Game: Score submission completed, continuing to game over');
+    this.cleanupScoreSubmissionUI();
+    this.scene.start('GameOver');
+  }
+
+  /**
+   * Clean up the score submission UI
+   */
+  private cleanupScoreSubmissionUI(): void {
+    if (this.scoreSubmissionUI) {
+      this.scoreSubmissionUI.destroy();
+      this.scoreSubmissionUI = null;
+      Logger.log('Game: Score submission UI cleaned up');
+    }
   }
 
   /**
@@ -1826,6 +1952,17 @@ export class Game extends Scene {
               : cascadeIterationScore;
             
             this.score += multipliedScore;
+            
+            // Update score achievement time and breakdown
+            this.scoreAchievementTime = Date.now();
+            this.scoreBreakdown = {
+              baseScore: cascadeIterationScore,
+              chainMultiplier: this.cascadeMultiplier,
+              ultimateComboMultiplier: 1, // TODO: Implement ultimate combo tracking
+              boosterModifiers: 0, // TODO: Implement booster modifier tracking
+              totalScore: this.score
+            };
+            
             try {
               this.gameUI?.updateScore(this.score);
             } catch (e) {
@@ -2196,6 +2333,13 @@ export class Game extends Scene {
     this.registry.set('gameMode', mode.id);
     this.registry.set('gameConfig', cfg);
     this.currentGameMode = selectedMode;
+    
+    // Initialize game timing for score submission
+    this.gameStartTime = Date.now();
+    this.scoreAchievementTime = this.gameStartTime;
+    this.currentLevel = 1;
+    Logger.log(`Game: Game started at ${new Date(this.gameStartTime).toISOString()}`);
+    
     this.initializationMetrics.registrySetupComplete = performance.now();
     Logger.log(
       `INIT TIMING: Registry setup complete at ${this.initializationMetrics.registrySetupComplete}ms (took ${this.initializationMetrics.registrySetupComplete - this.initializationMetrics.backgroundSetComplete}ms)`
@@ -3561,6 +3705,14 @@ export class Game extends Scene {
         Logger.log('Game scene: Pause menu cleaned up successfully');
       } catch (error) {
         Logger.log(`Game scene: Error cleaning up pause menu - ${error}`);
+      }
+
+      // Clean up score submission UI
+      try {
+        this.cleanupScoreSubmissionUI();
+        Logger.log('Game scene: Score submission UI cleaned up successfully');
+      } catch (error) {
+        Logger.log(`Game scene: Error cleaning up score submission UI - ${error}`);
       }
 
       // Clean up background system (sprite and bouncer)

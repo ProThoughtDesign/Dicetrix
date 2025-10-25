@@ -45,10 +45,30 @@ export class StartMenu extends Scene {
     const settingsButtonX = settingsButtonLeft + settingsButtonWidth / 2;
     const settingsButtonY = screenHeight * 0.75;
 
+    // Leaderboard button dimensions and positioning (Requirements 7.1, 8.1, 8.5)
+    const leaderboardTextWidth = settingsFontSize * 0.6 * 12; // 12 characters in 'LEADERBOARD'
+    const leaderboardButtonWidth = leaderboardTextWidth + (settingsPaddingX * 2);
+    const leaderboardButtonHeight = settingsButtonHeight;
+    
+    // Position leaderboard button below settings button
+    const buttonSpacing = this.calculateResponsiveButtonSpacing(screenWidth, uiScale);
+    const leaderboardButtonLeft = settingsButtonLeft; // Same left alignment as settings
+    const leaderboardButtonX = leaderboardButtonLeft + leaderboardButtonWidth / 2;
+    const leaderboardButtonY = settingsButtonY + settingsButtonHeight + buttonSpacing;
+
+    // How To Play button dimensions and positioning (Requirements 8.1, 8.5)
+    const howToPlayTextWidth = settingsFontSize * 0.6 * 12; // 12 characters in 'HOW TO PLAY'
+    const howToPlayButtonWidth = howToPlayTextWidth + (settingsPaddingX * 2);
+    const howToPlayButtonHeight = settingsButtonHeight;
+    
+    // Position How To Play button next to settings button (where leaderboard used to be)
+    const howToPlayButtonLeft = settingsButtonLeft + settingsButtonWidth + buttonSpacing;
+    const howToPlayButtonX = howToPlayButtonLeft + howToPlayButtonWidth / 2;
+    const howToPlayButtonY = settingsButtonY;
+
     // Audio button positioning with responsive behavior (Requirements 6.1, 6.2, 6.4, 6.5)
     const audioButtonSize = this.calculateResponsiveAudioButtonSize(settingsButtonHeight, screenWidth, screenHeight, uiScale);
-    const buttonSpacing = this.calculateResponsiveButtonSpacing(screenWidth, uiScale);
-    const audioButtonLeft = settingsButtonLeft + settingsButtonWidth + buttonSpacing;
+    const audioButtonLeft = howToPlayButtonLeft + howToPlayButtonWidth + buttonSpacing;
     const audioButtonX = audioButtonLeft + audioButtonSize / 2;
     const audioButtonY = settingsButtonY;
 
@@ -65,6 +85,20 @@ export class StartMenu extends Scene {
       settingsButtonLeft,
       settingsButtonWidth,
       settingsButtonHeight,
+      
+      // Leaderboard button layout
+      leaderboardButtonX,
+      leaderboardButtonY,
+      leaderboardButtonLeft,
+      leaderboardButtonWidth,
+      leaderboardButtonHeight,
+      
+      // How To Play button layout
+      howToPlayButtonX,
+      howToPlayButtonY,
+      howToPlayButtonLeft,
+      howToPlayButtonWidth,
+      howToPlayButtonHeight,
       
       // Audio button layout
       audioButtonX,
@@ -432,6 +466,40 @@ export class StartMenu extends Scene {
       .on('pointerover', () => settingsButton.setStyle({ backgroundColor: '#888888' }))
       .on('pointerout', () => settingsButton.setStyle({ backgroundColor: '#666666' }))
       .on('pointerdown', () => this.openSettings());
+
+    // Leaderboard button (Requirements 7.1, 8.1, 8.5)
+    const leaderboardButton = this.add
+      .text(layout.leaderboardButtonX, layout.leaderboardButtonY, 'LEADERBOARD', {
+        fontSize: `${24 * UI_SCALE}px`,
+        color: '#ffffff',
+        fontFamily: 'Asimovian, "Arial Black", Arial, sans-serif',
+        backgroundColor: '#666666',
+        padding: { x: 25 * UI_SCALE, y: 12 * UI_SCALE },
+        stroke: '#000000',
+        strokeThickness: 1,
+      })
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerover', () => leaderboardButton.setStyle({ backgroundColor: '#888888' }))
+      .on('pointerout', () => leaderboardButton.setStyle({ backgroundColor: '#666666' }))
+      .on('pointerdown', () => this.openLeaderboard());
+
+    // How To Play button (Requirements 8.1, 8.2)
+    const howToPlayButton = this.add
+      .text(layout.howToPlayButtonX, layout.howToPlayButtonY, 'HOW TO PLAY', {
+        fontSize: `${24 * UI_SCALE}px`,
+        color: '#ffffff',
+        fontFamily: 'Asimovian, "Arial Black", Arial, sans-serif',
+        backgroundColor: '#666666',
+        padding: { x: 25 * UI_SCALE, y: 12 * UI_SCALE },
+        stroke: '#000000',
+        strokeThickness: 1,
+      })
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerover', () => howToPlayButton.setStyle({ backgroundColor: '#888888' }))
+      .on('pointerout', () => howToPlayButton.setStyle({ backgroundColor: '#666666' }))
+      .on('pointerdown', () => this.openHowToPlay());
 
     // Audio button with cross-platform support (Requirements 6.1, 6.2, 6.4)
     this.audioButton = this.add
@@ -1231,6 +1299,58 @@ export class StartMenu extends Scene {
       // Switch to Settings scene (don't wait for audio)
       this.scene.start('Settings');
       Logger.log('StartMenu: Opening Settings');
+    });
+  }
+
+  /**
+   * Open leaderboard scene
+   * Requirements: 7.1, 7.4
+   */
+  private openLeaderboard(): void {
+    return Logger.withSilentLogging(() => {
+      // This user interaction enables audio context with enhanced error handling
+      this.enableAudioOnUserInteraction().then(() => {
+        // Play menu select sound after audio is initialized
+        try {
+          audioHandler.playSound('menu-select');
+        } catch (soundError) {
+          Logger.log(`StartMenu: Menu select sound failed in openLeaderboard - ${soundError}`);
+          // Continue with leaderboard navigation even if sound fails
+        }
+      }).catch(error => {
+        Logger.log(`StartMenu: Audio initialization failed in openLeaderboard - ${error}`);
+        // Continue with leaderboard navigation even if audio fails
+      });
+      
+      // Switch to LeaderboardScene (don't wait for audio)
+      this.scene.start('LeaderboardScene');
+      Logger.log('StartMenu: Opening Leaderboard');
+    });
+  }
+
+  /**
+   * Open How To Play scene
+   * Requirements: 8.1, 8.2
+   */
+  private openHowToPlay(): void {
+    return Logger.withSilentLogging(() => {
+      // This user interaction enables audio context with enhanced error handling
+      this.enableAudioOnUserInteraction().then(() => {
+        // Play menu select sound after audio is initialized
+        try {
+          audioHandler.playSound('menu-select');
+        } catch (soundError) {
+          Logger.log(`StartMenu: Menu select sound failed in openHowToPlay - ${soundError}`);
+          // Continue with How To Play navigation even if sound fails
+        }
+      }).catch(error => {
+        Logger.log(`StartMenu: Audio initialization failed in openHowToPlay - ${error}`);
+        // Continue with How To Play navigation even if audio fails
+      });
+      
+      // Switch to HowToPlayScene (don't wait for audio)
+      this.scene.start('HowToPlayScene');
+      Logger.log('StartMenu: Opening How To Play');
     });
   }
 

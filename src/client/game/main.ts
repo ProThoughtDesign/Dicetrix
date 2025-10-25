@@ -5,6 +5,8 @@ import { StartMenu } from './scenes/StartMenu';
 import { Settings } from './scenes/Settings';
 import { Game } from './scenes/Game';
 import { GameOver } from './scenes/GameOver';
+import { LeaderboardScene } from './scenes/LeaderboardScene';
+import { HowToPlayScene } from './scenes/HowToPlayScene';
 import * as Phaser from 'phaser';
 
 const config: Phaser.Types.Core.GameConfig = {
@@ -30,7 +32,7 @@ const config: Phaser.Types.Core.GameConfig = {
     noAudio: false,
     context: null, // Let Phaser create context but we'll manage it properly
   },
-  scene: [Boot, Preloader, SplashScreen, StartMenu, Settings, Game, GameOver],
+  scene: [Boot, Preloader, SplashScreen, StartMenu, Settings, Game, GameOver, LeaderboardScene, HowToPlayScene],
 };
 
 const StartGame = (parent: string) => {

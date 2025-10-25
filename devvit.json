@@ -19,8 +19,8 @@
   "menu": {
     "items": [
       {
-        "label": "Create a new post",
-        "description": "Dicetrix Game",
+        "label": "Check Reddit Integration Status",
+        "description": "View Dicetrix Reddit Integration System Status",
         "location": "subreddit",
         "forUserType": "moderator",
         "endpoint": "/internal/menu/post-create"
@@ -30,6 +30,9 @@
   "triggers": {
     "onAppInstall": "/internal/on-app-install"
   },
+  "capabilities": [
+    "scheduler"
+  ],
   "dev": {
     "subreddit": "dice_trix_dev"
   }

@@ -81,42 +81,12 @@ export class Settings extends Scene {
 
     this.audioControlsUI = new AudioControlsUI(this, initialConfig, callbacks);
 
-    // Position the audio controls in the center area
+    // Position the audio controls in the center area with 2.5x scale
     const controlsContainer = this.audioControlsUI.getContainer();
     controlsContainer.setPosition(width / 2, height * 0.5);
+    controlsContainer.setScale(2.5);
 
-    // Test Audio Buttons Section
-    const testButtonsY = height * 0.8;
-    
-    // Test Music Button
-    const testMusicButton = this.add
-      .text(width * 0.3, testButtonsY, 'Test Music', {
-        fontSize: `${20 * UI_SCALE}px`,
-        color: '#ffffff',
-        fontFamily: 'Asimovian, "Arial Black", Arial, sans-serif',
-        backgroundColor: '#0066cc',
-        padding: { x: 15 * UI_SCALE, y: 8 * UI_SCALE },
-      })
-      .setOrigin(0.5)
-      .setInteractive({ useHandCursor: true })
-      .on('pointerover', () => testMusicButton.setStyle({ backgroundColor: '#0088ee' }))
-      .on('pointerout', () => testMusicButton.setStyle({ backgroundColor: '#0066cc' }))
-      .on('pointerdown', () => this.testMusic());
 
-    // Test SFX Button
-    const testSFXButton = this.add
-      .text(width * 0.7, testButtonsY, 'Test SFX', {
-        fontSize: `${20 * UI_SCALE}px`,
-        color: '#ffffff',
-        fontFamily: 'Asimovian, "Arial Black", Arial, sans-serif',
-        backgroundColor: '#cc6600',
-        padding: { x: 15 * UI_SCALE, y: 8 * UI_SCALE },
-      })
-      .setOrigin(0.5)
-      .setInteractive({ useHandCursor: true })
-      .on('pointerover', () => testSFXButton.setStyle({ backgroundColor: '#ee8800' }))
-      .on('pointerout', () => testSFXButton.setStyle({ backgroundColor: '#cc6600' }))
-      .on('pointerdown', () => this.testSFX());
 
     // Back to Menu Button
     this.backButton = this.add
@@ -268,59 +238,7 @@ export class Settings extends Scene {
     Logger.log('Settings: Audio settings reset to defaults');
   }
 
-  /**
-   * Test music playback with audio preview functionality
-   * Requirements: 3.1, 3.2, 3.3, 3.4, 3.5
-   */
-  private testMusic(): void {
-    try {
-      // Stop current music and play menu theme as test
-      audioHandler.stopMusic();
-      audioHandler.playMusic('menu-theme', true);
-      
-      // Play button click sound
-      if (this.soundEffectLibrary) {
-        this.soundEffectLibrary.playButtonClick();
-      }
-      
-      Logger.log('Settings: Testing music playback with audio preview');
-    } catch (error) {
-      Logger.log(`Settings: Failed to test music - ${error}`);
-    }
-  }
 
-  /**
-   * Test sound effects playback with audio preview functionality
-   * Requirements: 3.1, 3.2, 3.3, 3.4, 3.5
-   */
-  private testSFX(): void {
-    try {
-      // Play multiple test sound effects to demonstrate functionality
-      if (this.soundEffectLibrary) {
-        this.soundEffectLibrary.playButtonClick();
-        
-        // Play additional test sounds with slight delays
-        this.time.delayedCall(200, () => {
-          if (this.soundEffectLibrary) {
-            this.soundEffectLibrary.playMenuNavigate();
-          }
-        });
-        
-        this.time.delayedCall(400, () => {
-          if (this.soundEffectLibrary) {
-            this.soundEffectLibrary.playSettingsChange();
-          }
-        });
-      } else {
-        // Fallback to audioHandler
-        audioHandler.playSound('menu-select');
-      }
-      
-      Logger.log('Settings: Testing SFX playback with audio preview');
-    } catch (error) {
-      Logger.log(`Settings: Failed to test SFX - ${error}`);
-    }
-  }
 
   /**
    * Close settings and return to appropriate scene with proper cleanup

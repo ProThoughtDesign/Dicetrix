@@ -11,6 +11,14 @@ export interface GridPosition {
   y: number;
 }
 
+export interface ScoreBreakdown {
+  baseScore: number;
+  chainMultiplier: number;
+  ultimateComboMultiplier: number;
+  boosterModifiers: number;
+  totalScore: number;
+}
+
 export interface GameState {
   score: number;
   level: number;
