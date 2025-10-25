@@ -1447,10 +1447,12 @@ export class Game extends Scene {
               const groupScore = (base + facesTotal) * this.cascadeMultiplier;
               cascadeIterationScore += groupScore;
 
-              // Play line clear sound effect based on match size
-              // Requirements: 2.2, 2.4
-              if (this.soundEffectLibrary) {
-                this.soundEffectLibrary.playLineClear(Math.min(size, 4));
+              // Play dice match sound effect based on match size
+              // Requirements: 5.1, 5.4
+              if (this.soundEffectLibrary && size > 0) {
+                // Validate dice count parameter before passing to sound system
+                const diceCount = Math.max(1, Math.floor(size));
+                this.soundEffectLibrary.playDiceMatch(diceCount);
               }
 
               // Play combo effect sound for cascades

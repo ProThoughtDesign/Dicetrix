@@ -71,7 +71,7 @@ export class Preloader extends Scene {
     const soundKeys = [
       'button-click', 'menu-navigate', 'settings-change', 'mode-select',
       'piece-placement', 'piece-rotation', 'piece-drop', 'piece-hold',
-      'line-clear-single', 'line-clear-double', 'line-clear-triple', 'line-clear-tetris',
+      'dice-match-3', 'dice-match-4', 'dice-match-5', 'dice-match-7', 'dice-match-9',
       'level-up', 'game-over', 'pause', 'resume',
       'combo-2x', 'combo-3x', 'combo-4x', 'perfect-clear', 'warning-alert'
     ];
@@ -122,7 +122,7 @@ export class Preloader extends Scene {
       const soundFiles = [
         'button-click', 'menu-navigate', 'settings-change', 'mode-select',
         'piece-placement', 'piece-rotation', 'piece-drop', 'piece-hold',
-        'line-clear-single', 'line-clear-double', 'line-clear-triple', 'line-clear-tetris',
+        'dice-match-3', 'dice-match-4', 'dice-match-5', 'dice-match-7', 'dice-match-9',
         'level-up', 'game-over', 'pause', 'resume',
         'combo-2x', 'combo-3x', 'combo-4x', 'perfect-clear', 'warning-alert'
       ];

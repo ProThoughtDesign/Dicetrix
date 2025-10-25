@@ -73,7 +73,15 @@ export class SoundEffectLibrary {
     this.registerSound('piece-drop', SoundCategory.GAMEPLAY, 0.7);
     this.registerSound('piece-hold', SoundCategory.GAMEPLAY, 0.5);
 
-    // Line clear sounds with variations
+    // Dice match sounds with variations
+    this.registerSound('dice-match-3', SoundCategory.GAMEPLAY, 0.8);
+    this.registerSound('dice-match-4', SoundCategory.GAMEPLAY, 0.8);
+    this.registerSound('dice-match-5', SoundCategory.GAMEPLAY, 0.9);
+    this.registerSound('dice-match-7', SoundCategory.GAMEPLAY, 1.0);
+    this.registerSound('dice-match-9', SoundCategory.GAMEPLAY, 1.0);
+
+    // Legacy line-clear sounds for backward compatibility (deprecated)
+    // These will be removed in a future version
     this.registerSound('line-clear-single', SoundCategory.GAMEPLAY, 0.8);
     this.registerSound('line-clear-double', SoundCategory.GAMEPLAY, 0.8);
     this.registerSound('line-clear-triple', SoundCategory.GAMEPLAY, 0.9);
@@ -152,7 +160,13 @@ export class SoundEffectLibrary {
     // Check if sound exists in cache
     if (!this.scene.cache.audio.exists(key)) {
       // Gracefully handle missing audio files during development
-      Logger.log(`SoundEffectLibrary: Audio file '${key}' not found in cache`);
+      if (key.startsWith('line-clear-')) {
+        Logger.log(`SoundEffectLibrary: Legacy audio file '${key}' not found in cache (expected during transition to dice-match sounds)`);
+      } else if (key.startsWith('dice-match-')) {
+        Logger.log(`SoundEffectLibrary: Dice-match audio file '${key}' not found in cache (may not be implemented yet)`);
+      } else {
+        Logger.log(`SoundEffectLibrary: Audio file '${key}' not found in cache`);
+      }
       return;
     }
 
@@ -295,6 +309,35 @@ export class SoundEffectLibrary {
     );
   }
 
+  /**
+   * Check if legacy line-clear sounds are still being used
+   * Helps identify code that needs migration to dice-match sounds
+   * Requirements: 5.4
+   */
+  hasLegacySounds(): boolean {
+    const legacySounds = ['line-clear-single', 'line-clear-double', 'line-clear-triple', 'line-clear-tetris'];
+    return legacySounds.some(soundKey => this.scene.cache.audio.exists(soundKey));
+  }
+
+  /**
+   * Get migration status information for the transition
+   * Requirements: 5.4
+   */
+  getMigrationStatus(): { hasLegacySounds: boolean; hasDiceMatchSounds: boolean; migrationComplete: boolean } {
+    const legacySounds = ['line-clear-single', 'line-clear-double', 'line-clear-triple', 'line-clear-tetris'];
+    const diceMatchSounds = ['dice-match-3', 'dice-match-4', 'dice-match-5', 'dice-match-7', 'dice-match-9'];
+    
+    const hasLegacySounds = legacySounds.some(soundKey => this.scene.cache.audio.exists(soundKey));
+    const hasDiceMatchSounds = diceMatchSounds.some(soundKey => this.scene.cache.audio.exists(soundKey));
+    const migrationComplete = hasDiceMatchSounds && !hasLegacySounds;
+
+    return {
+      hasLegacySounds,
+      hasDiceMatchSounds,
+      migrationComplete
+    };
+  }
+
   // Gameplay sound effect methods
 
   /**
@@ -330,11 +373,74 @@ export class SoundEffectLibrary {
   }
 
   /**
+   * Play dice match sound based on number of dice matched
+   * Maps dice counts to appropriate sound effects with fallback behavior
+   * Requirements: 5.1, 5.4
+   */
+  playDiceMatch(diceCount: number): void {
+    let soundKey: string;
+
+    // Map dice counts to sound keys according to specification
+    switch (diceCount) {
+      case 3:
+        soundKey = 'dice-match-3';
+        break;
+      case 4:
+        soundKey = 'dice-match-4';
+        break;
+      case 5:
+        soundKey = 'dice-match-5';
+        break;
+      case 7:
+        soundKey = 'dice-match-7';
+        break;
+      case 9:
+      default:
+        // For 9+ dice or any other count, use dice-match-9
+        if (diceCount >= 9) {
+          soundKey = 'dice-match-9';
+        } else {
+          // Fallback behavior for unsupported dice counts (6, 8, etc.)
+          Logger.log(`SoundEffectLibrary: Unsupported dice count ${diceCount}, falling back to closest match`);
+          
+          // Find closest supported dice count
+          if (diceCount < 3) {
+            soundKey = 'dice-match-3'; // Fallback to smallest
+          } else if (diceCount === 6) {
+            soundKey = 'dice-match-5'; // 6 is closer to 5 than 7
+          } else if (diceCount === 8) {
+            soundKey = 'dice-match-7'; // 8 is closer to 7 than 9
+          } else {
+            soundKey = 'dice-match-9'; // Default fallback for large counts
+          }
+        }
+        break;
+    }
+
+    // Attempt to play the sound with error handling
+    try {
+      this.playSound(soundKey);
+    } catch (error) {
+      Logger.log(`SoundEffectLibrary: Failed to play dice match sound '${soundKey}' for ${diceCount} dice - ${error}`);
+      // Graceful fallback - try to play a generic match sound or continue silently
+      try {
+        this.playSound('dice-match-3'); // Fallback to basic match sound
+      } catch (fallbackError) {
+        Logger.log(`SoundEffectLibrary: Fallback sound also failed, continuing silently`);
+      }
+    }
+  }
+
+  /**
    * Play line clear sound based on number of lines cleared
+   * @deprecated Use playDiceMatch() instead for dice-matching gameplay
    * Different sounds for 1-4 lines (single, double, triple, tetris)
-   * Requirements: 2.2, 2.4
+   * Requirements: 2.2, 2.4, 5.4
    */
   playLineClear(linesCleared: number): void {
+    // Deprecation logging with usage tracking
+    Logger.log(`SoundEffectLibrary: DEPRECATED - playLineClear(${linesCleared}) called. Please migrate to playDiceMatch() for dice-matching gameplay.`);
+    
     let soundKey: string;
 
     switch (linesCleared) {
@@ -351,11 +457,45 @@ export class SoundEffectLibrary {
         soundKey = 'line-clear-tetris';
         break;
       default:
-        Logger.log(`SoundEffectLibrary: Invalid line clear count: ${linesCleared}`);
+        Logger.log(`SoundEffectLibrary: Invalid line clear count: ${linesCleared}, no sound will be played`);
         return;
     }
 
-    this.playSound(soundKey);
+    // Enhanced graceful handling of missing audio files
+    try {
+      // Check if the old line-clear sound exists
+      if (!this.scene.cache.audio.exists(soundKey)) {
+        Logger.log(`SoundEffectLibrary: Legacy sound '${soundKey}' not found, attempting fallback to dice-match equivalent`);
+        
+        // Fallback mapping from line-clear to dice-match sounds
+        const fallbackMapping: { [key: string]: number } = {
+          'line-clear-single': 3,
+          'line-clear-double': 4,
+          'line-clear-triple': 5,
+          'line-clear-tetris': 7
+        };
+        
+        const diceCount = fallbackMapping[soundKey];
+        if (diceCount) {
+          Logger.log(`SoundEffectLibrary: Using dice-match fallback for ${soundKey} -> playDiceMatch(${diceCount})`);
+          this.playDiceMatch(diceCount);
+          return;
+        }
+      }
+      
+      // Play the original sound if it exists
+      this.playSound(soundKey);
+    } catch (error) {
+      Logger.log(`SoundEffectLibrary: Error playing legacy sound '${soundKey}' - ${error}. Attempting dice-match fallback.`);
+      
+      // Final fallback to dice-match equivalent
+      const fallbackDiceCount = Math.min(linesCleared + 2, 9); // Simple mapping: 1->3, 2->4, 3->5, 4->6->5
+      try {
+        this.playDiceMatch(fallbackDiceCount);
+      } catch (fallbackError) {
+        Logger.log(`SoundEffectLibrary: All fallback attempts failed for line clear ${linesCleared}, continuing silently`);
+      }
+    }
   }
 
   /**

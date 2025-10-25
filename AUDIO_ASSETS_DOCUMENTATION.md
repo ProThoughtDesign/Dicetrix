@@ -53,14 +53,16 @@ assets/audio/
     │   ├── piece-drop.mp3
     │   ├── piece-hold.ogg
     │   ├── piece-hold.mp3
-    │   ├── line-clear-single.ogg
-    │   ├── line-clear-single.mp3
-    │   ├── line-clear-double.ogg
-    │   ├── line-clear-double.mp3
-    │   ├── line-clear-triple.ogg
-    │   ├── line-clear-triple.mp3
-    │   ├── line-clear-tetris.ogg
-    │   ├── line-clear-tetris.mp3
+    │   ├── dice-match-3.ogg
+    │   ├── dice-match-3.mp3
+    │   ├── dice-match-4.ogg
+    │   ├── dice-match-4.mp3
+    │   ├── dice-match-5.ogg
+    │   ├── dice-match-5.mp3
+    │   ├── dice-match-7.ogg
+    │   ├── dice-match-7.mp3
+    │   ├── dice-match-9.ogg
+    │   ├── dice-match-9.mp3
     │   ├── level-up.ogg
     │   ├── level-up.mp3
     │   ├── game-over.ogg
@@ -83,6 +85,8 @@ assets/audio/
         ├── combo-3x.mp3
         ├── combo-4x.ogg
         ├── combo-4x.mp3
+        ├── ultimate-combo.ogg
+        ├── ultimate-combo.mp3
         ├── perfect-clear.ogg
         ├── perfect-clear.mp3
         ├── warning-alert.ogg
@@ -104,22 +108,23 @@ assets/audio/
 
 ### Sound Effect Files (19 files total)
 
-#### Gameplay Sounds (12 files)
+#### Gameplay Sounds (13 files)
 
-| File                    | Description                                                                  | Duration        | Expected Size | Usage Context                                   |
-| ----------------------- | ---------------------------------------------------------------------------- | --------------- | ------------- | ----------------------------------------------- |
-| `piece-placement.ogg`   | Sound effect played when a game piece is successfully placed on the board    | 0.1-0.3 seconds | 10-100 KB     | Triggered on every piece placement action       |
-| `piece-rotation.ogg`    | Sound effect played when a game piece is rotated by the player               | 0.1-0.2 seconds | 10-100 KB     | Triggered on every piece rotation action        |
-| `piece-drop.ogg`        | Sound effect played when a game piece drops quickly to the bottom            | 0.2-0.5 seconds | 10-100 KB     | Triggered when piece drops or hard drop is used |
-| `piece-hold.ogg`        | Sound effect played when a game piece is held or swapped with the hold piece | 0.1-0.3 seconds | 10-100 KB     | Triggered when hold/swap functionality is used  |
-| `line-clear-single.ogg` | Sound effect played when exactly one line is cleared from the board          | 0.5-1.0 seconds | 10-100 KB     | Triggered when clearing exactly 1 line          |
-| `line-clear-double.ogg` | Sound effect played when exactly two lines are cleared simultaneously        | 0.7-1.2 seconds | 10-100 KB     | Triggered when clearing exactly 2 lines         |
-| `line-clear-triple.ogg` | Sound effect played when exactly three lines are cleared simultaneously      | 0.9-1.5 seconds | 10-100 KB     | Triggered when clearing exactly 3 lines         |
-| `line-clear-tetris.ogg` | Sound effect played when four lines are cleared simultaneously (Tetris)      | 1.0-2.0 seconds | 10-100 KB     | Triggered when clearing exactly 4 lines         |
-| `level-up.ogg`          | Sound effect played when the player advances to the next difficulty level    | 1.0-2.5 seconds | 10-100 KB     | Triggered on level progression                  |
-| `game-over.ogg`         | Sound effect played when the game ends due to the board filling up           | 2.0-4.0 seconds | 10-100 KB     | Triggered when game ends                        |
-| `pause.ogg`             | Sound effect played when the game is paused by the player                    | 0.3-0.8 seconds | 10-100 KB     | Triggered when game is paused                   |
-| `resume.ogg`            | Sound effect played when the game is resumed from a paused state             | 0.3-0.8 seconds | 10-100 KB     | Triggered when game is resumed                  |
+| File                | Description                                                                  | Duration        | Expected Size | Usage Context                                   |
+| ------------------- | ---------------------------------------------------------------------------- | --------------- | ------------- | ----------------------------------------------- |
+| `piece-placement.ogg` | Sound effect played when a game piece is successfully placed on the board    | 0.1-0.3 seconds | 10-100 KB     | Triggered on every piece placement action       |
+| `piece-rotation.ogg`  | Sound effect played when a game piece is rotated by the player               | 0.1-0.2 seconds | 10-100 KB     | Triggered on every piece rotation action        |
+| `piece-drop.ogg`      | Sound effect played when a game piece drops quickly to the bottom            | 0.2-0.5 seconds | 10-100 KB     | Triggered when piece drops or hard drop is used |
+| `piece-hold.ogg`      | Sound effect played when a game piece is held or swapped with the hold piece | 0.1-0.3 seconds | 10-100 KB     | Triggered when hold/swap functionality is used  |
+| `dice-match-3.ogg`    | Sound effect played when exactly 3 dice are matched and cleared from the board | 0.5-1.0 seconds | 10-100 KB     | Triggered when matching exactly 3 dice          |
+| `dice-match-4.ogg`    | Sound effect played when exactly 4 dice are matched and cleared simultaneously | 0.7-1.2 seconds | 10-100 KB     | Triggered when matching exactly 4 dice         |
+| `dice-match-5.ogg`    | Sound effect played when exactly 5 dice are matched and cleared simultaneously | 0.9-1.5 seconds | 10-100 KB     | Triggered when matching exactly 5 dice         |
+| `dice-match-7.ogg`    | Sound effect played when exactly 7 dice are matched and cleared simultaneously | 1.0-2.0 seconds | 10-100 KB     | Triggered when matching exactly 7 dice         |
+| `dice-match-9.ogg`    | Sound effect played when 9 or more dice are matched and cleared simultaneously | 1.2-2.5 seconds | 10-100 KB     | Triggered when matching 9 or more dice         |
+| `level-up.ogg`        | Sound effect played when the player advances to the next difficulty level    | 1.0-2.5 seconds | 10-100 KB     | Triggered on level progression                  |
+| `game-over.ogg`       | Sound effect played when the game ends due to the board filling up           | 2.0-4.0 seconds | 10-100 KB     | Triggered when game ends                        |
+| `pause.ogg`           | Sound effect played when the game is paused by the player                    | 0.3-0.8 seconds | 10-100 KB     | Triggered when game is paused                   |
+| `resume.ogg`          | Sound effect played when the game is resumed from a paused state             | 0.3-0.8 seconds | 10-100 KB     | Triggered when game is resumed                  |
 
 #### UI Interaction Sounds (4 files)
 
@@ -130,14 +135,15 @@ assets/audio/
 | `settings-change.ogg` | Sound effect played when a game setting is modified or saved          | 0.2-0.5 seconds   | 10-100 KB     | Triggered when settings are modified                           |
 | `mode-select.ogg`     | Sound effect played when selecting a game mode or difficulty level    | 0.3-0.8 seconds   | 10-100 KB     | Triggered when selecting game modes                            |
 
-#### Special Effect Sounds (5 files)
+#### Special Effect Sounds (6 files)
 
 | File                | Description                                                              | Duration        | Expected Size | Usage Context                           |
 | ------------------- | ------------------------------------------------------------------------ | --------------- | ------------- | --------------------------------------- |
-| `combo-2x.ogg`      | Sound effect played when achieving a 2x combo multiplier                 | 0.5-1.0 seconds | 10-100 KB     | Triggered on 2x combo achievement       |
-| `combo-3x.ogg`      | Sound effect played when achieving a 3x combo multiplier                 | 0.7-1.2 seconds | 10-100 KB     | Triggered on 3x combo achievement       |
-| `combo-4x.ogg`      | Sound effect played when achieving a 4x or higher combo multiplier       | 1.0-1.5 seconds | 10-100 KB     | Triggered on 4x+ combo achievement      |
-| `perfect-clear.ogg` | Sound effect played when the entire game board is cleared perfectly      | 2.0-3.0 seconds | 10-100 KB     | Triggered on perfect board clear        |
+| `combo-2x.ogg`      | Sound effect played when achieving a 2x chain multiplier from consecutive dice-matching sequences | 0.5-1.0 seconds | 10-100 KB     | Triggered on 2x dice-matching chain multiplier       |
+| `combo-3x.ogg`      | Sound effect played when achieving a 3x chain multiplier from consecutive dice-matching sequences | 0.7-1.2 seconds | 10-100 KB     | Triggered on 3x dice-matching chain multiplier       |
+| `combo-4x.ogg`      | Sound effect played when achieving a 4x or higher chain multiplier from consecutive dice-matching sequences | 1.0-1.5 seconds | 10-100 KB     | Triggered on 4x+ dice-matching chain multiplier      |
+| `ultimate-combo.ogg` | Sound effect played when achieving Ultimate Combo by matching 3+ Wild dice, creating spectacular dice-matching effects | 2.0-3.5 seconds | 10-100 KB     | Triggered on Ultimate Combo achievement with Wild dice matches |
+| `perfect-clear.ogg` | Sound effect played when the entire game board is cleared perfectly through strategic dice-matching combinations | 2.0-3.0 seconds | 10-100 KB     | Triggered on perfect board clear via dice-matching        |
 | `warning-alert.ogg` | Sound effect played to alert the player of danger or critical situations | 0.5-1.5 seconds | 10-100 KB     | Triggered for danger/warning situations |
 
 ## Development Workflow
@@ -208,14 +214,16 @@ The audio system is designed to work seamlessly during development even when aud
 - [ ] `piece-drop.mp3` - MP3 fallback
 - [ ] `piece-hold.ogg` - Piece hold sound
 - [ ] `piece-hold.mp3` - MP3 fallback
-- [ ] `line-clear-single.ogg` - Single line clear sound
-- [ ] `line-clear-single.mp3` - MP3 fallback
-- [ ] `line-clear-double.ogg` - Double line clear sound
-- [ ] `line-clear-double.mp3` - MP3 fallback
-- [ ] `line-clear-triple.ogg` - Triple line clear sound
-- [ ] `line-clear-triple.mp3` - MP3 fallback
-- [ ] `line-clear-tetris.ogg` - Tetris (4-line) clear sound
-- [ ] `line-clear-tetris.mp3` - MP3 fallback
+- [ ] `dice-match-3.ogg` - 3 dice match sound
+- [ ] `dice-match-3.mp3` - MP3 fallback
+- [ ] `dice-match-4.ogg` - 4 dice match sound
+- [ ] `dice-match-4.mp3` - MP3 fallback
+- [ ] `dice-match-5.ogg` - 5 dice match sound
+- [ ] `dice-match-5.mp3` - MP3 fallback
+- [ ] `dice-match-7.ogg` - 7 dice match sound
+- [ ] `dice-match-7.mp3` - MP3 fallback
+- [ ] `dice-match-9.ogg` - 9+ dice match sound
+- [ ] `dice-match-9.mp3` - MP3 fallback
 - [ ] `level-up.ogg` - Level up sound
 - [ ] `level-up.mp3` - MP3 fallback
 - [ ] `game-over.ogg` - Game over sound
@@ -238,13 +246,15 @@ The audio system is designed to work seamlessly during development even when aud
 
 #### Special Effect Sound Effects (Required)
 
-- [ ] `combo-2x.ogg` - 2x combo sound
+- [ ] `combo-2x.ogg` - 2x dice-matching chain multiplier sound
 - [ ] `combo-2x.mp3` - MP3 fallback
-- [ ] `combo-3x.ogg` - 3x combo sound
+- [ ] `combo-3x.ogg` - 3x dice-matching chain multiplier sound
 - [ ] `combo-3x.mp3` - MP3 fallback
-- [ ] `combo-4x.ogg` - 4x+ combo sound
+- [ ] `combo-4x.ogg` - 4x+ dice-matching chain multiplier sound
 - [ ] `combo-4x.mp3` - MP3 fallback
-- [ ] `perfect-clear.ogg` - Perfect clear sound
+- [ ] `ultimate-combo.ogg` - Ultimate Combo Wild dice-matching sound
+- [ ] `ultimate-combo.mp3` - MP3 fallback
+- [ ] `perfect-clear.ogg` - Perfect board clear via dice-matching sound
 - [ ] `perfect-clear.mp3` - MP3 fallback
 - [ ] `warning-alert.ogg` - Warning alert sound
 - [ ] `warning-alert.mp3` - MP3 fallback
@@ -284,7 +294,7 @@ The audio system is designed to work seamlessly during development even when aud
 ### Examples of Correct Naming
 
 - ✅ `piece-placement.ogg`
-- ✅ `line-clear-single.ogg`
+- ✅ `dice-match-3.ogg`
 - ✅ `menu-navigate.ogg`
 - ✅ `combo-2x.ogg`
 
@@ -305,7 +315,7 @@ The audio system is designed to work seamlessly during development even when aud
 #### Gameplay Sounds
 
 - Pattern: `{action}-{detail}.{ext}`
-- Examples: `piece-placement.ogg`, `line-clear-single.ogg`, `level-up.ogg`
+- Examples: `piece-placement.ogg`, `dice-match-3.ogg`, `level-up.ogg`
 
 #### UI Sounds
 
@@ -314,8 +324,8 @@ The audio system is designed to work seamlessly during development even when aud
 
 #### Effect Sounds
 
-- Pattern: `{effect}-{level}.{ext}`
-- Examples: `combo-2x.ogg`, `perfect-clear.ogg`, `warning-alert.ogg`
+- Pattern: `{effect}-{level}.{ext}` or `{effect}-{type}.{ext}`
+- Examples: `combo-2x.ogg`, `ultimate-combo.ogg`, `perfect-clear.ogg`, `warning-alert.ogg`
 
 ## Technical Specifications
 
