@@ -3,6 +3,68 @@ import { settings } from '../services/Settings';
 import { audioHandler } from '../services/AudioHandler';
 import Logger from '../../utils/Logger';
 
+/**
+ * Interface for standardized button dimensions
+ * Requirements: 1.1, 1.2, 1.3, 1.4, 1.5
+ */
+interface ButtonDimensions {
+  width: number;
+  height: number;
+  fontSize: number;
+  paddingX: number;
+  paddingY: number;
+}
+
+/**
+ * Interface for perfect 2x2 grid layout calculations
+ * Requirements: 2.1, 2.2, 2.3, 2.4, 2.5
+ */
+interface GridLayoutCalculation {
+  gridCenterX: number;
+  gridCenterY: number;
+  gridWidth: number;
+  gridHeight: number;
+  horizontalSpacing: number;
+  verticalSpacing: number;
+  positions: {
+    topLeft: { x: number; y: number };
+    topRight: { x: number; y: number };
+    bottomLeft: { x: number; y: number };
+    bottomRight: { x: number; y: number };
+  };
+}
+
+/**
+ * Standardized button factory interface for consistent button creation
+ * Requirements: 1.1, 1.2, 1.3, 1.5, 6.1, 6.2, 6.3
+ */
+interface StandardButtonConfig {
+  x: number;
+  y: number;
+  text: string;
+  onClick: () => void;
+  type: 'text' | 'square';
+  customSize?: number; // For square buttons like audio button
+  disabled?: boolean; // For disabled state visual indicators
+  loading?: boolean; // For loading state visual indicators
+}
+
+/**
+ * Visual feedback configuration for consistent button interactions
+ * Requirements: 7.1, 7.2, 7.3, 7.4, 7.5
+ */
+interface VisualFeedbackConfig {
+  normalColor: number;
+  hoverColor: number;
+  pressColor: number;
+  disabledColor: number;
+  loadingColor: number;
+  feedbackDuration: number;
+  scaleEffect: number;
+  textColor: string;
+  disabledTextColor: string;
+}
+
 export class StartMenu extends Scene {
   // Audio button state management
   private audioButton: Phaser.GameObjects.Rectangle | null = null;
@@ -10,13 +72,566 @@ export class StartMenu extends Scene {
   private audioButtonState: 'muted' | 'unmuted' | 'loading' = 'muted';
   private isAudioInitializing = false;
 
+  // Standardized button dimensions with responsive caching
+  private standardButtonDimensions: ButtonDimensions | null = null;
+  private lastDimensionsCacheKey: string | null = null;
+
+  // Audio state synchronization system
+  private audioStateSyncInitialized = false;
+  private lastKnownAudioState: { music: boolean; sound: boolean; global: boolean } | null = null;
+
+  // Button references for consistent visual feedback and state management
+  // Requirements: 7.4, 7.5
+  private buttonReferences: {
+    settings?: any;
+    howToPlay?: any;
+    leaderboard?: any;
+    audio?: any;
+  } = {};
+
   constructor() {
     super('StartMenu');
   }
 
   /**
-   * Calculate button positioning layout based on dropdown alignment with responsive behavior
-   * Requirements: 6.1, 6.2, 6.4, 6.5
+   * Calculate standardized button dimensions based on longest text content
+   * Requirements: 1.1, 1.2, 1.3, 1.4, 1.5
+   * @param uiScale - UI scaling factor
+   * @returns Standardized button dimensions for all buttons
+   */
+  private calculateStandardButtonDimensions(uiScale: number): ButtonDimensions {
+    // Define all button texts to find the longest one
+    const buttonTexts = ['SETTINGS', 'HOW TO PLAY', 'LEADERBOARD'];
+    
+    // Standardized font size and padding
+    const fontSize = 24 * uiScale;
+    const paddingX = 25 * uiScale;
+    const paddingY = 12 * uiScale;
+    
+    // Calculate maximum required width based on longest text content
+    let maxTextWidth = 0;
+    
+    // Use a more accurate text width calculation
+    // Average character width for the Asimovian font is approximately 0.6 of font size
+    const avgCharWidth = fontSize * 0.6;
+    
+    for (const text of buttonTexts) {
+      const textWidth = text.length * avgCharWidth;
+      maxTextWidth = Math.max(maxTextWidth, textWidth);
+    }
+    
+    // Calculate standardized dimensions
+    const standardWidth = maxTextWidth + (paddingX * 2);
+    const standardHeight = fontSize + (paddingY * 2);
+    
+    return {
+      width: Math.round(standardWidth),
+      height: Math.round(standardHeight),
+      fontSize: fontSize,
+      paddingX: paddingX,
+      paddingY: paddingY
+    };
+  }
+
+  /**
+   * Get or calculate responsive standardized button dimensions
+   * Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 5.1, 5.2, 5.4, 5.5
+   * @param uiScale - UI scaling factor
+   * @param screenWidth - Current screen width for responsive calculations
+   * @param screenHeight - Current screen height for responsive calculations
+   * @returns Responsive standardized button dimensions
+   */
+  private getResponsiveStandardButtonDimensions(uiScale: number, screenWidth: number, screenHeight: number): ButtonDimensions {
+    // Calculate base dimensions
+    const baseDimensions = this.calculateStandardButtonDimensions(uiScale);
+    
+    // Apply responsive sizing to ensure proper touch targets and scaling
+    const responsiveWidth = this.calculateResponsiveButtonSize(
+      baseDimensions.width, 
+      screenWidth, 
+      screenHeight, 
+      uiScale, 
+      false // isSquareButton
+    );
+    
+    const responsiveHeight = this.calculateResponsiveButtonSize(
+      baseDimensions.height, 
+      screenWidth, 
+      screenHeight, 
+      uiScale, 
+      false // isSquareButton
+    );
+    
+    // Maintain aspect ratio while ensuring minimum touch targets
+    const aspectRatio = baseDimensions.width / baseDimensions.height;
+    let finalWidth = responsiveWidth;
+    let finalHeight = responsiveHeight;
+    
+    // Ensure width accommodates height with proper aspect ratio
+    const widthFromHeight = finalHeight * aspectRatio;
+    if (widthFromHeight > finalWidth) {
+      finalWidth = widthFromHeight;
+    }
+    
+    // Ensure height accommodates width with proper aspect ratio
+    const heightFromWidth = finalWidth / aspectRatio;
+    if (heightFromWidth > finalHeight) {
+      finalHeight = heightFromWidth;
+    }
+    
+    return {
+      width: Math.round(finalWidth),
+      height: Math.round(finalHeight),
+      fontSize: baseDimensions.fontSize,
+      paddingX: baseDimensions.paddingX,
+      paddingY: baseDimensions.paddingY
+    };
+  }
+
+  /**
+   * Get or calculate standardized button dimensions (cached for performance)
+   * Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 5.1, 5.2, 5.4, 5.5
+   * @param uiScale - UI scaling factor
+   * @returns Cached or newly calculated standardized button dimensions
+   */
+  private getStandardButtonDimensions(uiScale: number): ButtonDimensions {
+    // For responsive behavior, we need current screen dimensions
+    const { width, height } = this.scale;
+    
+    // Cache dimensions to avoid recalculation, but include screen size in cache key
+    const cacheKey = `${uiScale}-${width}-${height}`;
+    if (!this.standardButtonDimensions || this.lastDimensionsCacheKey !== cacheKey) {
+      this.standardButtonDimensions = this.getResponsiveStandardButtonDimensions(uiScale, width, height);
+      this.lastDimensionsCacheKey = cacheKey;
+      Logger.log(`StartMenu: Calculated responsive standard button dimensions - width: ${this.standardButtonDimensions.width}, height: ${this.standardButtonDimensions.height} for screen ${width}x${height}`);
+    }
+    return this.standardButtonDimensions;
+  }
+
+  /**
+   * Get consistent visual feedback configuration for all buttons
+   * Requirements: 7.1, 7.2, 7.3, 7.4, 7.5
+   * @returns Visual feedback configuration with consistent colors and timing
+   */
+  private getVisualFeedbackConfig(): VisualFeedbackConfig {
+    const isTouchDevice = this.detectTouchDevice();
+    
+    return {
+      normalColor: 0x666666,
+      hoverColor: 0x888888,
+      pressColor: 0x444444,
+      disabledColor: 0x444444,
+      loadingColor: 0x555555,
+      feedbackDuration: isTouchDevice ? 150 : 100, // Longer feedback for touch devices
+      scaleEffect: isTouchDevice ? 0.95 : 0.98, // More pronounced scale for touch
+      textColor: '#ffffff',
+      disabledTextColor: '#888888'
+    };
+  }
+
+  /**
+   * Apply consistent visual feedback to a button rectangle
+   * Requirements: 7.1, 7.2, 7.3, 7.4, 7.5
+   * @param buttonRect - Button rectangle to apply feedback to
+   * @param textElement - Optional text element to update color
+   * @param config - Button configuration for state management
+   * @param feedbackConfig - Visual feedback configuration
+   */
+  private applyConsistentVisualFeedback(
+    buttonRect: Phaser.GameObjects.Rectangle,
+    textElement: Phaser.GameObjects.Text | null,
+    config: StandardButtonConfig,
+    feedbackConfig: VisualFeedbackConfig
+  ): void {
+    const isTouchDevice = this.detectTouchDevice();
+    
+    // Store original state for restoration
+    const originalScale = buttonRect.scaleX;
+    
+    // Apply hover effects only on desktop devices (Requirement 7.1)
+    if (!isTouchDevice) {
+      buttonRect.on('pointerover', () => {
+        if (!config.disabled && !config.loading) {
+          buttonRect.setFillStyle(feedbackConfig.hoverColor);
+        }
+      });
+      
+      buttonRect.on('pointerout', () => {
+        if (!config.disabled && !config.loading) {
+          buttonRect.setFillStyle(feedbackConfig.normalColor);
+        }
+      });
+    }
+    
+    // Apply press feedback for all devices (Requirements 7.2, 7.3)
+    buttonRect.on('pointerdown', () => {
+      if (!config.disabled && !config.loading) {
+        // Immediate visual feedback for press action (Requirement 7.2)
+        buttonRect.setFillStyle(feedbackConfig.pressColor);
+        buttonRect.setScale(originalScale * feedbackConfig.scaleEffect);
+        
+        // Return to normal state after feedback duration (Requirement 7.4)
+        this.time.delayedCall(feedbackConfig.feedbackDuration, () => {
+          if (buttonRect && buttonRect.active) {
+            buttonRect.setFillStyle(feedbackConfig.normalColor);
+            buttonRect.setScale(originalScale);
+          }
+        });
+      }
+    });
+    
+    // Apply loading and disabled state visual indicators (Requirement 7.5)
+    this.updateButtonVisualState(buttonRect, textElement, config, feedbackConfig);
+  }
+
+  /**
+   * Update button visual state for loading and disabled states
+   * Requirements: 7.4, 7.5
+   * @param buttonRect - Button rectangle to update
+   * @param textElement - Optional text element to update
+   * @param config - Button configuration with state information
+   * @param feedbackConfig - Visual feedback configuration
+   */
+  private updateButtonVisualState(
+    buttonRect: Phaser.GameObjects.Rectangle,
+    textElement: Phaser.GameObjects.Text | null,
+    config: StandardButtonConfig,
+    feedbackConfig: VisualFeedbackConfig
+  ): void {
+    if (config.disabled) {
+      // Apply disabled state visual indicators (Requirement 7.5)
+      buttonRect.setFillStyle(feedbackConfig.disabledColor);
+      buttonRect.setAlpha(0.6);
+      buttonRect.disableInteractive();
+      
+      if (textElement) {
+        textElement.setColor(feedbackConfig.disabledTextColor);
+        textElement.setAlpha(0.6);
+      }
+      
+      Logger.log(`StartMenu: Button "${config.text}" set to disabled state`);
+      
+    } else if (config.loading) {
+      // Apply loading state visual indicators (Requirement 7.5)
+      buttonRect.setFillStyle(feedbackConfig.loadingColor);
+      buttonRect.disableInteractive();
+      
+      // Add pulsing effect for loading state
+      this.tweens.add({
+        targets: buttonRect,
+        alpha: { from: 1.0, to: 0.7 },
+        duration: 800,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut'
+      });
+      
+      if (textElement) {
+        textElement.setColor(feedbackConfig.textColor);
+        // Add pulsing effect to text as well
+        this.tweens.add({
+          targets: textElement,
+          alpha: { from: 1.0, to: 0.7 },
+          duration: 800,
+          yoyo: true,
+          repeat: -1,
+          ease: 'Sine.easeInOut'
+        });
+      }
+      
+      Logger.log(`StartMenu: Button "${config.text}" set to loading state`);
+      
+    } else {
+      // Normal state - ensure button is interactive and properly styled
+      buttonRect.setFillStyle(feedbackConfig.normalColor);
+      buttonRect.setAlpha(1.0);
+      buttonRect.setInteractive({ useHandCursor: true });
+      
+      if (textElement) {
+        textElement.setColor(feedbackConfig.textColor);
+        textElement.setAlpha(1.0);
+      }
+    }
+  }
+
+  /**
+   * Create a standardized button using factory pattern with consistent styling and visual feedback
+   * Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 6.1, 6.2, 6.3, 7.1, 7.2, 7.3, 7.4, 7.5
+   * @param config - Button configuration object
+   * @param uiScale - UI scaling factor
+   * @returns Created button object with standardized styling and consistent visual feedback
+   */
+  private createStandardizedButton(
+    config: StandardButtonConfig, 
+    uiScale: number
+  ): Phaser.GameObjects.Text | { button: Phaser.GameObjects.Rectangle; icon: Phaser.GameObjects.Text } {
+    const dimensions = this.getStandardButtonDimensions(uiScale);
+    const feedbackConfig = this.getVisualFeedbackConfig();
+    
+    if (config.type === 'text') {
+      // Create standardized text button using rectangle + text for exact size control
+      // This ensures all buttons have identical dimensions regardless of text content
+      const buttonRect = this.add
+        .rectangle(config.x, config.y, dimensions.width, dimensions.height, feedbackConfig.normalColor)
+        .setOrigin(0.5)
+        .setStrokeStyle(1, 0x000000, 0.2)
+        .setInteractive({ useHandCursor: true })
+        .on('pointerdown', config.onClick);
+
+      // Create text overlay with exact positioning (NOT interactive to avoid conflicts)
+      const buttonText = this.add
+        .text(config.x, config.y, config.text, {
+          fontSize: `${dimensions.fontSize}px`,
+          color: feedbackConfig.textColor,
+          fontFamily: 'Asimovian, "Arial Black", Arial, sans-serif',
+          stroke: '#000000',
+          strokeThickness: 1,
+        })
+        .setOrigin(0.5);
+
+      // Apply consistent visual feedback to the button (Requirements 7.1, 7.2, 7.3, 7.4, 7.5)
+      this.applyConsistentVisualFeedback(buttonRect, buttonText, config, feedbackConfig);
+
+      Logger.log(`StartMenu: Standardized text button created with consistent visual feedback - "${config.text}" with exact dimensions: ${dimensions.width}x${dimensions.height}`);
+
+      // Return a composite object that behaves like the old text button
+      const compositeButton = buttonText; // Use text as the main object for backward compatibility
+      
+      // Store reference to rectangle for visual feedback effects
+      (compositeButton as any).buttonRect = buttonRect;
+      (compositeButton as any).feedbackConfig = feedbackConfig;
+      (compositeButton as any).buttonConfig = config;
+      
+      // Override setStyle method to affect the rectangle
+      const originalSetStyle = compositeButton.setStyle.bind(compositeButton);
+      compositeButton.setStyle = (style: any) => {
+        if (style.backgroundColor) {
+          buttonRect.setFillStyle(parseInt(style.backgroundColor.replace('#', '0x')));
+        }
+        return originalSetStyle(style);
+      };
+
+      return compositeButton;
+    } else if (config.type === 'square') {
+      // Create standardized square button (for audio button)
+      // Use standardized button height as the square size, or custom size if provided
+      const squareSize = config.customSize || dimensions.height;
+      
+      const button = this.add
+        .rectangle(config.x, config.y, squareSize, squareSize, feedbackConfig.normalColor)
+        .setOrigin(0.5)
+        .setStrokeStyle(1, 0x000000, 0.2)
+        .setInteractive({ useHandCursor: true })
+        .on('pointerdown', config.onClick);
+
+      // Create icon for square button using standardized sizing (NOT interactive to avoid conflicts)
+      const iconSize = this.calculateResponsiveIconSize(squareSize, uiScale);
+      const icon = this.add
+        .text(config.x, config.y, config.text, {
+          fontSize: `${iconSize}px`,
+          color: feedbackConfig.textColor,
+          fontFamily: 'Arial', // Use Arial for better emoji support
+        })
+        .setOrigin(0.5);
+
+      // Apply consistent visual feedback to the square button (Requirements 7.1, 7.2, 7.3, 7.4, 7.5)
+      this.applyConsistentVisualFeedback(button, icon, config, feedbackConfig);
+
+      Logger.log(`StartMenu: Square button created with consistent visual feedback - size: ${squareSize}x${squareSize}, icon size: ${iconSize}`);
+
+      return { button, icon };
+    }
+
+    throw new Error(`Unknown button type: ${config.type}`);
+  }
+
+  /**
+   * Legacy method for backward compatibility - delegates to new factory
+   * Requirements: 1.1, 1.2, 1.3, 1.4, 1.5
+   * @param x - X position for the button center
+   * @param y - Y position for the button center
+   * @param text - Button text content
+   * @param onClick - Click handler function
+   * @param uiScale - UI scaling factor
+   * @returns Created Phaser text object with standardized styling
+   */
+  private createStandardButton(
+    x: number, 
+    y: number, 
+    text: string, 
+    onClick: () => void, 
+    uiScale: number
+  ): Phaser.GameObjects.Text {
+    const result = this.createStandardizedButton({
+      x, y, text, onClick, type: 'text'
+    }, uiScale);
+    
+    if (result instanceof Phaser.GameObjects.Text) {
+      return result;
+    }
+    
+    throw new Error('Expected text button from factory');
+  }
+
+  /**
+   * Validate that the standardized button sizing system is working correctly
+   * Requirements: 1.1, 1.2, 1.3, 1.4, 1.5
+   * @param uiScale - UI scaling factor
+   */
+  private validateStandardizedButtonSizing(uiScale: number): void {
+    const dimensions = this.getStandardButtonDimensions(uiScale);
+    const buttonTexts = ['SETTINGS', 'HOW TO PLAY', 'LEADERBOARD'];
+    
+    // Verify that dimensions are consistent and reasonable
+    const isValidWidth = dimensions.width > 0 && dimensions.width < 1000;
+    const isValidHeight = dimensions.height > 0 && dimensions.height < 200;
+    const isValidFontSize = dimensions.fontSize === 24 * uiScale;
+    const isValidPadding = dimensions.paddingX === 25 * uiScale && dimensions.paddingY === 12 * uiScale;
+    
+    // Verify that the width can accommodate the longest text
+    const longestText = buttonTexts.reduce((a, b) => a.length > b.length ? a : b);
+    const expectedMinWidth = longestText.length * (dimensions.fontSize * 0.6) + (dimensions.paddingX * 2);
+    const isWidthSufficient = dimensions.width >= expectedMinWidth;
+    
+    if (isValidWidth && isValidHeight && isValidFontSize && isValidPadding && isWidthSufficient) {
+      Logger.log(`StartMenu: Standardized button sizing validation PASSED - all buttons will use consistent dimensions`);
+    } else {
+      Logger.log(`StartMenu: Standardized button sizing validation FAILED - width: ${isValidWidth}, height: ${isValidHeight}, fontSize: ${isValidFontSize}, padding: ${isValidPadding}, widthSufficient: ${isWidthSufficient}`);
+    }
+    
+    // Log the calculation details for verification
+    Logger.log(`StartMenu: Button sizing details - longest text: "${longestText}" (${longestText.length} chars), expected min width: ${expectedMinWidth}px, actual width: ${dimensions.width}px`);
+  }
+
+  /**
+   * Calculate perfect 2x2 grid layout with centered positioning and equal spacing
+   * Requirements: 2.1, 2.2, 2.3, 2.4, 2.5
+   * @param screenWidth - Canvas width
+   * @param screenHeight - Canvas height
+   * @param buttonWidth - Standardized button width
+   * @param buttonHeight - Standardized button height
+   * @param uiScale - UI scaling factor
+   * @returns Perfect 2x2 grid layout calculations
+   */
+  private calculatePerfect2x2GridLayout(
+    screenWidth: number, 
+    screenHeight: number, 
+    buttonWidth: number, 
+    buttonHeight: number, 
+    uiScale: number
+  ): GridLayoutCalculation {
+    // Calculate responsive spacing that maintains proportions when UI scaling is applied (Requirements 2.5, 5.2, 5.3, 5.4)
+    const horizontalSpacing = this.calculateResponsiveButtonSpacing(screenWidth, screenHeight, uiScale);
+    const verticalSpacing = horizontalSpacing; // Equal spacing for perfect grid symmetry
+    
+    // Calculate total grid dimensions using standardized button sizes and equal spacing
+    const gridWidth = (buttonWidth * 2) + horizontalSpacing;
+    const gridHeight = (buttonHeight * 2) + verticalSpacing;
+    
+    // Center the entire grid horizontally on the screen (Requirement 2.2)
+    const gridCenterX = screenWidth / 2;
+    const gridCenterY = screenHeight * 0.75; // Position at 75% of screen height
+    
+    // Calculate grid boundaries for perfect centering
+    const gridLeft = gridCenterX - (gridWidth / 2);
+    const gridTop = gridCenterY - (gridHeight / 2);
+    
+    // Calculate individual button positions for perfect 2x2 grid with equal spacing
+    // Requirements: 2.3, 2.4 - Equal horizontal and vertical spacing between buttons
+    const positions = {
+      // Top-left position (Settings button)
+      topLeft: {
+        x: gridLeft + (buttonWidth / 2),
+        y: gridTop + (buttonHeight / 2)
+      },
+      // Top-right position (How To Play button) 
+      topRight: {
+        x: gridLeft + buttonWidth + horizontalSpacing + (buttonWidth / 2),
+        y: gridTop + (buttonHeight / 2)
+      },
+      // Bottom-left position (Leaderboard button)
+      bottomLeft: {
+        x: gridLeft + (buttonWidth / 2),
+        y: gridTop + buttonHeight + verticalSpacing + (buttonHeight / 2)
+      },
+      // Bottom-right position (Audio button)
+      bottomRight: {
+        x: gridLeft + buttonWidth + horizontalSpacing + (buttonWidth / 2),
+        y: gridTop + buttonHeight + verticalSpacing + (buttonHeight / 2)
+      }
+    };
+    
+    // Log grid calculations for verification (Requirements 2.1, 2.2, 2.3, 2.4, 2.5)
+    Logger.log(`StartMenu: Perfect 2x2 grid calculated - center: (${gridCenterX}, ${gridCenterY}), dimensions: ${gridWidth}x${gridHeight}, spacing: ${horizontalSpacing}x${verticalSpacing}`);
+    Logger.log(`StartMenu: Grid positions - topLeft: (${positions.topLeft.x}, ${positions.topLeft.y}), topRight: (${positions.topRight.x}, ${positions.topRight.y}), bottomLeft: (${positions.bottomLeft.x}, ${positions.bottomLeft.y}), bottomRight: (${positions.bottomRight.x}, ${positions.bottomRight.y})`);
+    
+    return {
+      gridCenterX,
+      gridCenterY,
+      gridWidth,
+      gridHeight,
+      horizontalSpacing,
+      verticalSpacing,
+      positions
+    };
+  }
+
+  /**
+   * Validate perfect 2x2 grid layout calculations
+   * Requirements: 2.1, 2.2, 2.3, 2.4, 2.5
+   * @param gridLayout - Grid layout calculation results
+   * @param screenWidth - Canvas width
+   * @param screenHeight - Canvas height
+   * @param buttonWidth - Standardized button width
+   * @param buttonHeight - Standardized button height
+   */
+  private validatePerfect2x2GridLayout(
+    gridLayout: GridLayoutCalculation,
+    screenWidth: number,
+    screenHeight: number,
+    buttonWidth: number,
+    buttonHeight: number
+  ): void {
+    const { gridCenterX, gridCenterY, gridWidth, gridHeight, horizontalSpacing, verticalSpacing, positions } = gridLayout;
+    
+    // Validate grid is centered horizontally (Requirement 2.2)
+    const expectedCenterX = screenWidth / 2;
+    const isCenteredHorizontally = Math.abs(gridCenterX - expectedCenterX) < 1;
+    
+    // Validate equal horizontal spacing (Requirement 2.3)
+    const actualHorizontalSpacing = positions.topRight.x - positions.topLeft.x - buttonWidth;
+    const isHorizontalSpacingEqual = Math.abs(actualHorizontalSpacing - horizontalSpacing) < 1;
+    
+    // Validate equal vertical spacing (Requirement 2.4)
+    const actualVerticalSpacing = positions.bottomLeft.y - positions.topLeft.y - buttonHeight;
+    const isVerticalSpacingEqual = Math.abs(actualVerticalSpacing - verticalSpacing) < 1;
+    
+    // Validate grid dimensions are correct
+    const expectedGridWidth = (buttonWidth * 2) + horizontalSpacing;
+    const expectedGridHeight = (buttonHeight * 2) + verticalSpacing;
+    const isGridDimensionsCorrect = Math.abs(gridWidth - expectedGridWidth) < 1 && Math.abs(gridHeight - expectedGridHeight) < 1;
+    
+    // Validate perfect 2x2 positioning (Requirement 2.1)
+    const isTopRowAligned = Math.abs(positions.topLeft.y - positions.topRight.y) < 1;
+    const isBottomRowAligned = Math.abs(positions.bottomLeft.y - positions.bottomRight.y) < 1;
+    const isLeftColumnAligned = Math.abs(positions.topLeft.x - positions.bottomLeft.x) < 1;
+    const isRightColumnAligned = Math.abs(positions.topRight.x - positions.bottomRight.x) < 1;
+    const isPerfect2x2Grid = isTopRowAligned && isBottomRowAligned && isLeftColumnAligned && isRightColumnAligned;
+    
+    // Log validation results
+    if (isCenteredHorizontally && isHorizontalSpacingEqual && isVerticalSpacingEqual && isGridDimensionsCorrect && isPerfect2x2Grid) {
+      Logger.log(`StartMenu: Perfect 2x2 grid layout validation PASSED - all requirements met`);
+    } else {
+      Logger.log(`StartMenu: Perfect 2x2 grid layout validation FAILED - centered: ${isCenteredHorizontally}, horizontalSpacing: ${isHorizontalSpacingEqual}, verticalSpacing: ${isVerticalSpacingEqual}, dimensions: ${isGridDimensionsCorrect}, perfect2x2: ${isPerfect2x2Grid}`);
+    }
+    
+    // Log detailed measurements for debugging
+    Logger.log(`StartMenu: Grid validation details - expectedCenterX: ${expectedCenterX}, actualCenterX: ${gridCenterX}, expectedHSpacing: ${horizontalSpacing}, actualHSpacing: ${actualHorizontalSpacing}, expectedVSpacing: ${verticalSpacing}, actualVSpacing: ${actualVerticalSpacing}`);
+  }
+
+  /**
+   * Calculate button positioning layout using perfect 2x2 grid system
+   * Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 2.1, 2.2, 2.3, 2.4, 2.5
    * @param screenWidth - Canvas width
    * @param screenHeight - Canvas height
    * @param dropdownWidth - Width of the difficulty dropdown
@@ -29,45 +644,36 @@ export class StartMenu extends Scene {
     const dropdownY = screenHeight * 0.45;
     const dropdownLeft = dropdownX - dropdownWidth / 2;
 
-    // Button grid layout: 2x2 grid below Start Game button
-    const buttonFontSize = 24 * uiScale;
-    const buttonPaddingX = 25 * uiScale;
-    const buttonPaddingY = 12 * uiScale;
-    const buttonSpacing = this.calculateResponsiveButtonSpacing(screenWidth, uiScale);
+    // Get standardized button dimensions for consistent sizing
+    const standardDimensions = this.getStandardButtonDimensions(uiScale);
     
-    // Calculate button dimensions
-    const settingsTextWidth = buttonFontSize * 0.6 * 8; // 8 characters in 'SETTINGS'
-    const settingsButtonWidth = settingsTextWidth + (buttonPaddingX * 2);
-    const settingsButtonHeight = buttonFontSize + (buttonPaddingY * 2);
+    // Calculate perfect 2x2 grid layout with centered positioning and equal spacing
+    // Requirements: 2.1, 2.2, 2.3, 2.4, 2.5
+    const gridLayout = this.calculatePerfect2x2GridLayout(
+      screenWidth,
+      screenHeight,
+      standardDimensions.width,
+      standardDimensions.height,
+      uiScale
+    );
     
-    const howToPlayTextWidth = buttonFontSize * 0.6 * 12; // 12 characters in 'HOW TO PLAY'
-    const howToPlayButtonWidth = howToPlayTextWidth + (buttonPaddingX * 2);
+    // Validate the perfect 2x2 grid layout calculations
+    this.validatePerfect2x2GridLayout(
+      gridLayout,
+      screenWidth,
+      screenHeight,
+      standardDimensions.width,
+      standardDimensions.height
+    );
     
-    const leaderboardTextWidth = buttonFontSize * 0.6 * 12; // 12 characters in 'LEADERBOARD'
-    const leaderboardButtonWidth = leaderboardTextWidth + (buttonPaddingX * 2);
-    
-    // Calculate grid positioning - center the 2x2 grid below dropdown
-    const gridStartY = screenHeight * 0.75;
-    const gridCenterX = dropdownX;
-    const maxButtonWidth = Math.max(settingsButtonWidth, howToPlayButtonWidth, leaderboardButtonWidth);
-    const gridWidth = maxButtonWidth * 2 + buttonSpacing;
-    const gridLeft = gridCenterX - gridWidth / 2;
-    
-    // Top row: Settings (left), How To Play (right)
-    const settingsButtonX = gridLeft + settingsButtonWidth / 2;
-    const settingsButtonY = gridStartY;
-    
-    const howToPlayButtonX = gridLeft + maxButtonWidth + buttonSpacing + howToPlayButtonWidth / 2;
-    const howToPlayButtonY = gridStartY;
-    
-    // Bottom row: Leaderboards (left), Audio (right)
-    const leaderboardButtonX = gridLeft + leaderboardButtonWidth / 2;
-    const leaderboardButtonY = gridStartY + settingsButtonHeight + buttonSpacing;
-    
-    // Audio button positioning (square button to match button height)
-    const audioButtonSize = settingsButtonHeight; // Square button matching text button height
-    const audioButtonX = gridLeft + maxButtonWidth + buttonSpacing + audioButtonSize / 2;
-    const audioButtonY = leaderboardButtonY;
+    // Audio button uses responsive square dimensions with proper touch targets (Requirements 5.1, 5.2, 5.4, 5.5)
+    const audioButtonSize = this.calculateResponsiveButtonSize(
+      standardDimensions.height, 
+      screenWidth, 
+      screenHeight, 
+      uiScale, 
+      true // isSquareButton
+    );
 
     return {
       // Dropdown reference
@@ -76,31 +682,35 @@ export class StartMenu extends Scene {
       dropdownLeft,
       dropdownWidth,
       
-      // Settings button layout
-      settingsButtonX,
-      settingsButtonY,
-      settingsButtonWidth,
-      settingsButtonHeight,
+      // Standardized button dimensions (all buttons use these)
+      standardButtonWidth: standardDimensions.width,
+      standardButtonHeight: standardDimensions.height,
       
-      // How To Play button layout
-      howToPlayButtonX,
-      howToPlayButtonY,
-      howToPlayButtonWidth,
-      howToPlayButtonHeight: settingsButtonHeight,
+      // Perfect 2x2 grid button positions
+      settingsButtonX: gridLayout.positions.topLeft.x,
+      settingsButtonY: gridLayout.positions.topLeft.y,
       
-      // Leaderboard button layout
-      leaderboardButtonX,
-      leaderboardButtonY,
-      leaderboardButtonWidth,
-      leaderboardButtonHeight: settingsButtonHeight,
+      howToPlayButtonX: gridLayout.positions.topRight.x,
+      howToPlayButtonY: gridLayout.positions.topRight.y,
       
-      // Audio button layout
-      audioButtonX,
-      audioButtonY,
+      leaderboardButtonX: gridLayout.positions.bottomLeft.x,
+      leaderboardButtonY: gridLayout.positions.bottomLeft.y,
+      
+      // Audio button uses bottom-right position but with square dimensions
+      audioButtonX: gridLayout.positions.bottomRight.x,
+      audioButtonY: gridLayout.positions.bottomRight.y,
       audioButtonSize,
       
-      // Spacing
-      buttonSpacing,
+      // Perfect 2x2 grid properties
+      gridCenterX: gridLayout.gridCenterX,
+      gridCenterY: gridLayout.gridCenterY,
+      gridWidth: gridLayout.gridWidth,
+      gridHeight: gridLayout.gridHeight,
+      
+      // Equal spacing values
+      buttonSpacing: gridLayout.horizontalSpacing, // For backward compatibility
+      horizontalSpacing: gridLayout.horizontalSpacing,
+      verticalSpacing: gridLayout.verticalSpacing,
       
       // UI scaling
       uiScale
@@ -108,8 +718,120 @@ export class StartMenu extends Scene {
   }
 
   /**
+   * Calculate responsive button sizing that maintains minimum 44px touch targets on mobile
+   * Requirements: 5.1, 5.2, 5.4, 5.5
+   * @param baseSize - Base size from standardized button dimensions
+   * @param screenWidth - Current screen width
+   * @param screenHeight - Current screen height
+   * @param uiScale - UI scaling factor
+   * @param isSquareButton - Whether this is a square button (like audio button)
+   * @returns Responsive button size that meets touch target requirements
+   */
+  private calculateResponsiveButtonSize(baseSize: number, screenWidth: number, screenHeight: number, uiScale: number, isSquareButton: boolean = false): number {
+    // Minimum touch target size for mobile accessibility (44px minimum recommended)
+    const MIN_TOUCH_TARGET = 44;
+    const OPTIMAL_TOUCH_TARGET = 48;
+    
+    // Detect screen size categories for responsive behavior
+    const screenSizeInfo = this.detectScreenSizeCategory(screenWidth, screenHeight);
+    
+    // Calculate minimum size based on UI scale and touch requirements
+    const scaledMinTarget = MIN_TOUCH_TARGET;
+    const scaledOptimalTarget = OPTIMAL_TOUCH_TARGET;
+    
+    // Start with base size but ensure it meets minimum requirements
+    let buttonSize = Math.max(baseSize, scaledMinTarget);
+    
+    // Apply responsive sizing based on screen category
+    switch (screenSizeInfo.category) {
+      case 'mobile-portrait':
+      case 'mobile-landscape':
+        // On mobile devices, ensure optimal touch target size (Requirement 5.1)
+        buttonSize = Math.max(buttonSize, scaledOptimalTarget);
+        
+        // On very small screens, limit maximum size to prevent UI overflow
+        if (screenSizeInfo.isVerySmall) {
+          const maxSizeRatio = isSquareButton ? 0.08 : 0.12; // Square buttons smaller to save space
+          const maxSize = Math.min(screenWidth, screenHeight) * maxSizeRatio;
+          buttonSize = Math.min(buttonSize, maxSize);
+          
+          // But still maintain minimum touch target
+          buttonSize = Math.max(buttonSize, scaledMinTarget);
+        }
+        break;
+        
+      case 'tablet-portrait':
+      case 'tablet-landscape':
+        // On tablets, use optimal touch targets but allow larger sizes
+        buttonSize = Math.max(buttonSize, scaledOptimalTarget);
+        break;
+        
+      case 'desktop':
+        // On desktop, prioritize visual consistency over touch targets
+        // But still ensure reasonable minimum size for accessibility
+        buttonSize = Math.max(buttonSize, scaledMinTarget);
+        
+        // On very large screens, prevent buttons from becoming too large (Requirement 5.5)
+        if (screenSizeInfo.isVeryLarge) {
+          const maxDesktopSize = isSquareButton ? 80 : 120;
+          buttonSize = Math.min(buttonSize, maxDesktopSize);
+        }
+        break;
+    }
+    
+    // Ensure button maintains proportions when UI scaling changes (Requirement 5.4)
+    return Math.round(buttonSize);
+  }
+
+  /**
+   * Detect screen size category for responsive layout decisions
+   * Requirements: 5.2, 5.3, 5.4, 5.5
+   * @param screenWidth - Current screen width
+   * @param screenHeight - Current screen height
+   * @returns Screen size category and additional size information
+   */
+  private detectScreenSizeCategory(screenWidth: number, screenHeight: number): {
+    category: 'mobile-portrait' | 'mobile-landscape' | 'tablet-portrait' | 'tablet-landscape' | 'desktop';
+    isVerySmall: boolean;
+    isVeryLarge: boolean;
+    orientation: 'portrait' | 'landscape';
+  } {
+    const isPortrait = screenHeight > screenWidth;
+    const orientation = isPortrait ? 'portrait' : 'landscape';
+    
+    // Define breakpoints for different device categories
+    const MOBILE_MAX_WIDTH = 768;
+    const TABLET_MAX_WIDTH = 1024;
+    const VERY_SMALL_THRESHOLD = 480;
+    const VERY_LARGE_THRESHOLD = 1920;
+    
+    const smallerDimension = Math.min(screenWidth, screenHeight);
+    const largerDimension = Math.max(screenWidth, screenHeight);
+    
+    const isVerySmall = smallerDimension <= VERY_SMALL_THRESHOLD;
+    const isVeryLarge = largerDimension >= VERY_LARGE_THRESHOLD;
+    
+    let category: 'mobile-portrait' | 'mobile-landscape' | 'tablet-portrait' | 'tablet-landscape' | 'desktop';
+    
+    if (smallerDimension <= MOBILE_MAX_WIDTH) {
+      category = isPortrait ? 'mobile-portrait' : 'mobile-landscape';
+    } else if (smallerDimension <= TABLET_MAX_WIDTH) {
+      category = isPortrait ? 'tablet-portrait' : 'tablet-landscape';
+    } else {
+      category = 'desktop';
+    }
+    
+    return {
+      category,
+      isVerySmall,
+      isVeryLarge,
+      orientation
+    };
+  }
+
+  /**
    * Calculate responsive audio button size ensuring proper touch target size on mobile
-   * Requirements: 6.1, 6.4, 6.5
+   * Requirements: 5.1, 5.2, 5.4, 5.5 (legacy method - delegates to new responsive system)
    * @param baseSize - Base size from settings button height
    * @param screenWidth - Current screen width
    * @param screenHeight - Current screen height
@@ -117,61 +839,63 @@ export class StartMenu extends Scene {
    * @returns Responsive button size
    */
   private calculateResponsiveAudioButtonSize(baseSize: number, screenWidth: number, screenHeight: number, uiScale: number): number {
-    // Minimum touch target size for mobile accessibility (44px minimum recommended)
-    const MIN_TOUCH_TARGET = 44;
-    const OPTIMAL_TOUCH_TARGET = 48;
-    
-    // Detect if we're likely on a mobile device based on screen dimensions
-    const isMobileSize = screenWidth <= 768 || screenHeight <= 1024;
-    const isVerySmallScreen = screenWidth <= 480 || screenHeight <= 800;
-    
-    // Calculate minimum size based on UI scale and touch requirements
-    const scaledMinTarget = MIN_TOUCH_TARGET * uiScale;
-    const scaledOptimalTarget = OPTIMAL_TOUCH_TARGET * uiScale;
-    
-    // Start with base size but ensure it meets minimum requirements
-    let buttonSize = Math.max(baseSize, scaledMinTarget);
-    
-    // On mobile devices, prefer optimal touch target size
-    if (isMobileSize) {
-      buttonSize = Math.max(buttonSize, scaledOptimalTarget);
-    }
-    
-    // On very small screens, ensure button doesn't become too large relative to screen
-    if (isVerySmallScreen) {
-      const maxSizeRatio = 0.08; // Max 8% of screen width
-      const maxSize = screenWidth * maxSizeRatio;
-      buttonSize = Math.min(buttonSize, maxSize);
-      
-      // But still maintain minimum touch target
-      buttonSize = Math.max(buttonSize, scaledMinTarget);
-    }
-    
-    // Ensure button maintains proportions when UI scaling changes (Requirement 6.5)
-    return Math.round(buttonSize);
+    return this.calculateResponsiveButtonSize(baseSize, screenWidth, screenHeight, uiScale, true);
   }
 
   /**
-   * Calculate responsive button spacing based on screen size
-   * Requirements: 6.2, 6.4
+   * Calculate responsive button spacing with appropriate layout scaling
+   * Requirements: 5.2, 5.3, 5.4, 5.5
+   * @param screenWidth - Current screen width
+   * @param screenHeight - Current screen height
+   * @param uiScale - UI scaling factor
+   * @returns Responsive spacing value that maintains grid alignment
+   */
+  private calculateResponsiveButtonSpacing(screenWidth: number, screenHeight: number, uiScale: number): number {
+    const BASE_SPACING = 20;
+    
+    // Get screen size category for responsive decisions
+    const screenInfo = this.detectScreenSizeCategory(screenWidth, screenHeight);
+    
+    let spacing = BASE_SPACING;
+    
+    // Apply responsive spacing based on screen category
+    switch (screenInfo.category) {
+      case 'mobile-portrait':
+      case 'mobile-landscape':
+        // On mobile, reduce spacing to fit better while maintaining usability
+        spacing = screenInfo.isVerySmall ? 10 : 15;
+        break;
+        
+      case 'tablet-portrait':
+      case 'tablet-landscape':
+        // On tablets, use moderate spacing
+        spacing = 18;
+        break;
+        
+      case 'desktop':
+        // On desktop, use full spacing but limit on very large screens
+        spacing = screenInfo.isVeryLarge ? 25 : BASE_SPACING;
+        break;
+    }
+    
+    // Apply UI scale factor while ensuring minimum spacing for touch targets
+    const scaledSpacing = spacing * uiScale;
+    const minSpacing = 8; // Minimum spacing to prevent buttons from touching
+    
+    return Math.round(Math.max(minSpacing, scaledSpacing));
+  }
+
+  /**
+   * Legacy method for backward compatibility - delegates to new responsive system
+   * Requirements: 5.2, 5.4
    * @param screenWidth - Current screen width
    * @param uiScale - UI scaling factor
    * @returns Responsive spacing value
    */
-  private calculateResponsiveButtonSpacing(screenWidth: number, uiScale: number): number {
-    const BASE_SPACING = 20;
-    
-    // Adjust spacing based on screen width for better layout
-    let spacing = BASE_SPACING * uiScale;
-    
-    // On smaller screens, reduce spacing to fit better
-    if (screenWidth <= 480) {
-      spacing = Math.max(10 * uiScale, spacing * 0.6);
-    } else if (screenWidth <= 768) {
-      spacing = Math.max(15 * uiScale, spacing * 0.8);
-    }
-    
-    return Math.round(spacing);
+  private calculateResponsiveButtonSpacingLegacy(screenWidth: number, uiScale: number): number {
+    // Use screen height as width for legacy compatibility (assumes square-ish screen)
+    const estimatedHeight = screenWidth * 0.75; // Common aspect ratio approximation
+    return this.calculateResponsiveButtonSpacing(screenWidth, estimatedHeight, uiScale);
   }
 
   preload(): void {
@@ -305,8 +1029,20 @@ export class StartMenu extends Scene {
     const SCALED_DROPDOWN_WIDTH = DROPDOWN_WIDTH * UI_SCALE;
     const SCALED_DROPDOWN_HEIGHT = DROPDOWN_HEIGHT * UI_SCALE;
 
-    // Calculate button layout positions
+    // Calculate button layout positions using perfect 2x2 grid system
     const layout = this.calculateButtonLayout(width, height, SCALED_DROPDOWN_WIDTH, UI_SCALE);
+    
+    // Log standardized button dimensions for verification
+    const standardDimensions = this.getStandardButtonDimensions(UI_SCALE);
+    Logger.log(`StartMenu: Using standardized button dimensions - width: ${standardDimensions.width}px, height: ${standardDimensions.height}px, fontSize: ${standardDimensions.fontSize}px, padding: ${standardDimensions.paddingX}x${standardDimensions.paddingY}px`);
+    
+    // Log perfect 2x2 grid layout details for verification
+    Logger.log(`StartMenu: Perfect 2x2 grid layout - center: (${layout.gridCenterX}, ${layout.gridCenterY}), dimensions: ${layout.gridWidth}x${layout.gridHeight}`);
+    Logger.log(`StartMenu: Grid spacing - horizontal: ${layout.horizontalSpacing}px, vertical: ${layout.verticalSpacing}px`);
+    Logger.log(`StartMenu: Button positions - Settings: (${layout.settingsButtonX}, ${layout.settingsButtonY}), HowToPlay: (${layout.howToPlayButtonX}, ${layout.howToPlayButtonY}), Leaderboard: (${layout.leaderboardButtonX}, ${layout.leaderboardButtonY}), Audio: (${layout.audioButtonX}, ${layout.audioButtonY})`);
+    
+    // Validate standardized button sizing system implementation
+    this.validateStandardizedButtonSizing(UI_SCALE);
 
     const contrastTextColor = (n: number) => {
       const r = (n >> 16) & 0xff;
@@ -443,85 +1179,72 @@ export class StartMenu extends Scene {
       }
     };
 
-    // Settings button (repositioned to align with dropdown)
-    const settingsButton = this.add
-      .text(layout.settingsButtonX, layout.settingsButtonY, 'SETTINGS', {
-        fontSize: `${24 * UI_SCALE}px`,
-        color: '#ffffff',
-        fontFamily: 'Asimovian, "Arial Black", Arial, sans-serif',
-        backgroundColor: '#666666',
-        padding: { x: 25 * UI_SCALE, y: 12 * UI_SCALE },
-        stroke: '#000000',
-        strokeThickness: 1,
-      })
-      .setOrigin(0.5)
-      .setInteractive({ useHandCursor: true })
-      .on('pointerover', () => settingsButton.setStyle({ backgroundColor: '#888888' }))
-      .on('pointerout', () => settingsButton.setStyle({ backgroundColor: '#666666' }))
-      .on('pointerdown', () => this.openSettings());
+    // Create standardized buttons using the improved factory pattern with consistent visual feedback
+    // Requirements: 1.1, 1.2, 1.3, 1.5, 6.1, 6.2, 6.3, 7.1, 7.2, 7.3, 7.4, 7.5
+    Logger.log('StartMenu: Creating buttons using standardized factory pattern with consistent visual feedback');
+    
+    // Settings button - uses standardized dimensions and positioning with consistent visual feedback
+    const settingsButton = this.createStandardizedButton({
+      x: layout.settingsButtonX,
+      y: layout.settingsButtonY,
+      text: 'SETTINGS',
+      onClick: () => this.openSettings(),
+      type: 'text'
+    }, UI_SCALE);
+    Logger.log(`StartMenu: Settings button created with consistent visual feedback at (${layout.settingsButtonX}, ${layout.settingsButtonY})`);
 
-    // Leaderboard button (Requirements 7.1, 8.1, 8.5)
-    const leaderboardButton = this.add
-      .text(layout.leaderboardButtonX, layout.leaderboardButtonY, 'LEADERBOARD', {
-        fontSize: `${24 * UI_SCALE}px`,
-        color: '#ffffff',
-        fontFamily: 'Asimovian, "Arial Black", Arial, sans-serif',
-        backgroundColor: '#666666',
-        padding: { x: 25 * UI_SCALE, y: 12 * UI_SCALE },
-        stroke: '#000000',
-        strokeThickness: 1,
-      })
-      .setOrigin(0.5)
-      .setInteractive({ useHandCursor: true })
-      .on('pointerover', () => leaderboardButton.setStyle({ backgroundColor: '#888888' }))
-      .on('pointerout', () => leaderboardButton.setStyle({ backgroundColor: '#666666' }))
-      .on('pointerdown', () => this.openLeaderboard());
+    // How To Play button - uses standardized dimensions and positioning with consistent visual feedback
+    const howToPlayButton = this.createStandardizedButton({
+      x: layout.howToPlayButtonX,
+      y: layout.howToPlayButtonY,
+      text: 'HOW TO PLAY',
+      onClick: () => this.openHowToPlay(),
+      type: 'text'
+    }, UI_SCALE);
+    Logger.log(`StartMenu: How To Play button created with consistent visual feedback at (${layout.howToPlayButtonX}, ${layout.howToPlayButtonY})`);
 
-    // How To Play button (Requirements 8.1, 8.2)
-    const howToPlayButton = this.add
-      .text(layout.howToPlayButtonX, layout.howToPlayButtonY, 'HOW TO PLAY', {
-        fontSize: `${24 * UI_SCALE}px`,
-        color: '#ffffff',
-        fontFamily: 'Asimovian, "Arial Black", Arial, sans-serif',
-        backgroundColor: '#666666',
-        padding: { x: 25 * UI_SCALE, y: 12 * UI_SCALE },
-        stroke: '#000000',
-        strokeThickness: 1,
-      })
-      .setOrigin(0.5)
-      .setInteractive({ useHandCursor: true })
-      .on('pointerover', () => howToPlayButton.setStyle({ backgroundColor: '#888888' }))
-      .on('pointerout', () => howToPlayButton.setStyle({ backgroundColor: '#666666' }))
-      .on('pointerdown', () => this.openHowToPlay());
+    // Leaderboard button - uses standardized dimensions and positioning with consistent visual feedback
+    const leaderboardButton = this.createStandardizedButton({
+      x: layout.leaderboardButtonX,
+      y: layout.leaderboardButtonY,
+      text: 'LEADERBOARD',
+      onClick: () => this.openLeaderboard(),
+      type: 'text'
+    }, UI_SCALE);
+    Logger.log(`StartMenu: Leaderboard button created with consistent visual feedback at (${layout.leaderboardButtonX}, ${layout.leaderboardButtonY})`);
 
-    // Audio button with cross-platform support (Requirements 6.1, 6.2, 6.4)
-    this.audioButton = this.add
-      .rectangle(layout.audioButtonX, layout.audioButtonY, layout.audioButtonSize, layout.audioButtonSize, 0x666666)
-      .setOrigin(0.5)
-      .setStrokeStyle(1, 0x000000, 0.2)
-      .setInteractive(this.createCrossPlatformInteractiveConfig(layout.audioButtonSize))
-      .on('pointerover', () => this.handleAudioButtonHover(true))
-      .on('pointerout', () => this.handleAudioButtonHover(false))
-      .on('pointerdown', () => this.handleAudioButtonClick())
-      .on('pointerup', () => this.handleAudioButtonRelease());
+    // Audio button - uses standardized dimensions while maintaining square aspect ratio with consistent visual feedback
+    // Requirements: 1.1, 1.2, 1.3, 1.5, 6.1, 6.2, 6.3, 7.1, 7.2, 7.3, 7.4, 7.5
+    const audioButtonResult = this.createStandardizedButton({
+      x: layout.audioButtonX,
+      y: layout.audioButtonY,
+      text: '🔇', // Initial muted state icon
+      onClick: () => this.handleAudioButtonClick(),
+      type: 'square',
+      customSize: layout.audioButtonSize
+    }, UI_SCALE);
 
-    // Audio button icon with responsive sizing (Requirements 6.1, 6.4, 6.5)
-    const iconSize = this.calculateResponsiveIconSize(layout.audioButtonSize, UI_SCALE);
-    this.audioIcon = this.add
-      .text(layout.audioButtonX, layout.audioButtonY, '🔇', {
-        fontSize: `${iconSize}px`,
-        color: '#ffffff',
-        fontFamily: 'Arial', // Use Arial for better emoji support
-      })
-      .setOrigin(0.5)
-      .setInteractive(this.createCrossPlatformInteractiveConfig(layout.audioButtonSize))
-      .on('pointerdown', () => this.handleAudioButtonClick())
-      .on('pointerup', () => this.handleAudioButtonRelease());
+    // Extract button and icon from factory result
+    if (typeof audioButtonResult === 'object' && 'button' in audioButtonResult) {
+      this.audioButton = audioButtonResult.button;
+      this.audioIcon = audioButtonResult.icon;
+      Logger.log(`StartMenu: Audio button created with consistent visual feedback at (${layout.audioButtonX}, ${layout.audioButtonY}) with square size ${layout.audioButtonSize}x${layout.audioButtonSize}`);
+    } else {
+      throw new Error('Expected square button result from factory');
+    }
 
-    // Initialize audio button state based on current AudioHandler state
-    const currentAudioState = audioHandler.getMusicEnabled() && audioHandler.getSoundEnabled() ? 'unmuted' : 'muted';
-    this.updateAudioButtonState(currentAudioState);
-    Logger.log(`StartMenu: Audio button initialized to '${currentAudioState}' based on current audio settings`);
+    // Store button references for state management (Requirements 7.4, 7.5)
+    this.buttonReferences = {
+      settings: settingsButton,
+      howToPlay: howToPlayButton,
+      leaderboard: leaderboardButton,
+      audio: audioButtonResult
+    };
+    
+    Logger.log('StartMenu: All buttons successfully created with consistent visual feedback using standardized factory pattern');
+
+    // Initialize audio state synchronization system (Requirements 3.1, 3.2, 3.3, 3.4, 3.5, 4.1, 4.2, 4.3, 4.4, 4.5)
+    this.initializeAudioStateSynchronization();
 
     // Setup responsive behavior and cross-platform support (Requirements 6.1, 6.2, 6.4, 6.5)
     this.setupResponsiveBehavior();
@@ -716,12 +1439,12 @@ export class StartMenu extends Scene {
   }
 
   /**
-   * Handle audio button click with enhanced error handling and browser compatibility
-   * Requirements: 3.1, 3.2, 3.5, 4.1, 4.2, 4.4, 5.1, 5.2, 6.3
+   * Handle audio button click with enhanced cross-browser compatibility and error handling
+   * Requirements: 3.1, 3.2, 3.5, 4.1, 4.2, 4.4, 5.1, 5.2, 6.3, 8.1, 8.2, 8.3, 8.4, 8.5
    */
   private async handleAudioButtonClick(): Promise<void> {
     return Logger.withSilentLogging(async () => {
-      Logger.log('StartMenu: Audio button clicked with enhanced error handling');
+      Logger.log('StartMenu: Audio button clicked with enhanced cross-browser compatibility and error handling');
       
       // Prevent multiple simultaneous initialization attempts
       if (this.isAudioInitializing) {
@@ -733,38 +1456,66 @@ export class StartMenu extends Scene {
         // Provide immediate visual feedback for button press (Requirement 4.4)
         this.showButtonPressEffect();
 
+        // Enhanced browser-specific audio policy handling (Requirements 8.1, 8.2)
+        await this.handleBrowserSpecificAudioPolicies();
+
         if (this.audioButtonState === 'muted') {
-          // Attempt to enable audio and start music with enhanced error handling (Requirements 3.1, 3.2, 3.5, 4.1, 5.1, 5.2)
-          await this.enableAudioAndStartMusicWithErrorHandling();
+          // Attempt to enable audio and start music with enhanced cross-browser error handling (Requirements 3.1, 3.2, 3.5, 4.1, 5.1, 5.2, 8.3, 8.4, 8.5)
+          await this.enableAudioAndStartMusicWithCrossBrowserSupport();
         } else if (this.audioButtonState === 'unmuted') {
-          // Implement toggle functionality to stop music and return to muted state (Requirement 4.2)
-          this.stopMusicAndMuteWithErrorHandling();
+          // Implement toggle functionality to stop music and return to muted state with cross-browser support (Requirement 4.2, 8.4, 8.5)
+          this.stopMusicAndMuteWithCrossBrowserSupport();
         }
         // If state is 'loading', do nothing (initialization in progress)
         
       } catch (error) {
         Logger.log(`StartMenu: Audio button click handler failed - ${error}`);
         
-        // Enhanced error handling with graceful degradation (Requirements 3.5, 5.2)
+        // Enhanced cross-browser error handling with graceful degradation (Requirements 3.5, 5.2, 8.3, 8.4, 8.5)
         await this.handleAudioButtonError(error);
       }
     });
   }
 
   /**
-   * Create cross-platform interactive configuration for buttons
-   * Requirements: 6.1, 6.2, 6.4
+   * Create responsive touch target configuration with proper 44px minimum targets
+   * Requirements: 5.1, 5.2, 5.4
    * @param buttonSize - Size of the button for touch target calculation
-   * @returns Phaser interactive configuration
+   * @returns Phaser interactive configuration with responsive touch targets
    */
-  private createCrossPlatformInteractiveConfig(buttonSize: number): Phaser.Types.Input.InputConfiguration {
-    // Ensure minimum touch target size for mobile accessibility
+  private createResponsiveTouchTargetConfig(buttonSize: number): Phaser.Types.Input.InputConfiguration {
+    const { width, height } = this.scale;
+    const screenInfo = this.detectScreenSizeCategory(width, height);
+    
+    // Minimum touch target size for mobile accessibility (44px minimum recommended)
     const MIN_TOUCH_TARGET = 44;
-    const touchTargetSize = Math.max(buttonSize, MIN_TOUCH_TARGET);
+    const OPTIMAL_TOUCH_TARGET = 48;
+    
+    let touchTargetSize = buttonSize;
+    
+    // Apply responsive touch target sizing based on screen category
+    switch (screenInfo.category) {
+      case 'mobile-portrait':
+      case 'mobile-landscape':
+        // On mobile devices, ensure optimal touch target size (Requirement 5.1)
+        touchTargetSize = Math.max(buttonSize, OPTIMAL_TOUCH_TARGET);
+        break;
+        
+      case 'tablet-portrait':
+      case 'tablet-landscape':
+        // On tablets, use optimal touch targets
+        touchTargetSize = Math.max(buttonSize, OPTIMAL_TOUCH_TARGET);
+        break;
+        
+      case 'desktop':
+        // On desktop, ensure minimum accessibility but don't over-expand
+        touchTargetSize = Math.max(buttonSize, MIN_TOUCH_TARGET);
+        break;
+    }
     
     return {
       useHandCursor: true,
-      // Expand hit area for better touch accessibility on mobile
+      // Expand hit area for better touch accessibility with responsive sizing
       hitArea: new Phaser.Geom.Rectangle(
         -touchTargetSize / 2,
         -touchTargetSize / 2,
@@ -780,20 +1531,74 @@ export class StartMenu extends Scene {
   }
 
   /**
-   * Calculate responsive icon size based on button size and UI scale
-   * Requirements: 6.4, 6.5
+   * Create cross-platform interactive configuration for buttons (legacy method)
+   * Requirements: 5.1, 5.2 (delegates to responsive system)
+   * @param buttonSize - Size of the button for touch target calculation
+   * @returns Phaser interactive configuration
+   */
+  private createCrossPlatformInteractiveConfig(buttonSize: number): Phaser.Types.Input.InputConfiguration {
+    return this.createResponsiveTouchTargetConfig(buttonSize);
+  }
+
+  /**
+   * Calculate responsive icon size with proper scaling for different screen sizes
+   * Requirements: 5.2, 5.4, 5.5
    * @param buttonSize - Current button size
    * @param uiScale - UI scaling factor
-   * @returns Appropriate icon size
+   * @returns Appropriate icon size for current screen
    */
   private calculateResponsiveIconSize(buttonSize: number, uiScale: number): number {
-    // Icon should be proportional to button size but with reasonable limits
-    const baseIconRatio = 0.4; // Icon takes up 40% of button size
+    const { width, height } = this.scale;
+    const screenInfo = this.detectScreenSizeCategory(width, height);
+    
+    // Icon should be proportional to button size but with responsive adjustments
+    let baseIconRatio = 0.4; // Icon takes up 40% of button size
+    
+    // Adjust icon ratio based on screen category for better visibility
+    switch (screenInfo.category) {
+      case 'mobile-portrait':
+      case 'mobile-landscape':
+        // On mobile, make icons slightly larger for better visibility
+        baseIconRatio = screenInfo.isVerySmall ? 0.45 : 0.42;
+        break;
+        
+      case 'tablet-portrait':
+      case 'tablet-landscape':
+        // On tablets, use standard ratio
+        baseIconRatio = 0.4;
+        break;
+        
+      case 'desktop':
+        // On desktop, icons can be slightly smaller relative to button size
+        baseIconRatio = screenInfo.isVeryLarge ? 0.35 : 0.38;
+        break;
+    }
+    
     let iconSize = buttonSize * baseIconRatio;
     
-    // Ensure icon size is reasonable for readability
-    const minIconSize = 16 * uiScale;
-    const maxIconSize = 32 * uiScale;
+    // Ensure icon size is reasonable for readability with responsive limits
+    let minIconSize = 16;
+    let maxIconSize = 32;
+    
+    // Adjust limits based on screen category
+    switch (screenInfo.category) {
+      case 'mobile-portrait':
+      case 'mobile-landscape':
+        minIconSize = screenInfo.isVerySmall ? 14 : 16;
+        maxIconSize = screenInfo.isVerySmall ? 24 : 28;
+        break;
+        
+      case 'tablet-portrait':
+      case 'tablet-landscape':
+        minIconSize = 18;
+        maxIconSize = 32;
+        break;
+        
+      case 'desktop':
+        minIconSize = 16;
+        maxIconSize = screenInfo.isVeryLarge ? 40 : 32;
+        break;
+    }
     
     iconSize = Math.max(minIconSize, Math.min(maxIconSize, iconSize));
     
@@ -801,39 +1606,33 @@ export class StartMenu extends Scene {
   }
 
   /**
-   * Handle audio button hover effects with cross-platform support
-   * Requirements: 6.2, 6.4
+   * Handle audio button hover effects with cross-platform support (legacy method - now uses consistent system)
+   * Requirements: 6.2, 6.4, 7.1
    * @param isHovering - Whether the button is being hovered
    */
   private handleAudioButtonHover(isHovering: boolean): void {
     return Logger.withSilentLogging(() => {
       if (!this.audioButton) return;
 
-      // Only show hover effects on desktop (mouse-based interactions)
-      // Touch devices don't have hover states, so we skip this for better UX
-      const isTouchDevice = this.detectTouchDevice();
-      
-      if (!isTouchDevice) {
-        if (isHovering) {
-          this.audioButton.setFillStyle(0x888888);
-        } else {
-          this.audioButton.setFillStyle(0x666666);
-        }
-      }
+      // Audio button now uses the consistent visual feedback system
+      // This method is kept for backward compatibility but the actual hover effects
+      // are handled by the applyConsistentVisualFeedback method
+      Logger.log(`StartMenu: Audio button hover state: ${isHovering} (handled by consistent visual feedback system)`);
     });
   }
 
   /**
-   * Handle audio button release for better touch feedback
-   * Requirements: 6.1, 6.4
+   * Handle audio button release for better touch feedback (legacy method - now uses consistent system)
+   * Requirements: 6.1, 6.4, 7.2, 7.3
    */
   private handleAudioButtonRelease(): void {
     return Logger.withSilentLogging(() => {
       if (!this.audioButton) return;
 
-      // Reset button appearance after release
-      // This provides better feedback for touch interactions
-      this.audioButton.setFillStyle(0x666666);
+      // Audio button now uses the consistent visual feedback system
+      // This method is kept for backward compatibility but the actual release effects
+      // are handled by the applyConsistentVisualFeedback method
+      Logger.log('StartMenu: Audio button release (handled by consistent visual feedback system)');
     });
   }
 
@@ -857,8 +1656,8 @@ export class StartMenu extends Scene {
   }
 
   /**
-   * Handle screen orientation changes for responsive layout
-   * Requirements: 6.4, 6.5
+   * Handle screen orientation changes to maintain grid alignment
+   * Requirements: 5.3, 5.4, 5.5
    */
   private handleOrientationChange(): void {
     return Logger.withSilentLogging(() => {
@@ -868,41 +1667,120 @@ export class StartMenu extends Scene {
       }
       
       this.orientationChangeTimeout = setTimeout(() => {
-        this.updateResponsiveLayout();
+        Logger.log('StartMenu: Handling orientation change - updating responsive layout');
+        this.updateResponsiveLayoutForOrientationChange();
       }, 250);
     });
   }
 
   /**
-   * Update layout for responsive behavior
-   * Requirements: 6.2, 6.4, 6.5
+   * Update responsive layout specifically for orientation changes
+   * Requirements: 5.3, 5.4, 5.5
+   */
+  private updateResponsiveLayoutForOrientationChange(): void {
+    return Logger.withSilentLogging(() => {
+      const { width, height } = this.scale;
+      const UI_SCALE = 2;
+      
+      // Detect new screen size category after orientation change
+      const screenInfo = this.detectScreenSizeCategory(width, height);
+      Logger.log(`StartMenu: Orientation change detected - new category: ${screenInfo.category}, orientation: ${screenInfo.orientation}, very small: ${screenInfo.isVerySmall}, very large: ${screenInfo.isVeryLarge}`);
+      
+      // Clear cached dimensions to force recalculation with new screen dimensions
+      this.standardButtonDimensions = null;
+      
+      // Update all button elements with new responsive layout
+      this.updateAllButtonsForResponsiveLayout(width, height, UI_SCALE);
+      
+      Logger.log(`StartMenu: Responsive layout updated for orientation change - screen: ${width}x${height}, category: ${screenInfo.category}`);
+    });
+  }
+
+  /**
+   * Update all buttons for responsive layout changes
+   * Requirements: 5.1, 5.2, 5.3, 5.4, 5.5
+   * @param screenWidth - Current screen width
+   * @param screenHeight - Current screen height
+   * @param uiScale - UI scaling factor
+   */
+  private updateAllButtonsForResponsiveLayout(screenWidth: number, screenHeight: number, uiScale: number): void {
+    return Logger.withSilentLogging(() => {
+      if (!this.audioButton || !this.audioIcon) {
+        Logger.log('StartMenu: Audio button elements not available for responsive layout update');
+        return;
+      }
+
+      // Apply responsive scaling adjustments for extreme screen sizes (Requirement 5.5)
+      const adjustedUIScale = this.calculateResponsiveUIScale(screenWidth, screenHeight, uiScale);
+      const SCALED_DROPDOWN_WIDTH = 220 * adjustedUIScale;
+      
+      // Recalculate layout with current screen dimensions using responsive system
+      const layout = this.calculateButtonLayout(screenWidth, screenHeight, SCALED_DROPDOWN_WIDTH, adjustedUIScale);
+      
+      // Update audio button position and size with responsive calculations
+      const responsiveAudioButtonSize = this.calculateResponsiveButtonSize(
+        layout.audioButtonSize, 
+        screenWidth, 
+        screenHeight, 
+        adjustedUIScale, 
+        true // isSquareButton
+      );
+      
+      this.audioButton.setPosition(layout.audioButtonX, layout.audioButtonY);
+      this.audioButton.setSize(responsiveAudioButtonSize, responsiveAudioButtonSize);
+      
+      // Update icon position and size with responsive calculations
+      const responsiveIconSize = this.calculateResponsiveIconSize(responsiveAudioButtonSize, adjustedUIScale);
+      this.audioIcon.setPosition(layout.audioButtonX, layout.audioButtonY);
+      this.audioIcon.setFontSize(responsiveIconSize);
+      
+      // Update interactive areas for new responsive size (keep it simple to avoid alignment issues)
+      this.audioButton.setInteractive({ useHandCursor: true });
+      // Icon is not interactive to avoid conflicts
+      
+      // Log responsive layout details
+      const screenInfo = this.detectScreenSizeCategory(screenWidth, screenHeight);
+      Logger.log(`StartMenu: All buttons updated for responsive layout - screen: ${screenWidth}x${screenHeight} (${screenInfo.category}), UI scale: ${uiScale} -> ${adjustedUIScale}, audio button: ${responsiveAudioButtonSize}x${responsiveAudioButtonSize}, icon size: ${responsiveIconSize}, spacing: ${layout.horizontalSpacing}x${layout.verticalSpacing}`);
+    });
+  }
+
+  /**
+   * Calculate responsive UI scale for extreme screen sizes
+   * Requirements: 5.4, 5.5
+   * @param screenWidth - Current screen width
+   * @param screenHeight - Current screen height
+   * @param baseUIScale - Base UI scaling factor
+   * @returns Adjusted UI scale for current screen size
+   */
+  private calculateResponsiveUIScale(screenWidth: number, screenHeight: number, baseUIScale: number): number {
+    const screenInfo = this.detectScreenSizeCategory(screenWidth, screenHeight);
+    let adjustedScale = baseUIScale;
+    
+    // Adjust UI scale for extreme screen sizes to ensure appropriate button scaling
+    if (screenInfo.isVerySmall) {
+      // On very small screens, reduce UI scale to prevent buttons from becoming too large (Requirement 5.4)
+      adjustedScale = Math.max(1.0, baseUIScale * 0.7);
+      Logger.log(`StartMenu: Very small screen detected - reducing UI scale from ${baseUIScale} to ${adjustedScale}`);
+    } else if (screenInfo.isVeryLarge) {
+      // On very large screens, limit UI scale to prevent buttons from becoming excessively large (Requirement 5.5)
+      adjustedScale = Math.min(baseUIScale * 1.2, baseUIScale);
+      Logger.log(`StartMenu: Very large screen detected - UI scale maintained at ${adjustedScale}`);
+    }
+    
+    return adjustedScale;
+  }
+
+  /**
+   * Update layout for responsive behavior using responsive system with proper touch targets
+   * Requirements: 5.1, 5.2, 5.3, 5.4, 5.5
    */
   private updateResponsiveLayout(): void {
     return Logger.withSilentLogging(() => {
-      if (!this.audioButton || !this.audioIcon) return;
-
       const { width, height } = this.scale;
       const UI_SCALE = 2;
-      const SCALED_DROPDOWN_WIDTH = 220 * UI_SCALE;
       
-      // Recalculate layout with current screen dimensions
-      const layout = this.calculateButtonLayout(width, height, SCALED_DROPDOWN_WIDTH, UI_SCALE);
-      
-      // Update audio button position and size
-      this.audioButton.setPosition(layout.audioButtonX, layout.audioButtonY);
-      this.audioButton.setSize(layout.audioButtonSize, layout.audioButtonSize);
-      
-      // Update icon position and size
-      const iconSize = this.calculateResponsiveIconSize(layout.audioButtonSize, UI_SCALE);
-      this.audioIcon.setPosition(layout.audioButtonX, layout.audioButtonY);
-      this.audioIcon.setFontSize(iconSize);
-      
-      // Update interactive areas for new size
-      const interactiveConfig = this.createCrossPlatformInteractiveConfig(layout.audioButtonSize);
-      this.audioButton.setInteractive(interactiveConfig);
-      this.audioIcon.setInteractive(interactiveConfig);
-      
-      Logger.log(`StartMenu: Responsive layout updated - button size: ${layout.audioButtonSize}, icon size: ${iconSize}`);
+      // Use the comprehensive responsive layout update
+      this.updateAllButtonsForResponsiveLayout(width, height, UI_SCALE);
     });
   }
 
@@ -992,33 +1870,126 @@ export class StartMenu extends Scene {
   }
 
   /**
-   * Provide enhanced visual feedback for button press with cross-platform support
-   * Requirements: 6.1, 6.4
+   * Provide enhanced visual feedback for button press with cross-platform support (legacy method - now uses consistent system)
+   * Requirements: 6.1, 6.4, 7.2, 7.3, 7.4
    */
   private showButtonPressEffect(): void {
     return Logger.withSilentLogging(() => {
       if (!this.audioButton) return;
 
-      // Enhanced feedback for touch devices vs desktop
-      const isTouchDevice = this.detectTouchDevice();
-      const originalColor = 0x666666;
-      const pressColor = 0x444444;
+      // Audio button now uses the consistent visual feedback system
+      // This method is kept for backward compatibility but the actual press effects
+      // are handled by the applyConsistentVisualFeedback method
+      Logger.log('StartMenu: Audio button press effect (handled by consistent visual feedback system)');
+    });
+  }
+
+  /**
+   * Update button state for loading and disabled visual indicators
+   * Requirements: 7.4, 7.5
+   * @param buttonElement - Button element (text or composite button)
+   * @param state - New button state ('normal', 'loading', 'disabled')
+   */
+  private updateButtonState(buttonElement: any, state: 'normal' | 'loading' | 'disabled'): void {
+    return Logger.withSilentLogging(() => {
+      if (!buttonElement) return;
+
+      const feedbackConfig = this.getVisualFeedbackConfig();
+      const buttonRect = buttonElement.buttonRect || buttonElement.button;
+      const textElement = buttonElement instanceof Phaser.GameObjects.Text ? buttonElement : 
+                         (buttonElement.icon || null);
+
+      if (!buttonRect) {
+        Logger.log('StartMenu: Cannot update button state - button rectangle not found');
+        return;
+      }
+
+      // Stop any existing tweens
+      this.tweens.killTweensOf(buttonRect);
+      if (textElement) {
+        this.tweens.killTweensOf(textElement);
+      }
+
+      // Create updated config for state management
+      const updatedConfig: StandardButtonConfig = {
+        ...(buttonElement.buttonConfig || {}),
+        text: buttonElement.buttonConfig?.text || 'BUTTON',
+        x: buttonRect.x,
+        y: buttonRect.y,
+        onClick: () => {},
+        type: buttonElement.buttonConfig?.type || 'text',
+        disabled: state === 'disabled',
+        loading: state === 'loading'
+      };
+
+      // Apply the new visual state
+      this.updateButtonVisualState(buttonRect, textElement, updatedConfig, feedbackConfig);
+
+      Logger.log(`StartMenu: Button state updated to "${state}" with consistent visual feedback`);
+    });
+  }
+
+  /**
+   * Demonstrate loading state visual indicators for testing
+   * Requirements: 7.5
+   * @param buttonName - Name of button to set to loading state
+   */
+  private demonstrateLoadingState(buttonName: keyof typeof this.buttonReferences): void {
+    return Logger.withSilentLogging(() => {
+      const button = this.buttonReferences[buttonName];
+      if (button) {
+        this.updateButtonState(button, 'loading');
+        Logger.log(`StartMenu: Demonstrating loading state for ${buttonName} button`);
+        
+        // Return to normal state after 3 seconds for demonstration
+        this.time.delayedCall(3000, () => {
+          this.updateButtonState(button, 'normal');
+          Logger.log(`StartMenu: ${buttonName} button returned to normal state`);
+        });
+      }
+    });
+  }
+
+  /**
+   * Demonstrate disabled state visual indicators for testing
+   * Requirements: 7.5
+   * @param buttonName - Name of button to set to disabled state
+   */
+  private demonstrateDisabledState(buttonName: keyof typeof this.buttonReferences): void {
+    return Logger.withSilentLogging(() => {
+      const button = this.buttonReferences[buttonName];
+      if (button) {
+        this.updateButtonState(button, 'disabled');
+        Logger.log(`StartMenu: Demonstrating disabled state for ${buttonName} button`);
+        
+        // Return to normal state after 3 seconds for demonstration
+        this.time.delayedCall(3000, () => {
+          this.updateButtonState(button, 'normal');
+          Logger.log(`StartMenu: ${buttonName} button returned to normal state`);
+        });
+      }
+    });
+  }
+
+  /**
+   * Test all visual feedback states for all buttons
+   * Requirements: 7.1, 7.2, 7.3, 7.4, 7.5
+   */
+  private testVisualFeedbackStates(): void {
+    return Logger.withSilentLogging(() => {
+      Logger.log('StartMenu: Testing all visual feedback states for all buttons');
       
-      // More pronounced feedback for touch devices
-      const feedbackDuration = isTouchDevice ? 150 : 100;
-      const scaleEffect = isTouchDevice ? 0.95 : 0.98;
+      // Test loading states with staggered timing
+      setTimeout(() => this.demonstrateLoadingState('settings'), 1000);
+      setTimeout(() => this.demonstrateLoadingState('howToPlay'), 2000);
+      setTimeout(() => this.demonstrateLoadingState('leaderboard'), 3000);
       
-      // Color and scale feedback
-      this.audioButton.setFillStyle(pressColor);
-      this.audioButton.setScale(scaleEffect);
+      // Test disabled states with staggered timing
+      setTimeout(() => this.demonstrateDisabledState('settings'), 5000);
+      setTimeout(() => this.demonstrateDisabledState('howToPlay'), 6000);
+      setTimeout(() => this.demonstrateDisabledState('leaderboard'), 7000);
       
-      // Return to normal state after feedback duration
-      this.time.delayedCall(feedbackDuration, () => {
-        if (this.audioButton) {
-          this.audioButton.setFillStyle(originalColor);
-          this.audioButton.setScale(1.0);
-        }
-      });
+      Logger.log('StartMenu: Visual feedback state testing sequence initiated');
     });
   }
 
@@ -1044,6 +2015,30 @@ export class StartMenu extends Scene {
       }
       
       Logger.log('StartMenu: Responsive behavior cleanup completed');
+    });
+  }
+
+  /**
+   * Clean up audio state synchronization system
+   * Requirements: 3.4, 3.5
+   */
+  private cleanupAudioStateSynchronization(): void {
+    return Logger.withSilentLogging(() => {
+      try {
+        // Remove registry event listeners to prevent memory leaks
+        this.registry.events.off('changedata-audioEnabled');
+        this.registry.events.off('changedata-musicEnabled');
+        this.registry.events.off('changedata-soundEnabled');
+        
+        // Reset synchronization state
+        this.audioStateSyncInitialized = false;
+        this.lastKnownAudioState = null;
+        
+        Logger.log('StartMenu: Audio state synchronization cleanup completed');
+        
+      } catch (error) {
+        Logger.log(`StartMenu: Error during audio state synchronization cleanup - ${error}`);
+      }
     });
   }
 
@@ -1139,15 +2134,22 @@ export class StartMenu extends Scene {
           // Audio is initialized, enable audio globally and start menu music
           Logger.log('StartMenu: Audio initialized, enabling audio globally and starting menu music');
           
-          // Enable audio globally so all scenes respect this state
-          audioHandler.setMusicEnabled(true);
-          audioHandler.setSoundEnabled(true);
+          // Create new audio state with all audio enabled
+          const newAudioState = {
+            music: true,
+            sound: true,
+            global: true
+          };
+          
+          // Synchronize state with all services and persist
+          this.syncAudioStateWithServices(newAudioState);
+          this.persistAudioState(newAudioState);
           
           try {
             audioHandler.playMusic('menu-theme', true);
             
-            // Update button icon to unmuted speaker when audio is successfully activated (Requirement 4.1)
-            this.updateAudioButtonState('unmuted');
+            // Update button icon using the synchronization system
+            this.updateAudioButtonIconFromState(newAudioState);
             Logger.log('StartMenu: Audio successfully enabled globally and music started');
             
             // Add appropriate sound effects for button interactions when audio is enabled (Requirement 4.5)
@@ -1156,12 +2158,14 @@ export class StartMenu extends Scene {
           } catch (musicError) {
             Logger.log(`StartMenu: Music playback failed but audio is initialized - ${musicError}`);
             // Still update to unmuted state since audio system is working
-            this.updateAudioButtonState('unmuted');
+            this.updateAudioButtonIconFromState(newAudioState);
           }
         } else {
           // Audio initialization failed but maintain button functionality (Requirement 5.4)
           Logger.log('StartMenu: Audio initialization completed but handler not marked as initialized - maintaining button functionality');
-          this.updateAudioButtonState('muted');
+          const failedState = { music: false, sound: false, global: false };
+          this.updateAudioButtonIconFromState(failedState);
+          this.persistAudioState(failedState);
         }
         
       } catch (error) {
@@ -1171,7 +2175,9 @@ export class StartMenu extends Scene {
         await this.handleAudioInitializationError(error, Date.now());
         
         // Maintain button functionality even when audio systems fail (Requirement 5.4)
-        this.updateAudioButtonState('muted');
+        const errorState = { music: false, sound: false, global: false };
+        this.updateAudioButtonIconFromState(errorState);
+        this.persistAudioState(errorState);
         
       } finally {
         this.isAudioInitializing = false;
@@ -1198,9 +2204,16 @@ export class StartMenu extends Scene {
           }
         }
         
-        // Disable audio globally so all scenes respect this muted state
-        audioHandler.setMusicEnabled(false);
-        audioHandler.setSoundEnabled(false);
+        // Create new audio state with all audio disabled
+        const newAudioState = {
+          music: false,
+          sound: false,
+          global: false
+        };
+        
+        // Synchronize state with all services and persist
+        this.syncAudioStateWithServices(newAudioState);
+        this.persistAudioState(newAudioState);
         
         // Stop music playback using existing audioHandler service (Requirement 4.2, 5.3)
         try {
@@ -1211,8 +2224,8 @@ export class StartMenu extends Scene {
           // Continue to update button state even if stop fails
         }
         
-        // Change icon back to muted speaker when music is stopped (Requirement 4.3)
-        this.updateAudioButtonState('muted');
+        // Update button icon using the synchronization system (Requirement 4.3)
+        this.updateAudioButtonIconFromState(newAudioState);
         
         Logger.log('StartMenu: Music stopped and button returned to muted state');
         
@@ -1220,7 +2233,9 @@ export class StartMenu extends Scene {
         Logger.log(`StartMenu: Error during music stop operation - ${error}`);
         
         // Maintain button functionality even when audio systems fail (Requirement 5.4)
-        this.updateAudioButtonState('muted');
+        const errorState = { music: false, sound: false, global: false };
+        this.updateAudioButtonIconFromState(errorState);
+        this.persistAudioState(errorState);
       }
     });
   }
@@ -1281,6 +2296,384 @@ export class StartMenu extends Scene {
     } catch (error) {
       Logger.log(`StartMenu: Could not collect audio diagnostics - ${error}`);
     }
+  }
+
+  /**
+   * Read current audio state from AudioHandler and Settings services
+   * Requirements: 3.1, 3.2, 3.3
+   * @returns Current audio state from all sources
+   */
+  private readCurrentAudioState(): { music: boolean; sound: boolean; global: boolean } {
+    return Logger.withSilentLogging(() => {
+      try {
+        // Read from AudioHandler service (primary source)
+        const musicEnabled = audioHandler.getMusicEnabled();
+        const soundEnabled = audioHandler.getSoundEnabled();
+        
+        // Read from Settings service (persistent storage)
+        const settingsAudioMuted = settings.get('audioMuted');
+        const settingsGlobalEnabled = !settingsAudioMuted;
+        
+        // Calculate global audio state (both music and sound must be enabled)
+        const globalEnabled = musicEnabled && soundEnabled && settingsGlobalEnabled;
+        
+        const currentState = {
+          music: musicEnabled,
+          sound: soundEnabled,
+          global: globalEnabled
+        };
+        
+        Logger.log(`StartMenu: Current audio state read - music: ${currentState.music}, sound: ${currentState.sound}, global: ${currentState.global}, settingsAudioMuted: ${settingsAudioMuted}`);
+        
+        return currentState;
+        
+      } catch (error) {
+        Logger.log(`StartMenu: Error reading current audio state - ${error}`);
+        
+        // Fallback to safe defaults if reading fails
+        return {
+          music: false,
+          sound: false,
+          global: false
+        };
+      }
+    });
+  }
+
+  /**
+   * Update audio button icon based on actual current audio state
+   * Requirements: 3.2, 3.4, 4.1, 4.3
+   * @param audioState - Current audio state to reflect in button
+   */
+  private updateAudioButtonIconFromState(audioState: { music: boolean; sound: boolean; global: boolean }): void {
+    return Logger.withSilentLogging(() => {
+      try {
+        // Determine button state based on global audio state
+        const newButtonState: 'muted' | 'unmuted' | 'loading' = audioState.global ? 'unmuted' : 'muted';
+        
+        // Only update if state has actually changed to avoid unnecessary updates
+        if (this.audioButtonState !== newButtonState) {
+          this.updateAudioButtonState(newButtonState);
+          Logger.log(`StartMenu: Audio button icon updated from state - ${newButtonState} (music: ${audioState.music}, sound: ${audioState.sound}, global: ${audioState.global})`);
+        }
+        
+      } catch (error) {
+        Logger.log(`StartMenu: Error updating audio button icon from state - ${error}`);
+        
+        // Fallback to muted state if update fails
+        this.updateAudioButtonState('muted');
+      }
+    });
+  }
+
+  /**
+   * Persist audio state to ensure settings survive scene transitions
+   * Requirements: 3.3, 4.2, 4.3
+   * @param audioState - Audio state to persist
+   */
+  private persistAudioState(audioState: { music: boolean; sound: boolean; global: boolean }): void {
+    return Logger.withSilentLogging(() => {
+      try {
+        // Persist to Settings service for long-term storage
+        settings.set('audioMuted', !audioState.global);
+        
+        // Persist to AudioHandler service for immediate use
+        audioHandler.setMusicEnabled(audioState.music);
+        audioHandler.setSoundEnabled(audioState.sound);
+        
+        // Store in registry for cross-scene synchronization
+        this.registry.set('audioEnabled', audioState.global);
+        this.registry.set('musicEnabled', audioState.music);
+        this.registry.set('soundEnabled', audioState.sound);
+        
+        // Update last known state for change detection
+        this.lastKnownAudioState = { ...audioState };
+        
+        Logger.log(`StartMenu: Audio state persisted - music: ${audioState.music}, sound: ${audioState.sound}, global: ${audioState.global}`);
+        
+      } catch (error) {
+        Logger.log(`StartMenu: Error persisting audio state - ${error}`);
+        // Continue execution even if persistence fails
+      }
+    });
+  }
+
+  /**
+   * Synchronize audio state with services using cross-browser support
+   * Requirements: 8.4, 8.5
+   */
+  private syncAudioStateWithCrossBrowserSupport(audioState: { music: boolean; sound: boolean; global: boolean }): void {
+    return Logger.withSilentLogging(() => {
+      try {
+        // Synchronize with AudioHandler service with cross-browser error handling
+        try {
+          audioHandler.setMusicEnabled(audioState.music);
+          audioHandler.setSoundEnabled(audioState.sound);
+        } catch (audioHandlerError) {
+          Logger.log(`StartMenu: AudioHandler synchronization failed with cross-browser support - ${audioHandlerError}`);
+          // Continue with other synchronization even if AudioHandler fails
+        }
+        
+        // Store in registry for cross-scene synchronization with cross-browser support
+        try {
+          this.registry.set('audioEnabled', audioState.global);
+          this.registry.set('musicEnabled', audioState.music);
+          this.registry.set('soundEnabled', audioState.sound);
+        } catch (registryError) {
+          Logger.log(`StartMenu: Registry synchronization failed with cross-browser support - ${registryError}`);
+          // Continue even if registry fails
+        }
+        
+        // Update last known state for change detection
+        this.lastKnownAudioState = { ...audioState };
+        
+        Logger.log(`StartMenu: Audio state synchronized with cross-browser support - music: ${audioState.music}, sound: ${audioState.sound}, global: ${audioState.global}`);
+        
+      } catch (error) {
+        Logger.log(`StartMenu: Error synchronizing audio state with cross-browser support - ${error}`);
+      }
+    });
+  }
+
+  /**
+   * Persist audio state with cross-browser support to ensure settings survive scene transitions
+   * Requirements: 3.3, 4.2, 4.3, 8.4, 8.5
+   * @param audioState - Audio state to persist
+   */
+  private persistAudioStateWithCrossBrowserSupport(audioState: { music: boolean; sound: boolean; global: boolean }): void {
+    return Logger.withSilentLogging(() => {
+      try {
+        // Persist to Settings service for long-term storage with cross-browser error handling
+        try {
+          settings.set('audioMuted', !audioState.global);
+        } catch (settingsError) {
+          Logger.log(`StartMenu: Settings persistence failed with cross-browser support - ${settingsError}`);
+          // Continue with other persistence methods
+        }
+        
+        // Persist to AudioHandler service for immediate use with cross-browser error handling
+        try {
+          audioHandler.setMusicEnabled(audioState.music);
+          audioHandler.setSoundEnabled(audioState.sound);
+        } catch (audioHandlerError) {
+          Logger.log(`StartMenu: AudioHandler persistence failed with cross-browser support - ${audioHandlerError}`);
+          // Continue with other persistence methods
+        }
+        
+        // Store in registry for cross-scene synchronization with cross-browser error handling
+        try {
+          this.registry.set('audioEnabled', audioState.global);
+          this.registry.set('musicEnabled', audioState.music);
+          this.registry.set('soundEnabled', audioState.sound);
+        } catch (registryError) {
+          Logger.log(`StartMenu: Registry persistence failed with cross-browser support - ${registryError}`);
+          // Continue even if registry fails
+        }
+        
+        // Update last known state for change detection
+        this.lastKnownAudioState = { ...audioState };
+        
+        Logger.log(`StartMenu: Audio state persisted with cross-browser support - music: ${audioState.music}, sound: ${audioState.sound}, global: ${audioState.global}`);
+        
+      } catch (error) {
+        Logger.log(`StartMenu: Error persisting audio state with cross-browser support - ${error}`);
+      }
+    });
+  }
+
+  /**
+   * Load persisted audio state from all sources
+   * Requirements: 3.3, 4.4, 4.5
+   * @returns Loaded audio state from persistent storage
+   */
+  private loadPersistedAudioState(): { music: boolean; sound: boolean; global: boolean } {
+    return Logger.withSilentLogging(() => {
+      try {
+        // Load from registry first (most recent cross-scene state)
+        const registryGlobal = this.registry.get('audioEnabled') as boolean;
+        const registryMusic = this.registry.get('musicEnabled') as boolean;
+        const registrySound = this.registry.get('soundEnabled') as boolean;
+        
+        // Load from Settings service (persistent storage)
+        const settingsAudioMuted = settings.get('audioMuted');
+        const settingsGlobalEnabled = !settingsAudioMuted;
+        
+        // Use registry values if available, otherwise fall back to settings
+        const loadedState = {
+          music: registryMusic !== undefined ? registryMusic : settingsGlobalEnabled,
+          sound: registrySound !== undefined ? registrySound : settingsGlobalEnabled,
+          global: registryGlobal !== undefined ? registryGlobal : settingsGlobalEnabled
+        };
+        
+        Logger.log(`StartMenu: Audio state loaded - music: ${loadedState.music}, sound: ${loadedState.sound}, global: ${loadedState.global} (registry: ${registryGlobal}/${registryMusic}/${registrySound}, settings: ${settingsGlobalEnabled})`);
+        
+        return loadedState;
+        
+      } catch (error) {
+        Logger.log(`StartMenu: Error loading persisted audio state - ${error}`);
+        
+        // Fallback to safe defaults if loading fails
+        return {
+          music: true,
+          sound: true,
+          global: true
+        };
+      }
+    });
+  }
+
+  /**
+   * Create cross-scene audio state synchronization using Phaser registry system
+   * Requirements: 3.4, 3.5, 4.4, 4.5
+   */
+  private setupCrossSceneAudioStateSynchronization(): void {
+    return Logger.withSilentLogging(() => {
+      try {
+        if (this.audioStateSyncInitialized) {
+          Logger.log('StartMenu: Audio state synchronization already initialized');
+          return;
+        }
+        
+        // Listen for audio state changes from other scenes
+        this.registry.events.on('changedata-audioEnabled', (_parent: any, _key: string, data: boolean) => {
+          Logger.log(`StartMenu: Cross-scene audio state change detected - audioEnabled: ${data}`);
+          this.handleCrossSceneAudioStateChange();
+        });
+        
+        this.registry.events.on('changedata-musicEnabled', (_parent: any, _key: string, data: boolean) => {
+          Logger.log(`StartMenu: Cross-scene audio state change detected - musicEnabled: ${data}`);
+          this.handleCrossSceneAudioStateChange();
+        });
+        
+        this.registry.events.on('changedata-soundEnabled', (_parent: any, _key: string, data: boolean) => {
+          Logger.log(`StartMenu: Cross-scene audio state change detected - soundEnabled: ${data}`);
+          this.handleCrossSceneAudioStateChange();
+        });
+        
+        // Initialize with current persisted state
+        const persistedState = this.loadPersistedAudioState();
+        this.syncAudioStateWithServices(persistedState);
+        this.updateAudioButtonIconFromState(persistedState);
+        
+        this.audioStateSyncInitialized = true;
+        Logger.log('StartMenu: Cross-scene audio state synchronization initialized');
+        
+      } catch (error) {
+        Logger.log(`StartMenu: Error setting up cross-scene audio state synchronization - ${error}`);
+        // Continue execution even if sync setup fails
+      }
+    });
+  }
+
+  /**
+   * Handle cross-scene audio state changes
+   * Requirements: 3.4, 3.5, 4.4, 4.5
+   */
+  private handleCrossSceneAudioStateChange(): void {
+    return Logger.withSilentLogging(() => {
+      try {
+        // Read current state from registry
+        const currentState = {
+          music: this.registry.get('musicEnabled') as boolean ?? true,
+          sound: this.registry.get('soundEnabled') as boolean ?? true,
+          global: this.registry.get('audioEnabled') as boolean ?? true
+        };
+        
+        // Check if state has actually changed
+        if (this.lastKnownAudioState && 
+            this.lastKnownAudioState.music === currentState.music &&
+            this.lastKnownAudioState.sound === currentState.sound &&
+            this.lastKnownAudioState.global === currentState.global) {
+          // No actual change, skip update
+          return;
+        }
+        
+        // Sync with services and update button
+        this.syncAudioStateWithServices(currentState);
+        this.updateAudioButtonIconFromState(currentState);
+        
+        // Update last known state
+        this.lastKnownAudioState = { ...currentState };
+        
+        Logger.log(`StartMenu: Handled cross-scene audio state change - music: ${currentState.music}, sound: ${currentState.sound}, global: ${currentState.global}`);
+        
+      } catch (error) {
+        Logger.log(`StartMenu: Error handling cross-scene audio state change - ${error}`);
+        // Continue execution even if handling fails
+      }
+    });
+  }
+
+  /**
+   * Synchronize audio state with AudioHandler and Settings services
+   * Requirements: 3.1, 3.3, 4.2, 4.3
+   * @param audioState - Audio state to synchronize with services
+   */
+  private syncAudioStateWithServices(audioState: { music: boolean; sound: boolean; global: boolean }): void {
+    return Logger.withSilentLogging(() => {
+      try {
+        // Sync with AudioHandler service
+        if (audioHandler.isInitialized()) {
+          audioHandler.setMusicEnabled(audioState.music);
+          audioHandler.setSoundEnabled(audioState.sound);
+        }
+        
+        // Sync with Settings service
+        settings.set('audioMuted', !audioState.global);
+        
+        Logger.log(`StartMenu: Audio state synchronized with services - music: ${audioState.music}, sound: ${audioState.sound}, global: ${audioState.global}`);
+        
+      } catch (error) {
+        Logger.log(`StartMenu: Error synchronizing audio state with services - ${error}`);
+        // Continue execution even if sync fails
+      }
+    });
+  }
+
+  /**
+   * Initialize audio state synchronization system
+   * Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 4.1, 4.2, 4.3, 4.4, 4.5
+   */
+  private initializeAudioStateSynchronization(): void {
+    return Logger.withSilentLogging(() => {
+      try {
+        Logger.log('StartMenu: Initializing audio state synchronization system');
+        
+        // Step 1: Read current audio state from all sources
+        this.readCurrentAudioState();
+        
+        // Step 2: Load any persisted state and merge with current state
+        const persistedAudioState = this.loadPersistedAudioState();
+        
+        // Use persisted state as the authoritative source, but validate against current state
+        const finalAudioState = {
+          music: persistedAudioState.music,
+          sound: persistedAudioState.sound,
+          global: persistedAudioState.global
+        };
+        
+        // Step 3: Synchronize state with all services
+        this.syncAudioStateWithServices(finalAudioState);
+        
+        // Step 4: Update button icon to reflect actual state
+        this.updateAudioButtonIconFromState(finalAudioState);
+        
+        // Step 5: Persist the synchronized state
+        this.persistAudioState(finalAudioState);
+        
+        // Step 6: Setup cross-scene synchronization
+        this.setupCrossSceneAudioStateSynchronization();
+        
+        Logger.log(`StartMenu: Audio state synchronization system initialized - final state: music: ${finalAudioState.music}, sound: ${finalAudioState.sound}, global: ${finalAudioState.global}`);
+        
+      } catch (error) {
+        Logger.log(`StartMenu: Error initializing audio state synchronization system - ${error}`);
+        
+        // Fallback to safe state if initialization fails
+        const fallbackState = { music: false, sound: false, global: false };
+        this.updateAudioButtonIconFromState(fallbackState);
+      }
+    });
   }
 
   private openSettings(): void {
@@ -1394,13 +2787,528 @@ export class StartMenu extends Scene {
   }
 
   /**
+   * Test responsive layout system with various screen sizes and touch targets
+   * Requirements: 5.1, 5.2, 5.3, 5.4, 5.5
+   */
+  private testResponsiveLayoutSystem(): void {
+    Logger.log('StartMenu: Testing responsive layout system with touch targets');
+    
+    // Test with comprehensive screen sizes including extreme cases
+    const testCases = [
+      { width: 320, height: 568, name: 'Very Small Mobile (iPhone SE)' },
+      { width: 375, height: 667, name: 'Mobile Portrait (iPhone 8)' },
+      { width: 667, height: 375, name: 'Mobile Landscape (iPhone 8)' },
+      { width: 768, height: 1024, name: 'Tablet Portrait (iPad)' },
+      { width: 1024, height: 768, name: 'Tablet Landscape (iPad)' },
+      { width: 1366, height: 768, name: 'Laptop' },
+      { width: 1920, height: 1080, name: 'Desktop 1080p' },
+      { width: 2560, height: 1440, name: 'Large Desktop 1440p' },
+      { width: 3840, height: 2160, name: 'Very Large Desktop 4K' }
+    ];
+    
+    const UI_SCALE = 2;
+    
+    testCases.forEach(testCase => {
+      Logger.log(`StartMenu: Testing responsive layout for ${testCase.name} (${testCase.width}x${testCase.height})`);
+      
+      // Test screen size detection
+      const screenInfo = this.detectScreenSizeCategory(testCase.width, testCase.height);
+      
+      // Test responsive button sizing
+      const baseButtonSize = 60; // Example base size
+      const responsiveButtonSize = this.calculateResponsiveButtonSize(
+        baseButtonSize, 
+        testCase.width, 
+        testCase.height, 
+        UI_SCALE, 
+        false
+      );
+      
+      const responsiveSquareButtonSize = this.calculateResponsiveButtonSize(
+        baseButtonSize, 
+        testCase.width, 
+        testCase.height, 
+        UI_SCALE, 
+        true
+      );
+      
+      // Test touch target compliance
+      const MIN_TOUCH_TARGET = 44;
+      const touchTargetCompliant = responsiveButtonSize >= MIN_TOUCH_TARGET && responsiveSquareButtonSize >= MIN_TOUCH_TARGET;
+      
+      // Test responsive spacing
+      const responsiveSpacing = this.calculateResponsiveButtonSpacing(testCase.width, testCase.height, UI_SCALE);
+      
+      // Test responsive UI scaling
+      const adjustedUIScale = this.calculateResponsiveUIScale(testCase.width, testCase.height, UI_SCALE);
+      
+      // Test icon sizing
+      const iconSize = this.calculateResponsiveIconSize(responsiveSquareButtonSize, adjustedUIScale);
+      
+      Logger.log(`StartMenu: ${testCase.name} Results:`);
+      Logger.log(`  - Category: ${screenInfo.category}, Orientation: ${screenInfo.orientation}`);
+      Logger.log(`  - Very Small: ${screenInfo.isVerySmall}, Very Large: ${screenInfo.isVeryLarge}`);
+      Logger.log(`  - Button Size: ${baseButtonSize} -> ${responsiveButtonSize} (square: ${responsiveSquareButtonSize})`);
+      Logger.log(`  - Touch Target Compliant: ${touchTargetCompliant}`);
+      Logger.log(`  - Spacing: ${responsiveSpacing}px`);
+      Logger.log(`  - UI Scale: ${UI_SCALE} -> ${adjustedUIScale}`);
+      Logger.log(`  - Icon Size: ${iconSize}px`);
+    });
+    
+    Logger.log('StartMenu: Responsive layout system testing completed');
+  }
+
+  /**
+   * Test perfect 2x2 grid layout calculations with various screen sizes
+   * Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 5.1, 5.2, 5.3, 5.4, 5.5
+   */
+  private testPerfect2x2GridLayout(): void {
+    Logger.log('StartMenu: Testing perfect 2x2 grid layout calculations with responsive system');
+    
+    // Test with common screen sizes
+    const testCases = [
+      { width: 1920, height: 1080, name: 'Desktop 1080p' },
+      { width: 1366, height: 768, name: 'Laptop' },
+      { width: 768, height: 1024, name: 'Tablet Portrait' },
+      { width: 1024, height: 768, name: 'Tablet Landscape' },
+      { width: 375, height: 667, name: 'Mobile Portrait' },
+      { width: 667, height: 375, name: 'Mobile Landscape' }
+    ];
+    
+    const UI_SCALE = 2;
+    
+    testCases.forEach(testCase => {
+      Logger.log(`StartMenu: Testing ${testCase.name} (${testCase.width}x${testCase.height})`);
+      
+      // Use responsive dimensions for testing
+      const responsiveStandardDimensions = this.getResponsiveStandardButtonDimensions(UI_SCALE, testCase.width, testCase.height);
+      
+      const gridLayout = this.calculatePerfect2x2GridLayout(
+        testCase.width,
+        testCase.height,
+        responsiveStandardDimensions.width,
+        responsiveStandardDimensions.height,
+        UI_SCALE
+      );
+      
+      // Verify grid is centered horizontally
+      const expectedCenterX = testCase.width / 2;
+      const isCentered = Math.abs(gridLayout.gridCenterX - expectedCenterX) < 1;
+      
+      // Verify equal spacing
+      const horizontalSpacingCheck = Math.abs(
+        (gridLayout.positions.topRight.x - gridLayout.positions.topLeft.x - responsiveStandardDimensions.width) - 
+        gridLayout.horizontalSpacing
+      ) < 1;
+      
+      const verticalSpacingCheck = Math.abs(
+        (gridLayout.positions.bottomLeft.y - gridLayout.positions.topLeft.y - responsiveStandardDimensions.height) - 
+        gridLayout.verticalSpacing
+      ) < 1;
+      
+      Logger.log(`StartMenu: ${testCase.name} - Centered: ${isCentered}, Equal H-Spacing: ${horizontalSpacingCheck}, Equal V-Spacing: ${verticalSpacingCheck}, Button Size: ${responsiveStandardDimensions.width}x${responsiveStandardDimensions.height}`);
+    });
+    
+    Logger.log('StartMenu: Perfect 2x2 grid layout testing completed');
+  }
+
+  /**
    * Initialize scene and setup cleanup on shutdown
-   * Requirements: 6.4
+   * Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 7.4, 7.5
    */
   init(): void {
     // Setup cleanup when scene shuts down
     this.events.once('shutdown', () => {
       this.cleanupResponsiveBehavior();
+      this.cleanupAudioStateSynchronization();
+      this.cleanupVisualFeedbackSystem();
+    });
+    
+    // Test the responsive layout system during development
+    if (process.env.NODE_ENV === 'development') {
+      this.testResponsiveLayoutSystem();
+      this.testPerfect2x2GridLayout();
+      // Test visual feedback system during development
+      this.time.delayedCall(2000, () => this.testVisualFeedbackStates());
+    }
+  }
+
+  /**
+   * Handle browser-specific audio policies for cross-browser compatibility
+   * Requirements: 8.1, 8.2
+   */
+  private async handleBrowserSpecificAudioPolicies(): Promise<void> {
+    return Logger.withSilentLogging(async () => {
+      try {
+        const browserInfo = this.detectBrowserType();
+        Logger.log(`StartMenu: Handling audio policies for ${browserInfo.name} ${browserInfo.version}`);
+
+        // Chrome/Chromium-based browsers (Requirements 8.1, 8.2)
+        if (browserInfo.isChrome || browserInfo.isEdge) {
+          await this.handleChromeAudioPolicy();
+        }
+        // Firefox-specific handling (Requirements 8.1, 8.2)
+        else if (browserInfo.isFirefox) {
+          await this.handleFirefoxAudioPolicy();
+        }
+        // Safari-specific handling (Requirements 8.1, 8.2)
+        else if (browserInfo.isSafari) {
+          await this.handleSafariAudioPolicy();
+        }
+        // Mobile browser handling (Requirements 8.2)
+        else if (browserInfo.isMobile) {
+          await this.handleMobileAudioPolicy();
+        }
+        // Generic fallback for other browsers
+        else {
+          await this.handleGenericAudioPolicy();
+        }
+
+        Logger.log(`StartMenu: Browser-specific audio policy handling completed for ${browserInfo.name}`);
+
+      } catch (error) {
+        Logger.log(`StartMenu: Browser-specific audio policy handling failed - ${error}`);
+        // Continue with generic handling
+        await this.handleGenericAudioPolicy();
+      }
+    });
+  }
+
+  /**
+   * Detect browser type for audio policy handling
+   * Requirements: 8.1, 8.2
+   */
+  private detectBrowserType(): {
+    name: string;
+    version: string;
+    isChrome: boolean;
+    isFirefox: boolean;
+    isSafari: boolean;
+    isEdge: boolean;
+    isMobile: boolean;
+  } {
+    const userAgent = navigator.userAgent;
+    
+    const isChrome = /Chrome/.test(userAgent) && !/Edg/.test(userAgent);
+    const isFirefox = /Firefox/.test(userAgent);
+    const isSafari = /Safari/.test(userAgent) && !/Chrome/.test(userAgent);
+    const isEdge = /Edg/.test(userAgent);
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
+
+    let name = 'Unknown';
+    let version = 'Unknown';
+
+    if (isChrome) {
+      name = 'Chrome';
+      const match = userAgent.match(/Chrome\/(\d+)/);
+      version = match?.[1] || 'Unknown';
+    } else if (isFirefox) {
+      name = 'Firefox';
+      const match = userAgent.match(/Firefox\/(\d+)/);
+      version = match?.[1] || 'Unknown';
+    } else if (isSafari) {
+      name = 'Safari';
+      const match = userAgent.match(/Version\/(\d+)/);
+      version = match?.[1] || 'Unknown';
+    } else if (isEdge) {
+      name = 'Edge';
+      const match = userAgent.match(/Edg\/(\d+)/);
+      version = match?.[1] || 'Unknown';
+    }
+
+    return {
+      name,
+      version,
+      isChrome,
+      isFirefox,
+      isSafari,
+      isEdge,
+      isMobile
+    };
+  }
+
+  /**
+   * Handle Chrome/Chromium audio policy (autoplay restrictions)
+   * Requirements: 8.1, 8.2
+   */
+  private async handleChromeAudioPolicy(): Promise<void> {
+    try {
+      // Chrome requires user activation for AudioContext
+      if (typeof window !== 'undefined' && 'AudioContext' in window) {
+        const context = (window as any).audioContext;
+        if (context && context.state === 'suspended') {
+          Logger.log('StartMenu: Chrome AudioContext suspended, will resume on user interaction');
+          // Context will be resumed by the audio initialization process
+        }
+      }
+
+      // Check for user activation (Chrome's gesture requirement)
+      const userActivation = (navigator as any).userActivation;
+      if (userActivation && !userActivation.hasBeenActive) {
+        Logger.log('StartMenu: Chrome requires user activation for audio - this click should satisfy the requirement');
+      }
+
+      Logger.log('StartMenu: Chrome audio policy handling completed');
+    } catch (error) {
+      Logger.log(`StartMenu: Chrome audio policy handling failed - ${error}`);
+    }
+  }
+
+  /**
+   * Handle Firefox audio policy
+   * Requirements: 8.1, 8.2
+   */
+  private async handleFirefoxAudioPolicy(): Promise<void> {
+    try {
+      // Firefox has less restrictive autoplay policies but still requires user interaction
+      Logger.log('StartMenu: Firefox audio policy - ensuring user interaction requirement is met');
+      
+      // Firefox-specific AudioContext handling
+      if (typeof window !== 'undefined' && 'AudioContext' in window) {
+        const context = (window as any).audioContext;
+        if (context && context.state === 'suspended') {
+          Logger.log('StartMenu: Firefox AudioContext suspended, will resume on user interaction');
+        }
+      }
+
+      Logger.log('StartMenu: Firefox audio policy handling completed');
+    } catch (error) {
+      Logger.log(`StartMenu: Firefox audio policy handling failed - ${error}`);
+    }
+  }
+
+  /**
+   * Handle Safari audio policy (strict autoplay restrictions)
+   * Requirements: 8.1, 8.2
+   */
+  private async handleSafariAudioPolicy(): Promise<void> {
+    try {
+      // Safari has very strict autoplay policies
+      Logger.log('StartMenu: Safari audio policy - handling strict autoplay restrictions');
+      
+      // Safari requires explicit user interaction for each audio element
+      if (typeof window !== 'undefined' && 'webkitAudioContext' in window) {
+        const context = (window as any).audioContext || (window as any).webkitAudioContext;
+        if (context && context.state === 'suspended') {
+          Logger.log('StartMenu: Safari AudioContext suspended, will resume on user interaction');
+        }
+      }
+
+      // Safari may require additional setup time
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      Logger.log('StartMenu: Safari audio policy handling completed');
+    } catch (error) {
+      Logger.log(`StartMenu: Safari audio policy handling failed - ${error}`);
+    }
+  }
+
+  /**
+   * Handle mobile browser audio policies
+   * Requirements: 8.2
+   */
+  private async handleMobileAudioPolicy(): Promise<void> {
+    try {
+      Logger.log('StartMenu: Mobile audio policy - handling mobile-specific restrictions');
+      
+      // Mobile browsers often have additional restrictions
+      // Ensure we're in a user gesture context
+      const isTouchDevice = this.detectTouchDevice();
+      if (isTouchDevice) {
+        Logger.log('StartMenu: Touch device detected - audio initialization will respect mobile policies');
+      }
+
+      // Mobile browsers may need additional time to process user gestures
+      await new Promise(resolve => setTimeout(resolve, 150));
+
+      Logger.log('StartMenu: Mobile audio policy handling completed');
+    } catch (error) {
+      Logger.log(`StartMenu: Mobile audio policy handling failed - ${error}`);
+    }
+  }
+
+  /**
+   * Handle generic audio policy for unknown browsers
+   * Requirements: 8.1, 8.2
+   */
+  private async handleGenericAudioPolicy(): Promise<void> {
+    try {
+      Logger.log('StartMenu: Generic audio policy - using conservative approach for unknown browser');
+      
+      // Conservative approach for unknown browsers
+      if (typeof window !== 'undefined' && ('AudioContext' in window || 'webkitAudioContext' in window)) {
+        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioContextClass) {
+          const context = (window as any).audioContext;
+          if (context && context.state === 'suspended') {
+            Logger.log('StartMenu: Generic browser AudioContext suspended, will resume on user interaction');
+          }
+        }
+      }
+
+      Logger.log('StartMenu: Generic audio policy handling completed');
+    } catch (error) {
+      Logger.log(`StartMenu: Generic audio policy handling failed - ${error}`);
+    }
+  }
+
+  /**
+   * Enable audio and start music with enhanced cross-browser support
+   * Requirements: 3.3, 3.4, 3.5, 4.1, 4.2, 5.2, 5.3, 5.4, 8.3, 8.4, 8.5
+   */
+  private async enableAudioAndStartMusicWithCrossBrowserSupport(): Promise<void> {
+    return Logger.withSilentLogging(async () => {
+      this.isAudioInitializing = true;
+      this.updateAudioButtonState('loading');
+
+      try {
+        Logger.log('StartMenu: Attempting to enable audio and start music with cross-browser support');
+        
+        // Enhanced cross-browser audio initialization with fallback behavior (Requirements 8.3, 8.4, 8.5)
+        await this.enableAudioOnUserInteraction();
+        
+        // Check if audio was successfully initialized
+        if (audioHandler.isInitialized()) {
+          // Audio is initialized, enable audio globally and start menu music
+          Logger.log('StartMenu: Audio initialized with cross-browser support, enabling audio globally and starting menu music');
+          
+          // Create new audio state with all audio enabled
+          const newAudioState = {
+            music: true,
+            sound: true,
+            global: true
+          };
+          
+          // Synchronize state with all services and persist with cross-browser compatibility
+          this.syncAudioStateWithCrossBrowserSupport(newAudioState);
+          this.persistAudioStateWithCrossBrowserSupport(newAudioState);
+          
+          try {
+            audioHandler.playMusic('menu-theme', true);
+            
+            // Update button icon using the synchronization system
+            this.updateAudioButtonIconFromState(newAudioState);
+            Logger.log('StartMenu: Audio successfully enabled globally with cross-browser support and music started');
+            
+            // Add appropriate sound effects for button interactions when audio is enabled (Requirement 4.5)
+            audioHandler.playSound('menu-select');
+            
+          } catch (musicError) {
+            Logger.log(`StartMenu: Music playback failed but audio is initialized with cross-browser support - ${musicError}`);
+            // Still update to unmuted state since audio system is working
+            this.updateAudioButtonIconFromState(newAudioState);
+          }
+        } else {
+          // Audio initialization failed but maintain button functionality with cross-browser fallback (Requirements 8.4, 8.5)
+          Logger.log('StartMenu: Audio initialization completed but handler not marked as initialized - maintaining button functionality with cross-browser fallback');
+          const failedState = { music: false, sound: false, global: false };
+          this.updateAudioButtonIconFromState(failedState);
+          this.persistAudioStateWithCrossBrowserSupport(failedState);
+        }
+        
+      } catch (error) {
+        Logger.log(`StartMenu: Failed to enable audio with cross-browser support - ${error}`);
+        
+        // Handle cross-browser audio initialization failures gracefully (Requirements 3.5, 5.2, 8.3, 8.4, 8.5)
+        await this.handleAudioInitializationError(error, Date.now());
+        
+        // Maintain button functionality even when audio systems fail with cross-browser fallback (Requirements 8.4, 8.5)
+        const errorState = { music: false, sound: false, global: false };
+        this.updateAudioButtonIconFromState(errorState);
+        this.persistAudioStateWithCrossBrowserSupport(errorState);
+        
+      } finally {
+        this.isAudioInitializing = false;
+      }
+    });
+  }
+
+  /**
+   * Stop music and return to muted state with cross-browser support
+   * Requirements: 4.2, 4.3, 4.5, 5.2, 5.3, 5.4, 8.4, 8.5
+   */
+  private stopMusicAndMuteWithCrossBrowserSupport(): void {
+    return Logger.withSilentLogging(() => {
+      Logger.log('StartMenu: Stopping music and returning to muted state with cross-browser support');
+      
+      try {
+        // Add appropriate sound effects for button interactions when audio is enabled (Requirement 4.5)
+        if (audioHandler.isInitialized()) {
+          try {
+            audioHandler.playSound('menu-select');
+          } catch (soundError) {
+            Logger.log(`StartMenu: Sound effect failed during music stop with cross-browser support - ${soundError}`);
+            // Continue with music stop even if sound effect fails
+          }
+        }
+        
+        // Create new audio state with all audio disabled
+        const newAudioState = {
+          music: false,
+          sound: false,
+          global: false
+        };
+        
+        // Synchronize state with all services and persist with cross-browser support
+        this.syncAudioStateWithCrossBrowserSupport(newAudioState);
+        this.persistAudioStateWithCrossBrowserSupport(newAudioState);
+        
+        // Stop music playback using existing audioHandler service with cross-browser support (Requirements 4.2, 5.3, 8.4, 8.5)
+        try {
+          audioHandler.stopMusic();
+          Logger.log('StartMenu: Music stopped successfully and audio disabled globally with cross-browser support');
+        } catch (stopError) {
+          Logger.log(`StartMenu: Music stop failed with cross-browser support - ${stopError}`);
+          // Continue to update button state even if stop fails
+        }
+        
+        // Update button icon using the synchronization system (Requirement 4.3)
+        this.updateAudioButtonIconFromState(newAudioState);
+        
+        Logger.log('StartMenu: Music stopped and button returned to muted state with cross-browser support');
+        
+      } catch (error) {
+        Logger.log(`StartMenu: Error during music stop operation with cross-browser support - ${error}`);
+        
+        // Maintain button functionality even when audio systems fail with cross-browser fallback (Requirements 8.4, 8.5)
+        const errorState = { music: false, sound: false, global: false };
+        this.updateAudioButtonIconFromState(errorState);
+        this.persistAudioStateWithCrossBrowserSupport(errorState);
+      }
+    });
+  }
+
+  /**
+   * Clean up visual feedback system and button references
+   * Requirements: 7.4, 7.5
+   */
+  private cleanupVisualFeedbackSystem(): void {
+    return Logger.withSilentLogging(() => {
+      try {
+        // Stop all button-related tweens to prevent memory leaks
+        Object.values(this.buttonReferences).forEach(button => {
+          if (button) {
+            const buttonRect = button.buttonRect || button.button;
+            const textElement = button instanceof Phaser.GameObjects.Text ? button : 
+                               (button.icon || null);
+            
+            if (buttonRect) {
+              this.tweens.killTweensOf(buttonRect);
+            }
+            if (textElement) {
+              this.tweens.killTweensOf(textElement);
+            }
+          }
+        });
+        
+        // Clear button references
+        this.buttonReferences = {};
+        
+        Logger.log('StartMenu: Visual feedback system cleanup completed');
+        
+      } catch (error) {
+        Logger.log(`StartMenu: Error during visual feedback system cleanup - ${error}`);
+      }
     });
   }
 }

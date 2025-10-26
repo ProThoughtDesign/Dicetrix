@@ -55,7 +55,7 @@ export class HowToPlayScene extends Scene {
    */
   private createTitle(width: number, height: number): void {
     const titleFontSize = this.calculateResponsiveTitleFontSize(width);
-    
+
     this.titleText = this.add
       .text(width / 2, height * 0.1, 'HOW TO PLAY', {
         fontSize: `${titleFontSize}px`,
@@ -92,7 +92,7 @@ export class HowToPlayScene extends Scene {
         fontFamily: 'Arial, sans-serif',
         align: 'center',
         wordWrap: { width: contentWidth, useAdvancedWrap: true },
-        lineSpacing: 8,
+        lineSpacing: 10,
       })
       .setOrigin(0.5, 0);
     page1.add(page1Content);
@@ -107,7 +107,7 @@ export class HowToPlayScene extends Scene {
         fontFamily: 'Arial, sans-serif',
         align: 'center',
         wordWrap: { width: contentWidth, useAdvancedWrap: true },
-        lineSpacing: 8,
+        lineSpacing: 10,
       })
       .setOrigin(0.5, 0);
     page2.add(page2Content);
@@ -122,7 +122,7 @@ export class HowToPlayScene extends Scene {
         fontFamily: 'Arial, sans-serif',
         align: 'center',
         wordWrap: { width: contentWidth, useAdvancedWrap: true },
-        lineSpacing: 8,
+        lineSpacing: 10,
       })
       .setOrigin(0.5, 0);
     page3.add(page3Content);
@@ -137,14 +137,14 @@ export class HowToPlayScene extends Scene {
         fontFamily: 'Arial, sans-serif',
         align: 'center',
         wordWrap: { width: contentWidth, useAdvancedWrap: true },
-        lineSpacing: 8,
+        lineSpacing: 10,
       })
       .setOrigin(0.5, 0);
     page4.add(page4Content);
     this.contentPages.push(page4);
 
     // Initially hide all pages
-    this.contentPages.forEach(page => page.setVisible(false));
+    this.contentPages.forEach((page) => page.setVisible(false));
   }
 
   /**
@@ -240,7 +240,7 @@ export class HowToPlayScene extends Scene {
       this.prevButtonText,
       this.nextButton,
       this.nextButtonText,
-      this.pageIndicator
+      this.pageIndicator,
     ]);
   }
 
@@ -249,10 +249,10 @@ export class HowToPlayScene extends Scene {
    * Requirements: 8.4
    */
   private calculateResponsiveFontSize(width: number): number {
-    if (width <= 480) return 16; // Very small screens
-    if (width <= 768) return 18; // Small screens
-    if (width <= 1024) return 20; // Medium screens
-    return 22; // Large screens
+    if (width <= 480) return 24; // Very small screens - moderate increase from 20
+    if (width <= 768) return 26; // Small screens - moderate increase from 22
+    if (width <= 1024) return 28; // Medium screens - moderate increase from 24
+    return 32; // Large screens - moderate increase from 28
   }
 
   /**
@@ -260,10 +260,10 @@ export class HowToPlayScene extends Scene {
    * Requirements: 8.4
    */
   private calculateResponsiveTitleFontSize(width: number): number {
-    if (width <= 480) return 32; // Very small screens
-    if (width <= 768) return 40; // Small screens
-    if (width <= 1024) return 44; // Medium screens
-    return 48; // Large screens
+    if (width <= 480) return 38; // Very small screens - moderate increase from 32
+    if (width <= 768) return 44; // Small screens - moderate increase from 40
+    if (width <= 1024) return 48; // Medium screens - moderate increase from 44
+    return 52; // Large screens - moderate increase from 48
   }
 
   /**
@@ -289,16 +289,19 @@ export class HowToPlayScene extends Scene {
    * Requirements: 8.4
    */
   private calculateResponsiveButtonFontSize(width: number): number {
-    if (width <= 480) return 14;
-    if (width <= 768) return 16;
-    return 18;
+    if (width <= 480) return 16; // Moderate increase from 14
+    if (width <= 768) return 18; // Moderate increase from 16
+    return 20; // Moderate increase from 18
   }
 
   /**
    * Create touch-friendly interactive configuration
    * Requirements: 8.4
    */
-  private createTouchFriendlyConfig(width: number, height: number): Phaser.Types.Input.InputConfiguration {
+  private createTouchFriendlyConfig(
+    width: number,
+    height: number
+  ): Phaser.Types.Input.InputConfiguration {
     const minTouchTarget = 44;
     const touchWidth = Math.max(width, minTouchTarget);
     const touchHeight = Math.max(height, minTouchTarget);
@@ -312,7 +315,7 @@ export class HowToPlayScene extends Scene {
         touchHeight
       ),
       hitAreaCallback: Phaser.Geom.Rectangle.Contains,
-      cursor: 'pointer'
+      cursor: 'pointer',
     };
   }
 
@@ -332,9 +335,11 @@ export class HowToPlayScene extends Scene {
    * Requirements: 8.4
    */
   private isTouchDevice(): boolean {
-    return 'ontouchstart' in window || 
-           navigator.maxTouchPoints > 0 || 
-           (navigator as any).msMaxTouchPoints > 0;
+    return (
+      'ontouchstart' in window ||
+      navigator.maxTouchPoints > 0 ||
+      (navigator as any).msMaxTouchPoints > 0
+    );
   }
 
   /**
@@ -343,7 +348,7 @@ export class HowToPlayScene extends Scene {
    */
   private showPage(pageIndex: number): void {
     // Hide all pages
-    this.contentPages.forEach(page => page.setVisible(false));
+    this.contentPages.forEach((page) => page.setVisible(false));
 
     // Show current page
     if (pageIndex >= 0 && pageIndex < this.contentPages.length) {
@@ -365,7 +370,14 @@ export class HowToPlayScene extends Scene {
    * Requirements: 8.2
    */
   private updateNavigationControls(): void {
-    if (!this.prevButton || !this.nextButton || !this.pageIndicator || !this.prevButtonText || !this.nextButtonText) return;
+    if (
+      !this.prevButton ||
+      !this.nextButton ||
+      !this.pageIndicator ||
+      !this.prevButtonText ||
+      !this.nextButtonText
+    )
+      return;
 
     // Update previous button
     const canGoPrev = this.currentPage > 0;
@@ -440,15 +452,15 @@ export class HowToPlayScene extends Scene {
 
 Welcome to Dicetrix! This is a fast-paced dice-matching puzzle game.
 
-🎯 OBJECTIVE
+OBJECTIVE
 Match and clear dice by creating groups of 3 or more identical dice.
 
-🎮 CONTROLS
+CONTROLS
 • Click/Tap: Select and place dice
 • Drag: Move dice around the board
 • Double-tap: Rotate dice (where applicable)
 
-⚡ GAME FLOW
+GAME FLOW
 1. Dice fall from the top of the screen
 2. Arrange them to create matching groups
 3. Groups of 3+ identical dice disappear
@@ -464,22 +476,22 @@ Match and clear dice by creating groups of 3 or more identical dice.
 
 Earn points by creating matches and combos!
 
-📊 BASIC SCORING
+BASIC SCORING
 • 3 dice match: 100 points
 • 4 dice match: 250 points
 • 5+ dice match: 500+ points
 
-🔥 COMBO MULTIPLIERS
+COMBO MULTIPLIERS
 • Chain matches for bonus multipliers
 • Longer chains = higher multipliers
 • Maximum combo: 10x multiplier
 
-⭐ BONUS POINTS
+BONUS POINTS
 • Speed bonus: Clear quickly for extra points
 • Perfect clear: Clear entire board bonus
 • Level completion: Base level × 50 points
 
-💎 SPECIAL DICE
+SPECIAL DICE
 Some dice have special properties that can help create bigger matches and higher scores!`;
   }
 
@@ -492,27 +504,27 @@ Some dice have special properties that can help create bigger matches and higher
 
 Choose your challenge level!
 
-🟢 EASY MODE
+EASY MODE
 • Slower dice falling speed
 • More time to think and plan
 • Perfect for learning the game
 
-🟡 MEDIUM MODE
+MEDIUM MODE
 • Balanced gameplay experience
 • Good mix of challenge and fun
 • Recommended for most players
 
-🔴 HARD MODE
+HARD MODE
 • Faster dice falling speed
 • Quick decision making required
 • For experienced players
 
-⚫ EXPERT MODE
+EXPERT MODE
 • Maximum challenge level
 • Lightning-fast gameplay
 • Only for true masters
 
-🧘 ZEN MODE
+ZEN MODE
 • Relaxed, untimed gameplay
 • Focus on strategy over speed
 • Perfect for casual play`;
@@ -527,29 +539,29 @@ Choose your challenge level!
 
 Master these techniques to achieve high scores!
 
-🎯 PLANNING AHEAD
+PLANNING AHEAD
 • Look for potential matches before placing dice
 • Plan your moves 2-3 steps ahead
 • Keep the board organized
 
-⚡ COMBO TECHNIQUES
+COMBO TECHNIQUES
 • Set up multiple matches simultaneously
 • Create cascading effects
 • Use gravity to your advantage
 
-🏆 HIGH SCORE TIPS
+HIGH SCORE TIPS
 • Focus on larger matches (4+ dice)
 • Maintain combo chains
 • Clear the board completely when possible
 • Practice speed placement
 
-🎮 GENERAL ADVICE
+GENERAL ADVICE
 • Start with easier modes to learn
 • Don't rush - accuracy beats speed
 • Learn the patterns of each dice type
 • Have fun and keep practicing!
 
-Good luck, and may the dice be with you! 🎲`;
+Good luck, and may the dice be with you!`;
   }
 
   /**
@@ -563,20 +575,20 @@ Good luck, and may the dice be with you! 🎲`;
       if (screen && screen.orientation) {
         screen.orientation.addEventListener('change', () => this.handleOrientationChange());
       }
-      
+
       // Fallback for older browsers
       window.addEventListener('orientationchange', () => this.handleOrientationChange());
-      
+
       // Also listen for resize events for desktop responsive behavior
       window.addEventListener('resize', () => this.handleOrientationChange());
-      
+
       // Listen for visibility changes to handle app backgrounding/foregrounding
       document.addEventListener('visibilitychange', () => this.handleVisibilityChange());
     }
-    
+
     // Setup scale manager listeners for Phaser-specific scaling events
     this.scale.on('resize', () => this.handleOrientationChange());
-    
+
     Logger.log('HowToPlayScene: Responsive behavior initialized');
   }
 
@@ -589,7 +601,7 @@ Good luck, and may the dice be with you! 🎲`;
     if (this.orientationChangeTimeout) {
       clearTimeout(this.orientationChangeTimeout);
     }
-    
+
     this.orientationChangeTimeout = setTimeout(() => {
       this.updateResponsiveLayout();
     }, 250);
@@ -607,7 +619,7 @@ Good luck, and may the dice be with you! 🎲`;
       const titleFontSize = this.calculateResponsiveTitleFontSize(width);
       this.titleText.setFontSize(titleFontSize);
       this.titleText.setPosition(width / 2, height * 0.1);
-      
+
       // Re-scale title if needed
       const maxTitleWidth = width * 0.9;
       if (this.titleText.width > maxTitleWidth) {
@@ -638,7 +650,7 @@ Good luck, and may the dice be with you! 🎲`;
 
     this.contentPages.forEach((page) => {
       page.setPosition(width / 2, contentY);
-      
+
       // Update text properties for each page
       const textObject = page.list[0] as Phaser.GameObjects.Text;
       if (textObject && textObject.type === 'Text') {
@@ -714,7 +726,7 @@ Good luck, and may the dice be with you! 🎲`;
       clearTimeout(this.orientationChangeTimeout);
       this.orientationChangeTimeout = null;
     }
-    
+
     // Remove event listeners to prevent memory leaks
     if (typeof window !== 'undefined') {
       if (screen && screen.orientation) {
@@ -724,7 +736,7 @@ Good luck, and may the dice be with you! 🎲`;
       window.removeEventListener('resize', () => this.handleOrientationChange());
       document.removeEventListener('visibilitychange', () => this.handleVisibilityChange());
     }
-    
+
     Logger.log('HowToPlayScene: Responsive behavior cleanup completed');
   }
 
