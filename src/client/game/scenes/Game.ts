@@ -25,6 +25,7 @@ import { GridBoundaryValidator } from '../../../shared/utils/GridBoundaryValidat
 import { audioHandler } from '../services/AudioHandler';
 import { SoundEffectLibrary } from '../services/SoundEffectLibrary';
 import { PauseMenuUI, PauseMenuCallbacks } from '../ui/PauseMenuUI';
+import { SettingsOverlayUI, SettingsOverlayCallbacks } from '../ui/SettingsOverlayUI';
 import { BackgroundBouncer, BackgroundBouncerConfig } from '../utils/BackgroundBouncer';
 import { ProceduralPieceGenerator } from '../../../shared/utils/ProceduralPieceGenerator';
 import { BlackDieManager } from '../../../shared/utils/BlackDieManager';
@@ -75,6 +76,7 @@ export class Game extends Scene {
   
   // Pause menu integration
   private pauseMenuUI: PauseMenuUI | null = null;
+  private settingsOverlayUI: SettingsOverlayUI | null = null;
   private isPaused: boolean = false;
   
   // Bouncing background
@@ -519,6 +521,9 @@ export class Game extends Scene {
 
       // Pause game timers
       this.pauseGameTimers();
+      
+      // Clean up any active particle effects to prevent visual glitches
+      this.cleanupParticleEffectsOnPause();
 
       // Create pause menu with callbacks
       const pauseCallbacks: PauseMenuCallbacks = {
@@ -559,6 +564,9 @@ export class Game extends Scene {
 
       // Resume game timers
       this.resumeGameTimers();
+      
+      // Clean up any particle effects that might have been left behind
+      this.cleanupParticleEffectsOnResume();
 
       // Play resume sound effect
       if (this.soundEffectLibrary) {
@@ -566,7 +574,7 @@ export class Game extends Scene {
       }
 
       this.isPaused = false;
-      Logger.log('Game: Resumed from pause menu');
+      Logger.log('Game: Resumed from pause menu with particle cleanup');
     } catch (error) {
       Logger.log(`Game: Error during resume - ${error}`);
       // Fallback to simple resume
@@ -600,33 +608,95 @@ export class Game extends Scene {
   }
 
   /**
-   * Open full settings from pause menu
+   * Open settings overlay from pause menu
    * Requirements: 3.3, 3.4
    */
   private openSettingsFromPause(): void {
+    // Simply call the same method as the pause button
+    this.openSettingsFromGame();
+  }
+
+  /**
+   * Open Settings overlay from game via pause button
+   * Requirements: 2.1, 2.2, 3.3, 3.4
+   */
+  private openSettingsFromGame(): void {
     try {
-      // Clean up pause menu
-      if (this.pauseMenuUI) {
-        this.pauseMenuUI.destroy();
-        this.pauseMenuUI = null;
+      if (this.settingsOverlayUI) {
+        Logger.log('Game: Settings overlay already open, ignoring request');
+        return;
       }
 
-      // Store game state for return
-      this.registry.set('pausedGameState', {
-        gameMode: this.currentGameMode,
-        score: this.score,
-        activePiece: this.activePiece,
-        nextPiece: this.nextPiece,
-        gameBoard: this.gameBoard?.state
-      });
+      // Pause game timers
+      this.pauseGameTimers();
+      this.isPaused = true;
 
-      // Go to settings scene
-      this.scene.start('Settings');
-      Logger.log('Game: Opened settings from pause menu');
+      // Create settings overlay callbacks
+      const overlayCallbacks: SettingsOverlayCallbacks = {
+        onClose: () => this.closeSettingsOverlay(),
+        onExitToMenu: () => this.exitToMenuFromSettings()
+      };
+
+      // Create and show settings overlay
+      this.settingsOverlayUI = new SettingsOverlayUI(this, overlayCallbacks);
+      
+      Logger.log('Game: Settings overlay opened');
     } catch (error) {
-      Logger.log(`Game: Error opening settings from pause - ${error}`);
+      Logger.log(`Game: Error opening Settings overlay - ${error}`);
       // Fallback to resume
-      this.resumeGame();
+      this.resumeGameTimers();
+      this.isPaused = false;
+    }
+  }
+
+  /**
+   * Close settings overlay and resume game
+   * Requirements: 2.1, 2.2
+   */
+  private closeSettingsOverlay(): void {
+    try {
+      if (this.settingsOverlayUI) {
+        this.settingsOverlayUI.destroy();
+        this.settingsOverlayUI = null;
+      }
+
+      // Resume game timers
+      this.resumeGameTimers();
+      this.isPaused = false;
+
+      Logger.log('Game: Settings overlay closed and game resumed');
+    } catch (error) {
+      Logger.log(`Game: Error closing Settings overlay - ${error}`);
+      // Ensure game is resumed
+      this.resumeGameTimers();
+      this.isPaused = false;
+    }
+  }
+
+  /**
+   * Exit to menu from settings overlay
+   * Requirements: 2.2
+   */
+  private exitToMenuFromSettings(): void {
+    try {
+      if (this.settingsOverlayUI) {
+        this.settingsOverlayUI.destroy();
+        this.settingsOverlayUI = null;
+      }
+
+      // Stop game music and return to menu music
+      audioHandler.stopMusic();
+      if (audioHandler.getMusicEnabled() && audioHandler.isInitialized()) {
+        audioHandler.playMusic('menu-theme', true);
+      }
+
+      // Go to start menu
+      this.scene.start('StartMenu');
+      Logger.log('Game: Exited to menu from Settings overlay');
+    } catch (error) {
+      Logger.log(`Game: Error exiting to menu from Settings overlay - ${error}`);
+      // Fallback to direct scene transition
+      this.scene.start('StartMenu');
     }
   }
 
@@ -2610,6 +2680,109 @@ export class Game extends Scene {
     // }
   }
 
+  init(data?: any): void {
+    if (data?.gameMode) {
+      // Normal game start with specified mode
+      this.currentGameMode = data.gameMode;
+      Logger.log(`Game: Starting new game with mode '${this.currentGameMode}'`);
+    } else {
+      // Default mode
+      this.currentGameMode = 'medium';
+      Logger.log(`Game: Starting new game with default mode '${this.currentGameMode}'`);
+    }
+  }
+
+
+
+  /**
+   * Clean up particle effects when pausing to prevent visual glitches
+   * Requirements: 2.1, 2.2
+   */
+  private cleanupParticleEffectsOnPause(): void {
+    try {
+      Logger.log('Game: Cleaning up particle effects on pause');
+      
+      if (this.particleSystemManager) {
+        // Clean up special dice auras that might cause visual trails
+        const specialDiceManager = (this.particleSystemManager as any).specialDiceEffectManager;
+        if (specialDiceManager && typeof specialDiceManager.cleanup === 'function') {
+          specialDiceManager.cleanup();
+          Logger.log('Game: Special dice auras cleaned up on pause');
+        }
+      }
+      
+    } catch (error) {
+      Logger.log(`Game: Error cleaning up particle effects on pause - ${error}`);
+      // Continue anyway - this is not critical for gameplay
+    }
+  }
+
+  /**
+   * Clean up lingering particle effects when resuming from Settings
+   * This fixes the issue where booster circles leave trails after resuming
+   * Requirements: 2.1, 2.2
+   */
+  private cleanupParticleEffectsOnResume(): void {
+    try {
+      Logger.log('Game: Cleaning up particle effects on resume from Settings');
+      
+      if (this.particleSystemManager) {
+        // Clean up all special dice auras (booster circles) that might be lingering
+        const specialDiceManager = (this.particleSystemManager as any).specialDiceEffectManager;
+        if (specialDiceManager && typeof specialDiceManager.cleanup === 'function') {
+          specialDiceManager.cleanup();
+          Logger.log('Game: Special dice auras cleaned up');
+        }
+        
+        // Clean up other effect managers if needed
+        const emitterManager = (this.particleSystemManager as any).emitterManager;
+        if (emitterManager && typeof emitterManager.cleanup === 'function') {
+          emitterManager.cleanup();
+          Logger.log('Game: Emitter manager cleaned up');
+        }
+        
+        // Also clean up match effects, cascade effects, etc.
+        const matchEffectManager = (this.particleSystemManager as any).matchEffectManager;
+        if (matchEffectManager && typeof matchEffectManager.cleanup === 'function') {
+          matchEffectManager.cleanup();
+          Logger.log('Game: Match effect manager cleaned up');
+        }
+        
+        const cascadeEffectManager = (this.particleSystemManager as any).cascadeEffectManager;
+        if (cascadeEffectManager && typeof cascadeEffectManager.cleanup === 'function') {
+          cascadeEffectManager.cleanup();
+          Logger.log('Game: Cascade effect manager cleaned up');
+        }
+        
+        const placementEffectManager = (this.particleSystemManager as any).placementEffectManager;
+        if (placementEffectManager && typeof placementEffectManager.cleanup === 'function') {
+          placementEffectManager.cleanup();
+          Logger.log('Game: Placement effect manager cleaned up');
+        }
+        
+        const comboEffectManager = (this.particleSystemManager as any).comboEffectManager;
+        if (comboEffectManager && typeof comboEffectManager.cleanup === 'function') {
+          comboEffectManager.cleanup();
+          Logger.log('Game: Combo effect manager cleaned up');
+        }
+      }
+      
+      // Force clear all sprites and their associated particle effects
+      this.clearSprites();
+      
+      // Clear sprite arrays completely to ensure no lingering references
+      this.activeSprites = [];
+      this.nextSprites = [];
+      this.lockedSprites = [];
+      
+      Logger.log('Game: Comprehensive particle and sprite cleanup completed on resume');
+      
+    } catch (error) {
+      Logger.log(`Game: Error cleaning up particle effects on resume - ${error}`);
+      // Continue anyway - this is not critical for gameplay
+    }
+  }
+
   async create(): Promise<void> {
     // DIAGNOSTIC: Start timing the initialization sequence
     this.initializationMetrics.sceneCreateStart = performance.now();
@@ -2662,6 +2835,7 @@ export class Game extends Scene {
     // Initialize game board and coordinate converter
     Logger.log('INIT STEP 3: Initializing game board and coordinate converter');
     this.gameBoard = new GameBoard(GAME_CONSTANTS.GRID_WIDTH, GAME_CONSTANTS.GRID_HEIGHT);
+    
     this.initializationMetrics.gameBoardInitComplete = performance.now();
     Logger.log(
       `INIT TIMING: GameBoard initialized at ${this.initializationMetrics.gameBoardInitComplete}ms (took ${this.initializationMetrics.gameBoardInitComplete - this.initializationMetrics.registrySetupComplete}ms)`
@@ -2697,6 +2871,7 @@ export class Game extends Scene {
       onHardDrop: () => this.hardDrop(),
       onPause: () => this.pauseGame(),
       onBoardTouch: (gridX, gridY) => this.handleBoardTouch(gridX, gridY),
+      onPauseSettings: () => this.openSettingsFromGame(),
     };
 
     this.gameUI = new GameUI(this, uiCallbacks);
@@ -2804,6 +2979,15 @@ export class Game extends Scene {
       `INIT TIMING: Initial render started at ${this.initializationMetrics.initialRenderStart}ms`
     );
 
+    // Clean up any lingering particle effects before initial render (especially important when resuming)
+    if (this.particleSystemManager) {
+      const specialDiceManager = (this.particleSystemManager as any).specialDiceEffectManager;
+      if (specialDiceManager && typeof specialDiceManager.cleanup === 'function') {
+        specialDiceManager.cleanup();
+        Logger.log('Game: Pre-render particle cleanup completed');
+      }
+    }
+
     this.renderGameState();
 
     this.initializationMetrics.initialRenderComplete = performance.now();
@@ -2813,6 +2997,8 @@ export class Game extends Scene {
 
     // Validate initial render result
     this.validateInitialRender();
+
+
 
     this.phase = 'Dropping';
     this.initializationMetrics.sceneCreateEnd = performance.now();
@@ -4190,6 +4376,17 @@ export class Game extends Scene {
         Logger.log('Game scene: Pause menu cleaned up successfully');
       } catch (error) {
         Logger.log(`Game scene: Error cleaning up pause menu - ${error}`);
+      }
+
+      // Clean up settings overlay
+      try {
+        if (this.settingsOverlayUI) {
+          this.settingsOverlayUI.destroy();
+          this.settingsOverlayUI = null;
+        }
+        Logger.log('Game scene: Settings overlay cleaned up successfully');
+      } catch (error) {
+        Logger.log(`Game scene: Error cleaning up settings overlay - ${error}`);
       }
 
       // Clean up score submission UI

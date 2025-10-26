@@ -9,6 +9,7 @@ import { BottomSectionLayoutManager, LayoutArea, DEFAULT_BOTTOM_SECTION_CONFIG }
 
 export interface GameUICallbacks extends InputCallbacks {
   onBoardTouch?: (gridX: number, gridY: number) => void;
+  onPauseSettings?: () => void;
 }
 
 export class GameUI extends BaseUI {
@@ -40,6 +41,10 @@ export class GameUI extends BaseUI {
   private boostersBackground: Phaser.GameObjects.Graphics;
   private boostersBorder: Phaser.GameObjects.Graphics;
   private leaderboardContainer: Phaser.GameObjects.Container; // Desktop only
+
+  // Pause Button Elements
+  private pauseButton: Phaser.GameObjects.Rectangle;
+  private pauseIcon: Phaser.GameObjects.Text;
 
   // Control buttons
   private controlButtons: Phaser.GameObjects.Rectangle[] = [];
@@ -127,6 +132,9 @@ export class GameUI extends BaseUI {
     this.createControlElements();
     this.createBoosterElements();
     this.createLeaderboardElements();
+
+    // Pause Button
+    this.createPauseButton();
   }
 
   private createScoreElements(): void {
@@ -301,6 +309,29 @@ export class GameUI extends BaseUI {
     this.rightColumn.add(this.leaderboardContainer);
   }
 
+  private createPauseButton(): void {
+    // Create pause button with 128x128 dimensions as specified
+    this.pauseButton = this.scene.add
+      .rectangle(0, 0, 128, 128, 0x1a1a2e, 1.0)
+      .setStrokeStyle(2, 0x00ff88, 0.8)
+      .setOrigin(0, 0)
+      .setInteractive({ useHandCursor: true });
+
+    // Create settings/pause icon using gear symbol
+    this.pauseIcon = this.scene.add
+      .text(64, 64, '⚙️', {
+        fontFamily: FontLoader.createFontFamily('Asimovian'),
+        fontSize: '48px',
+        color: '#00ff88',
+        stroke: '#000000',
+        strokeThickness: 2,
+      })
+      .setOrigin(0.5, 0.5);
+
+    // Add both elements to the left column for positioning
+    this.leftColumn.add([this.pauseButton, this.pauseIcon]);
+  }
+
   protected updateLayout(): void {
     const { screenWidth, screenHeight } = this.layout;
 
@@ -409,6 +440,25 @@ export class GameUI extends BaseUI {
 
     // Draw grid lines
     this.drawGridLines();
+
+    // Position pause button in left margin
+    this.updatePauseButtonLayout();
+  }
+
+  private updatePauseButtonLayout(): void {
+    const { padding } = this.layout;
+    const boardMetrics = this.boardMetrics;
+    
+    // Position pause button in left margin, aligned with Next Piece indicator
+    // Calculate left margin position with proper spacing from screen edge
+    const pauseButtonX = padding;
+    const pauseButtonY = boardMetrics.boardY; // Align with board top (same as Next Piece)
+    
+    // Position the pause button (absolute coordinates)
+    this.pauseButton.setPosition(pauseButtonX, pauseButtonY);
+    
+    // Position the icon in the center of the button
+    this.pauseIcon.setPosition(pauseButtonX + 64, pauseButtonY + 64);
   }
 
   private updateRightColumnLayout(): void {
@@ -835,6 +885,20 @@ export class GameUI extends BaseUI {
       button.on('pointerout', () => {
         button.setStrokeStyle(2, 0x00ff88, 0.8);
       });
+    });
+
+    // Set up pause button handlers
+    this.pauseButton.on('pointerdown', () => {
+      callbacks.onPauseSettings?.();
+    });
+
+    // Visual feedback for pause button
+    this.pauseButton.on('pointerover', () => {
+      this.pauseButton.setStrokeStyle(2, 0x00ff88, 1.0);
+    });
+
+    this.pauseButton.on('pointerout', () => {
+      this.pauseButton.setStrokeStyle(2, 0x00ff88, 0.8);
     });
   }
 
