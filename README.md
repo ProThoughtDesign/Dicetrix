@@ -6,13 +6,24 @@ A revolutionary gravity-matching puzzle game that combines Tetris-style piece me
 
 Dicetrix is an innovative puzzle game that merges the spatial challenge of Tetris with dice-based number matching and revolutionary individual die physics. Players control falling multi-die pieces on an 8×16 grid, where **each die can collide and lock independently**, creating dynamic piece fragmentation that adds unprecedented strategic depth to puzzle gaming.
 
+### The Core Innovation: Individual Die Physics
+
 Unlike traditional Tetris where entire pieces lock as units, Dicetrix features groundbreaking individual die collision detection. When some dice in a piece hit obstacles and lock to the grid, the remaining dice continue falling as a smaller active piece, creating dynamic scenarios where pieces naturally fragment based on terrain.
 
-The game features a complete Reddit integration system with difficulty-specific leaderboards, automated score submission with optional Reddit posting, periodic resets, user notifications, comprehensive community features, and advanced particle effects for match explosions, making it a fully-featured social gaming experience within the Reddit ecosystem.
+**Example**: A T-shaped piece might have its center die lock when it hits an existing piece, while the two arm dice continue falling separately until they also encounter obstacles.
 
-**Current Game State**: Dicetrix is a fully functional puzzle game with complete scene progression (Boot → Preloader → SplashScreen → StartMenu → Settings → Game → GameOver → LeaderboardScene → HowToPlayScene), comprehensive Reddit integration, advanced particle systems with special dice effects, and sophisticated individual die physics. The game includes procedural piece generation, Black Die mechanics for advanced modes, booster effect systems, enhanced particle effects for special dice, and a complete audio system with mode-specific music.
+### Complete Reddit Gaming Experience
 
-## 🎯 Core Gameplay - How Dicetrix Works
+The game features a complete Reddit integration system with:
+- Difficulty-specific leaderboards with automated periodic resets
+- Enhanced score submission with optional Reddit post creation
+- Real-time community notifications and achievements
+- Comprehensive social features within the Reddit ecosystem
+- Advanced particle effects and visual feedback systems
+
+**Current State**: Dicetrix is a fully functional puzzle game with complete scene progression, comprehensive Reddit integration, advanced particle systems, sophisticated individual die physics, procedural piece generation, Black Die mechanics for advanced modes, booster effect systems, and a complete audio system with mode-specific music.
+
+## 🎯 How Dicetrix Works - Core Gameplay Mechanics
 
 **The Revolutionary Concept**: Dicetrix combines three gameplay mechanics that have never been unified before:
 
@@ -20,14 +31,31 @@ The game features a complete Reddit integration system with difficulty-specific 
 2. **Dice Number Matching**: Create connected groups of 3+ adjacent dice with the same number to clear them
 3. **Individual Die Physics**: Each die in a piece can collide and lock independently, causing pieces to dynamically fragment
 
-**The Game Loop**:
-- Multi-die pieces (generated procedurally based on difficulty) fall down the grid
-- Each die checks for collisions independently - when a die hits an obstacle, it locks immediately
-- Remaining dice continue falling as a smaller piece until they also collide
-- Players create matches by connecting 3+ adjacent dice with the same number (horizontal/vertical only)
-- Matched dice disappear with spectacular particle effects, remaining dice fall to fill gaps
-- Chain reactions create cascade bonuses with score multipliers
-- Game ends when new pieces can't spawn due to grid collision at the top
+### The Game Loop
+
+1. **Piece Generation**: Multi-die pieces are generated procedurally based on difficulty mode
+   - Easy: 3×3×5 pieces (max 3 width, 3 height, 5 dice) with d4/d6/d8 dice
+   - Medium: 4×4×8 pieces with d6/d8/d10/d12 dice
+   - Hard: 5×5×10 pieces with d8/d10/d12/d20 dice + Black Dice
+   - Expert: 5×5×16 pieces with d10/d12/d20 dice + Black Dice
+   - Zen: 3×3×5 pieces with d4/d6/d8 dice (uniform rule, no cascades)
+
+2. **Individual Die Physics**: Each die checks for collisions independently
+   - When a die hits an obstacle (bottom, walls, or existing pieces), it locks immediately
+   - Remaining dice continue falling as a smaller piece until they also collide
+   - This creates dynamic piece fragmentation based on terrain
+
+3. **Dice Matching**: Players create matches by connecting 3+ adjacent dice with the same number
+   - Only horizontal and vertical connections count (no diagonal)
+   - Matched dice disappear with spectacular color-coded particle effects
+   - Different match sizes trigger different sound effects (3, 4, 5, 7, 9+ dice)
+
+4. **Cascade Chain Reactions**: When matches clear, remaining dice fall to fill gaps
+   - Falling dice can form new matches automatically
+   - Each cascade level increases score multiplier (1x → 2x → 3x → 4x+)
+   - Chain reactions create massive scoring opportunities
+
+5. **Game Over**: Game ends when new pieces can't spawn due to collision at the top of the grid
 
 ## 🌟 What Makes Dicetrix Innovative and Unique?
 
@@ -144,123 +172,96 @@ Features comprehensive social integration through the Devvit platform:
 - 🎯 **Complete Scene System**: Splash screen, main menu, settings, game, leaderboards, and tutorials
 - ⚡ **Performance Optimization**: Object pooling, particle management, and frame rate monitoring
 
-## 🎮 How to Play Dicetrix - Complete Step-by-Step Guide
+## 🎮 How to Play Dicetrix - Step-by-Step Guide
 
-### Phase 1: Getting Started
+### Getting Started
 
-#### Step 1: Launch the Game
-- Run `npm run dev` in your terminal
-- Open the provided Reddit playtest URL in your browser
-- The game loads through Boot → Preloader → SplashScreen sequence
+1. **Launch the Game**
+   - Run `npm run dev` in your terminal
+   - Open the provided Reddit playtest URL in your browser
+   - Experience the captivating splash screen with falling dice animation
 
-#### Step 2: Experience the Captivating Splash Screen
-- Watch the mesmerizing animated intro with falling dice using realistic physics
-- Six different dice types (d4, d6, d8, d10, d12, d20) with random color tints
-- Press any key, click anywhere, or tap the screen to continue to the main menu
+2. **Navigate the Main Menu**
+   - **Difficulty Dropdown**: Select from Easy, Medium, Hard, Expert, or Zen mode
+   - **SETTINGS**: Configure audio with independent music and sound effect controls
+   - **HOW TO PLAY**: Access the comprehensive interactive tutorial system
+   - **LEADERBOARD**: View community rankings organized by difficulty
+   - **Audio Button**: Click 🔇/🔊 to enable global audio
 
-#### Step 3: Navigate the Enhanced Main Menu
-The main menu features a professional 2×2 button grid layout:
-- **SETTINGS** (top-left): Configure audio with independent music and sound effect controls
-- **HOW TO PLAY** (top-right): Access the comprehensive 4-page interactive tutorial system
-- **LEADERBOARD** (bottom-left): View community rankings organized by difficulty with real-time data
-- **Audio Button** (bottom-right): Click the responsive audio button (🔇/🔊) to enable global audio
-- **Difficulty Dropdown**: Select from Easy, Medium, Hard, Expert, or Zen mode (color-coded)
+### Core Gameplay
 
-### Phase 2: Understanding the Core Gameplay
+3. **Master the Controls**
+   - **Keyboard**: Arrow keys or WASD for movement, Space for hard drop, ↑/Q for rotation
+   - **Mobile**: Use responsive on-screen buttons (3×2 grid layout)
+   - **Touch**: Tap any grid position to move pieces horizontally toward that column
+   - **Pause**: Press Esc to access pause menu with settings and restart options
 
-#### Step 4: Master the Revolutionary Individual Die Physics
-This is what makes Dicetrix unique - **each die in a piece can collide and lock independently**:
-- Watch pieces dynamically fragment as individual dice hit obstacles
-- A T-shaped piece might have its center die lock while the arms continue falling
-- A 4-die line could have its bottom 2 dice lock while the top 2 continue as a smaller piece
-- Learn to predict fragmentation patterns based on terrain for strategic advantage
+4. **Understand Individual Die Physics** (The Key Innovation)
+   - Each die in a piece can collide and lock independently
+   - When some dice hit obstacles, they lock immediately to the grid
+   - Remaining dice continue falling as a smaller active piece
+   - Pieces dynamically fragment based on terrain and obstacles
 
-#### Step 5: Learn the Controls
-**Keyboard Controls**:
-- **Movement**: ← → (left/right), ↓ (soft drop), Space (hard drop)
-- **Rotation**: ↑ (clockwise), Q (counter-clockwise)
-- **Game**: Esc (pause menu), WASD (alternative movement)
+5. **Create Dice Matches**
+   - Connect 3+ adjacent dice with the same number (horizontal/vertical only)
+   - Matched dice disappear with color-coded particle explosions
+   - Different match sizes trigger different sound effects
+   - Remaining dice fall to fill gaps, potentially creating new matches
 
-**Mobile/Touch Controls**:
-- **Responsive On-Screen Buttons**: 3×2 grid layout optimized for mobile
-  - Top Row: ↺ (rotate left) | ⇊ (soft drop) | ↻ (rotate right)
-  - Bottom Row: ← (move left) | ⇓ (hard drop) | → (move right)
-- **Direct Grid Tapping**: Tap any grid position to move pieces horizontally toward that column
-- **Touch-Optimized**: Minimum 44px touch targets with proper spacing
+6. **Trigger Cascade Chain Reactions**
+   - Falling dice can form new matches automatically
+   - Each cascade level increases score multiplier (1x → 2x → 3x → 4x+)
+   - Plan initial matches to create maximum chain reactions
+   - Listen for combo sound effects indicating successful chains
 
-#### Step 6: Create Strategic Matches
-**Matching Rules**:
-- Connect 3+ adjacent dice with the same number (horizontal/vertical only)
-- Matches are detected using advanced flood-fill algorithms
-- Matched dice disappear with spectacular color-coded particle explosions
-- Different match sizes trigger different sound effects (3, 4, 5, 7, 9+ dice)
+### Difficulty Modes & Advanced Features
 
-**Cascade Chain Reactions**:
-- When matches clear, remaining dice fall to fill gaps
-- Falling dice can form new matches automatically
-- Each cascade level increases your score multiplier (1x → 2x → 3x → 4x+)
-- Plan initial matches to create maximum chain reactions
+7. **Choose Your Challenge Level**
+   - **🟢 Easy**: 3×3×5 pieces, d4/d6/d8 dice, slow fall speed, 50% glow assistance
+   - **🟡 Medium**: 4×4×8 pieces, d6/d8/d10/d12 dice, moderate speed, 35% glow
+   - **🔴 Hard**: 5×5×10 pieces, d8/d10/d12/d20 + Black Dice, fast speed, 25% glow
+   - **🟠 Expert**: 5×5×16 pieces, d10/d12/d20 + Black Dice, very fast, 15% glow
+   - **🟣 Zen**: 3×3×5 pieces, d4/d6/d8 uniform dice, slow speed, no cascades
 
-### Phase 3: Mastering Advanced Mechanics
+8. **Master Advanced Mechanics**
+   - **Black Dice** (Hard/Expert): Wild cards that match any number + trigger 3×3 area conversion
+   - **Booster Effects**: Glowing dice provide visual assistance for strategic placement
+   - **Area Conversion**: Black Dice convert surrounding 3×3 areas to d20 dice when cleared
+   - **Uniform Rule** (Zen): All dice in a piece have the same face count
 
-#### Step 7: Understand the Five Difficulty Modes
-Each mode offers unique challenges and piece constraints:
+### Winning Strategies
 
-- **🟢 Easy Mode**: 3×3×5 pieces, d4/d6/d8 dice, 1000ms fall speed, 50% glow assistance
-- **🟡 Medium Mode**: 4×4×8 pieces, d6/d8/d10/d12 dice, 800ms fall speed, 35% glow assistance
-- **🔴 Hard Mode**: 5×5×10 pieces, d8/d10/d12/d20 + Black Dice, 600ms fall speed, 25% glow assistance
-- **🟠 Expert Mode**: 5×5×16 pieces, d10/d12/d20 + Black Dice, 400ms fall speed, 15% glow assistance
-- **🟣 Zen Mode**: 3×3×5 pieces, d4/d6/d8 dice (uniform rule), 1200ms fall speed, no cascades
+9. **Develop Triple-Layer Thinking**
+   - **Spatial Reasoning**: Traditional Tetris-style piece fitting and rotation
+   - **Number Matching**: Strategic dice placement for optimal matching opportunities
+   - **Fragmentation Prediction**: Anticipating how pieces will break apart based on terrain
 
-#### Step 8: Master Advanced Mechanics
-**Black Dice** (Hard/Expert modes only):
-- Act as wild cards that match any adjacent dice number
-- When cleared, trigger 3×3 area conversion effects
-- All dice in a 3×3 grid around each Black Die become d20 dice with new random numbers
-- Creates opportunities for massive cascade chain reactions
+10. **Pro Tips for Success**
+    - Create strategic gaps to control piece fragmentation
+    - Keep top rows (Y=14-15) clear to prevent game over
+    - Set up matches that cause falling dice to form additional matches
+    - Use audio cues to understand match sizes without looking
+    - Position Black Dice for maximum area conversion impact
+    - Plan cascade chains for massive scoring opportunities
 
-**Booster Effects**:
-- Random dice receive colorful glow auras based on difficulty percentages
-- Nine different glow colors provide visual assistance for strategic placement
-- Use glowing dice as guides for optimal positioning
+### Community Competition
 
-#### Step 9: Develop Winning Strategies
-**Triple-Layer Thinking** - Master all three simultaneously:
-1. **Spatial Reasoning**: Traditional Tetris-style piece fitting and rotation
-2. **Number Matching**: Strategic dice placement for optimal matching opportunities
-3. **Fragmentation Prediction**: Anticipating how pieces will break apart based on terrain
+11. **Score Submission & Reddit Integration**
+    - Game ends when pieces can't spawn due to grid collision
+    - Use enhanced Score Submission UI with detailed breakdown
+    - Choose to submit score only or create Reddit post with statistics
+    - View leaderboard position and compete with the community
+    - Participate in automated daily/weekly/monthly competitions
 
-**Pro Tips**:
-- Create strategic gaps to control how pieces fragment
-- Keep top rows clear to prevent game over
-- Set up matches that will cause falling dice to form additional matches
-- Listen to audio cues - different match sizes have different sound effects
-- In Hard/Expert modes, position Black Dice for maximum area conversion impact
+### Victory Conditions
 
-### Phase 4: Community Competition
+**Primary Goal**: Achieve the highest score by creating matches and cascade chains before the grid fills up
 
-#### Step 10: Score Submission & Reddit Integration
-When your game ends (grid fills up preventing new pieces from spawning):
-- Use the enhanced Score Submission UI with detailed breakdown display
-- Choose to submit score only or create Reddit post with formatted game statistics
-- View your leaderboard position and compete with the community
-- Receive feedback on your rank and achievements
+**Scoring**: Points = (match size × dice numbers + total faces) × cascade multiplier × difficulty multiplier
 
-#### Step 11: Community Features
-- **Leaderboard Scene**: View rankings across all difficulty modes with reset schedules
-- **Reset Cycles**: Participate in automated daily/weekly/monthly competitions
-- **Achievement Notifications**: Receive alerts for top player status
-- **Subreddit Integration**: Contribute to live community widgets and discussions
+**Game Over**: When a new piece cannot spawn due to collision at the top of the grid
 
-### Victory Conditions & Objectives
-
-**Primary Goal**: Achieve the highest score possible by creating matches and cascade chains before the grid fills up
-
-**Scoring Formula**: Points = (match size × dice numbers + total faces) × cascade multiplier × difficulty multiplier
-
-**Game Over**: Occurs when a new piece cannot spawn due to collision at the top of the grid
-
-**Community Success**: Climb the difficulty-specific leaderboards and participate in the vibrant Reddit gaming community
+**Community Success**: Climb difficulty-specific leaderboards and engage with the Reddit gaming community
 
 This revolutionary puzzle game challenges you to master three simultaneous gameplay dimensions while competing in a comprehensive social gaming ecosystem!
 
