@@ -4,4 +4,8 @@ export * from './utils/CoordinateConverter.js';
 export * from './utils/GridBoundaryValidator.js';
 export * from './utils/FloodFillValidator.js';
 export * from './utils/ProceduralPieceGenerator.js';
+export * from './utils/SettingsMigration.js';
+export * from './utils/BrowserUtils.js';
 export * from './constants/GameConstants.js';
+export * from './services/SettingsManager.js';
+export * from './services/SettingsInitializer.js';
