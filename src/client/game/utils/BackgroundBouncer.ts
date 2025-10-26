@@ -138,10 +138,12 @@ export class BackgroundBouncer {
     const centerY = (this.boundingBox.top + this.boundingBox.bottom) / 2;
 
     // Generate random initial velocity direction
-    const angle = Math.random() * Math.PI * 2;
+    let angle = Math.random() * Math.PI * 2;
     const velocityX = Math.cos(angle) * initialSpeed;
     const velocityY = Math.sin(angle) * initialSpeed;
-
+    if (angle % 90 == 0) {
+      angle++;
+    }
     return {
       x: centerX,
       y: centerY,
