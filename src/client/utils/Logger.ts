@@ -1,5 +1,5 @@
 export class Logger {
-	static Active = true;
+	static Active = false;
 	static log(message: string): void {
 		if (!Logger.Active) return;
 		// eslint-disable-next-line no-console
