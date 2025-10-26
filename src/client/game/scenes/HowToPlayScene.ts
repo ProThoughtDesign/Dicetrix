@@ -422,7 +422,7 @@ export class HowToPlayScene extends Scene {
    */
   private playNavigationSound(): void {
     try {
-      if (audioHandler.isInitialized()) {
+      if (audioHandler.getSoundEnabled() && audioHandler.isInitialized()) {
         audioHandler.playSound('menu-select');
       }
     } catch (error) {

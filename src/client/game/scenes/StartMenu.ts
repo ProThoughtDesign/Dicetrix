@@ -29,48 +29,45 @@ export class StartMenu extends Scene {
     const dropdownY = screenHeight * 0.45;
     const dropdownLeft = dropdownX - dropdownWidth / 2;
 
-    // Settings button dimensions and positioning
-    const settingsFontSize = 24 * uiScale;
-    const settingsPaddingX = 25 * uiScale;
-    const settingsPaddingY = 12 * uiScale;
-    
-    // Calculate approximate settings button width (text width estimation + padding)
-    // Using rough character width estimation for 'SETTINGS' text
-    const settingsTextWidth = settingsFontSize * 0.6 * 8; // 8 characters in 'SETTINGS'
-    const settingsButtonWidth = settingsTextWidth + (settingsPaddingX * 2);
-    const settingsButtonHeight = settingsFontSize + (settingsPaddingY * 2);
-
-    // Position settings button to align left edge with dropdown left edge
-    const settingsButtonLeft = dropdownLeft;
-    const settingsButtonX = settingsButtonLeft + settingsButtonWidth / 2;
-    const settingsButtonY = screenHeight * 0.75;
-
-    // Leaderboard button dimensions and positioning (Requirements 7.1, 8.1, 8.5)
-    const leaderboardTextWidth = settingsFontSize * 0.6 * 12; // 12 characters in 'LEADERBOARD'
-    const leaderboardButtonWidth = leaderboardTextWidth + (settingsPaddingX * 2);
-    const leaderboardButtonHeight = settingsButtonHeight;
-    
-    // Position leaderboard button below settings button
+    // Button grid layout: 2x2 grid below Start Game button
+    const buttonFontSize = 24 * uiScale;
+    const buttonPaddingX = 25 * uiScale;
+    const buttonPaddingY = 12 * uiScale;
     const buttonSpacing = this.calculateResponsiveButtonSpacing(screenWidth, uiScale);
-    const leaderboardButtonLeft = settingsButtonLeft; // Same left alignment as settings
-    const leaderboardButtonX = leaderboardButtonLeft + leaderboardButtonWidth / 2;
-    const leaderboardButtonY = settingsButtonY + settingsButtonHeight + buttonSpacing;
-
-    // How To Play button dimensions and positioning (Requirements 8.1, 8.5)
-    const howToPlayTextWidth = settingsFontSize * 0.6 * 12; // 12 characters in 'HOW TO PLAY'
-    const howToPlayButtonWidth = howToPlayTextWidth + (settingsPaddingX * 2);
-    const howToPlayButtonHeight = settingsButtonHeight;
     
-    // Position How To Play button next to settings button (where leaderboard used to be)
-    const howToPlayButtonLeft = settingsButtonLeft + settingsButtonWidth + buttonSpacing;
-    const howToPlayButtonX = howToPlayButtonLeft + howToPlayButtonWidth / 2;
-    const howToPlayButtonY = settingsButtonY;
-
-    // Audio button positioning with responsive behavior (Requirements 6.1, 6.2, 6.4, 6.5)
-    const audioButtonSize = this.calculateResponsiveAudioButtonSize(settingsButtonHeight, screenWidth, screenHeight, uiScale);
-    const audioButtonLeft = howToPlayButtonLeft + howToPlayButtonWidth + buttonSpacing;
-    const audioButtonX = audioButtonLeft + audioButtonSize / 2;
-    const audioButtonY = settingsButtonY;
+    // Calculate button dimensions
+    const settingsTextWidth = buttonFontSize * 0.6 * 8; // 8 characters in 'SETTINGS'
+    const settingsButtonWidth = settingsTextWidth + (buttonPaddingX * 2);
+    const settingsButtonHeight = buttonFontSize + (buttonPaddingY * 2);
+    
+    const howToPlayTextWidth = buttonFontSize * 0.6 * 12; // 12 characters in 'HOW TO PLAY'
+    const howToPlayButtonWidth = howToPlayTextWidth + (buttonPaddingX * 2);
+    
+    const leaderboardTextWidth = buttonFontSize * 0.6 * 12; // 12 characters in 'LEADERBOARD'
+    const leaderboardButtonWidth = leaderboardTextWidth + (buttonPaddingX * 2);
+    
+    // Calculate grid positioning - center the 2x2 grid below dropdown
+    const gridStartY = screenHeight * 0.75;
+    const gridCenterX = dropdownX;
+    const maxButtonWidth = Math.max(settingsButtonWidth, howToPlayButtonWidth, leaderboardButtonWidth);
+    const gridWidth = maxButtonWidth * 2 + buttonSpacing;
+    const gridLeft = gridCenterX - gridWidth / 2;
+    
+    // Top row: Settings (left), How To Play (right)
+    const settingsButtonX = gridLeft + settingsButtonWidth / 2;
+    const settingsButtonY = gridStartY;
+    
+    const howToPlayButtonX = gridLeft + maxButtonWidth + buttonSpacing + howToPlayButtonWidth / 2;
+    const howToPlayButtonY = gridStartY;
+    
+    // Bottom row: Leaderboards (left), Audio (right)
+    const leaderboardButtonX = gridLeft + leaderboardButtonWidth / 2;
+    const leaderboardButtonY = gridStartY + settingsButtonHeight + buttonSpacing;
+    
+    // Audio button positioning (square button to match button height)
+    const audioButtonSize = settingsButtonHeight; // Square button matching text button height
+    const audioButtonX = gridLeft + maxButtonWidth + buttonSpacing + audioButtonSize / 2;
+    const audioButtonY = leaderboardButtonY;
 
     return {
       // Dropdown reference
@@ -82,28 +79,24 @@ export class StartMenu extends Scene {
       // Settings button layout
       settingsButtonX,
       settingsButtonY,
-      settingsButtonLeft,
       settingsButtonWidth,
       settingsButtonHeight,
-      
-      // Leaderboard button layout
-      leaderboardButtonX,
-      leaderboardButtonY,
-      leaderboardButtonLeft,
-      leaderboardButtonWidth,
-      leaderboardButtonHeight,
       
       // How To Play button layout
       howToPlayButtonX,
       howToPlayButtonY,
-      howToPlayButtonLeft,
       howToPlayButtonWidth,
-      howToPlayButtonHeight,
+      howToPlayButtonHeight: settingsButtonHeight,
+      
+      // Leaderboard button layout
+      leaderboardButtonX,
+      leaderboardButtonY,
+      leaderboardButtonWidth,
+      leaderboardButtonHeight: settingsButtonHeight,
       
       // Audio button layout
       audioButtonX,
       audioButtonY,
-      audioButtonLeft,
       audioButtonSize,
       
       // Spacing
@@ -525,8 +518,10 @@ export class StartMenu extends Scene {
       .on('pointerdown', () => this.handleAudioButtonClick())
       .on('pointerup', () => this.handleAudioButtonRelease());
 
-    // Initialize audio button state
-    this.updateAudioButtonState('muted');
+    // Initialize audio button state based on current AudioHandler state
+    const currentAudioState = audioHandler.getMusicEnabled() && audioHandler.getSoundEnabled() ? 'unmuted' : 'muted';
+    this.updateAudioButtonState(currentAudioState);
+    Logger.log(`StartMenu: Audio button initialized to '${currentAudioState}' based on current audio settings`);
 
     // Setup responsive behavior and cross-platform support (Requirements 6.1, 6.2, 6.4, 6.5)
     this.setupResponsiveBehavior();
@@ -1141,15 +1136,19 @@ export class StartMenu extends Scene {
         
         // Check if audio was successfully initialized
         if (audioHandler.isInitialized()) {
-          // Audio is initialized, start menu music using audioHandler service (Requirement 3.3)
-          Logger.log('StartMenu: Audio initialized, starting menu music via audioHandler');
+          // Audio is initialized, enable audio globally and start menu music
+          Logger.log('StartMenu: Audio initialized, enabling audio globally and starting menu music');
+          
+          // Enable audio globally so all scenes respect this state
+          audioHandler.setMusicEnabled(true);
+          audioHandler.setSoundEnabled(true);
           
           try {
             audioHandler.playMusic('menu-theme', true);
             
             // Update button icon to unmuted speaker when audio is successfully activated (Requirement 4.1)
             this.updateAudioButtonState('unmuted');
-            Logger.log('StartMenu: Audio successfully enabled and music started');
+            Logger.log('StartMenu: Audio successfully enabled globally and music started');
             
             // Add appropriate sound effects for button interactions when audio is enabled (Requirement 4.5)
             audioHandler.playSound('menu-select');
@@ -1199,10 +1198,14 @@ export class StartMenu extends Scene {
           }
         }
         
+        // Disable audio globally so all scenes respect this muted state
+        audioHandler.setMusicEnabled(false);
+        audioHandler.setSoundEnabled(false);
+        
         // Stop music playback using existing audioHandler service (Requirement 4.2, 5.3)
         try {
           audioHandler.stopMusic();
-          Logger.log('StartMenu: Music stopped successfully');
+          Logger.log('StartMenu: Music stopped successfully and audio disabled globally');
         } catch (stopError) {
           Logger.log(`StartMenu: Music stop failed - ${stopError}`);
           // Continue to update button state even if stop fails

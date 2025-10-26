@@ -2,7 +2,7 @@
 
 /**
  * Reddit Integration System Test Script
- * 
+ *
  * This script demonstrates how to communicate with the Reddit Integration System
  * without relying on post creation, focusing on the core functionality.
  */
@@ -68,7 +68,7 @@ console.log('   Visit: http://localhost:3000/api/reddit-integration/demo');
 console.log('   This shows all available features without post creation\n');
 
 console.log('**Step 3: Test core functionality**');
-console.log('   • Score submission: Use the game\'s score submission UI');
+console.log("   • Score submission: Use the game's score submission UI");
 console.log('   • Leaderboards: Navigate to leaderboard scenes in game');
 console.log('   • Configuration: Use admin endpoints for settings\n');
 

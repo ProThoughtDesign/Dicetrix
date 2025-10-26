@@ -444,6 +444,25 @@ export function getBoosterGlowColor(die: DieLike): number | undefined {
 }
 
 /**
+ * Hide the text on a die sprite (useful for matched dice before destruction)
+ * @param container The die sprite container
+ */
+export function hideDieText(container: Phaser.GameObjects.Container): void {
+  if (!container) return;
+  
+  try {
+    // Find and hide text elements in the container
+    container.list.forEach((child) => {
+      if (child instanceof Phaser.GameObjects.Text) {
+        child.setVisible(false);
+      }
+    });
+  } catch (error) {
+    // Ignore errors during text hiding
+  }
+}
+
+/**
  * Cleans up a die container and returns any pooled glow effects
  * @param container The die container to cleanup
  */

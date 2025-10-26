@@ -14,10 +14,17 @@ export class GameOver extends Scene {
     this.cameras.main.setBackgroundColor('#1a1a2e');
 
     // Start menu music for game over screen
-    // Requirements: 1.4 - music transitions between scenes
+    // Requirements: 1.4 - music transitions between scenes (respecting global mute state)
     try {
       audioHandler.stopMusic();
-      audioHandler.playMusic('menu-theme', true);
+      
+      // Only play music if enabled and initialized (respects global mute state)
+      if (audioHandler.getMusicEnabled() && audioHandler.isInitialized()) {
+        audioHandler.playMusic('menu-theme', true);
+        Logger.log('GameOver: Started menu music (respecting global audio state)');
+      } else {
+        Logger.log('GameOver: Music disabled or not initialized, skipping menu music');
+      }
     } catch (error) {
       Logger.log(`GameOver: Failed to start menu music - ${error}`);
     }
@@ -50,8 +57,10 @@ export class GameOver extends Scene {
 
   private returnToMenu(): void {
     try {
-      // Play menu select sound
-      audioHandler.playSound('menu-select');
+      // Play menu select sound (respects global mute state)
+      if (audioHandler.getSoundEnabled() && audioHandler.isInitialized()) {
+        audioHandler.playSound('menu-select');
+      }
       
       // Return to StartMenu (music will continue)
       this.scene.start('StartMenu');

@@ -8,6 +8,7 @@ import {
   setBoosterChance, 
   determineGlowColor, 
   cleanupDie, 
+  hideDieText,
   initializeGlowPool, 
   cleanupGlowPool 
 } from '../visuals/DiceRenderer';
@@ -29,6 +30,7 @@ import { ProceduralPieceGenerator } from '../../../shared/utils/ProceduralPieceG
 import { BlackDieManager } from '../../../shared/utils/BlackDieManager';
 import { BoosterEffectSystem } from '../../../shared/utils/BoosterEffectSystem';
 import { ScoreMultiplierManager } from '../../../shared/utils/ScoreMultiplierManager';
+import { ParticleSystemManager, ParticleSystemConfig } from '../visuals/ParticleSystemManager';
 import { DifficultyModeConfig } from '../../../shared/types/difficulty';
 import { ScoreSubmissionUI, GameEndData, ScoreSubmissionCallbacks } from '../ui/ScoreSubmissionUI';
 import { RedditScoreSubmissionRequest, RedditScoreSubmissionResponse } from '../../../shared/types/api';
@@ -85,6 +87,9 @@ export class Game extends Scene {
   private scoreMultiplierManager: ScoreMultiplierManager | null = null;
   private currentDifficultyConfig: DifficultyModeConfig | null = null;
 
+  // Particle system for visual effects
+  private particleSystemManager: ParticleSystemManager | null = null;
+
   // Diagnostic timing metrics for initialization debugging
   private initializationMetrics = {
     sceneCreateStart: 0,
@@ -138,16 +143,22 @@ export class Game extends Scene {
    */
   private startGameModeMusic(): void {
     try {
-      // Check if music is enabled in settings
+      // Check if music is enabled in settings (respects global mute state)
       if (!audioHandler.getMusicEnabled()) {
         Logger.log(`Game: Music is disabled in settings, skipping game mode music`);
+        return;
+      }
+
+      // Only play music if audio is properly initialized
+      if (!audioHandler.isInitialized()) {
+        Logger.log(`Game: Audio not initialized, skipping game mode music`);
         return;
       }
 
       // Map game modes to music keys
       const musicKey = this.getMusicKeyForMode(this.currentGameMode);
       
-      Logger.log(`Game: Starting music for mode '${this.currentGameMode}' -> '${musicKey}'`);
+      Logger.log(`Game: Starting music for mode '${this.currentGameMode}' -> '${musicKey}' (respecting global audio state)`);
       
       // Transition from menu music to game music
       audioHandler.stopMusic();
@@ -304,6 +315,74 @@ export class Game extends Scene {
       this.boosterEffectSystem = null;
       this.scoreMultiplierManager = null;
       this.currentDifficultyConfig = null;
+    }
+  }
+
+  /**
+   * Initialize particle system for visual effects
+   * Requirements: 1.1, 1.2, 2.1, 2.2, 2.3, 2.4, 6.1, 6.3
+   */
+  private initializeParticleSystem(): void {
+    try {
+      Logger.log('Game: Initializing particle system');
+
+      // Create particle system configuration based on game settings
+      const particleConfig: ParticleSystemConfig = {
+        maxParticles: 200, // Conservative limit for performance
+        qualityLevel: 'medium', // Default quality level
+        enableEffects: true,
+        performanceMode: false
+      };
+
+      // Adjust quality based on device capabilities or user settings
+      // TODO: Add settings integration for particle quality
+      
+      this.particleSystemManager = new ParticleSystemManager();
+      this.particleSystemManager.initialize(this, particleConfig);
+      
+      Logger.log('Game: ParticleSystemManager initialized successfully');
+      Logger.log(`Game: Particle system configured with max ${particleConfig.maxParticles} particles`);
+      Logger.log(`Game: Particle quality level: ${particleConfig.qualityLevel}`);
+      
+    } catch (error) {
+      Logger.log(`Game: Failed to initialize particle system - ${error}`);
+      // Set fallback to null for graceful degradation
+      this.particleSystemManager = null;
+    }
+  }
+
+  /**
+   * Hide text on matched dice immediately to prevent visual glitches
+   * Requirements: 2.1, 2.4
+   */
+  private hideMatchedDiceText(matches: any[]): void {
+    if (!matches || matches.length === 0) return;
+    
+    try {
+      for (const match of matches) {
+        if (match.positions && Array.isArray(match.positions)) {
+          for (const position of match.positions) {
+            // Find the sprite at this grid position in locked sprites
+            const matchingSprite = this.lockedSprites.find((sprite) => {
+              if (!sprite || !sprite.getData) return false;
+              
+              const spriteGridX = sprite.getData('gridX');
+              const spriteGridY = sprite.getData('gridY');
+              
+              return spriteGridX === position.x && spriteGridY === position.y;
+            });
+            
+            if (matchingSprite) {
+              hideDieText(matchingSprite);
+            }
+          }
+        }
+      }
+      
+      Logger.log(`Game: Hidden text on matched dice for ${matches.length} match groups`);
+      
+    } catch (error) {
+      Logger.log(`Game: Error hiding matched dice text - ${error}`);
     }
   }
 
@@ -467,10 +546,13 @@ export class Game extends Scene {
         this.pauseMenuUI = null;
       }
 
-      // Stop game music and return to menu music (only if music is enabled)
+      // Stop game music and return to menu music (respecting global mute state)
       audioHandler.stopMusic();
-      if (audioHandler.getMusicEnabled()) {
+      if (audioHandler.getMusicEnabled() && audioHandler.isInitialized()) {
         audioHandler.playMusic('menu-theme', true);
+        Logger.log('Game: Returned to menu music (respecting global audio state)');
+      } else {
+        Logger.log('Game: Music disabled or not initialized, skipping menu music');
       }
 
       // Go to start menu
@@ -1366,6 +1448,10 @@ export class Game extends Scene {
     Logger.log('=== SPAWN PIECE DIAGNOSTIC: Starting spawnPiece() ===');
     Logger.log(`SPAWN TIMING: spawnPiece() called at ${spawnStartTime}ms`);
 
+    // Reset cascade multiplier for new piece (cascades are per-piece)
+    this.cascadeMultiplier = 1;
+    Logger.log('SPAWN: Reset cascade multiplier to 1 for new piece');
+
     // Validate system readiness before spawning
     if (!this.gameBoard) {
       Logger.log('SPAWN ERROR: No gameBoard available in spawnPiece');
@@ -1774,6 +1860,19 @@ export class Game extends Scene {
           );
           successfullyLocked.push(index);
           
+          // Create placement impact effect for locked die
+          // Requirements: 4.1, 4.2
+          if (this.particleSystemManager && this.gameUI) {
+            const boardMetrics = (this.gameUI as any).boardMetrics;
+            if (boardMetrics) {
+              const screenPos = this.coordinateConverter.gridToScreen(finalX, finalY, boardMetrics);
+              this.particleSystemManager.createPlacementImpact(
+                new Phaser.Math.Vector2(screenPos.x, screenPos.y),
+                1 // Single die placement
+              );
+            }
+          }
+          
           // Play piece placement sound for each locked die
           // Requirements: 2.1, 2.2
           if (this.soundEffectLibrary) {
@@ -1851,6 +1950,16 @@ export class Game extends Scene {
         let cascadeMatches: any[] = detectMatchesWithBlackDieEffects(this.gameBoard.state, this.gameBoard);
         if (cascadeMatches && cascadeMatches.length > 0) {
           Logger.log(`INITIAL CASCADE: ${cascadeMatches.length} match groups detected`);
+          
+          // Hide text on matched dice immediately to prevent visual glitches
+          this.hideMatchedDiceText(cascadeMatches);
+          
+          // Create particle effects for match explosions
+          // Requirements: 2.1, 2.2, 2.3, 2.4
+          if (this.particleSystemManager && boardMetrics) {
+            this.particleSystemManager.setBoardMetrics(boardMetrics);
+            this.particleSystemManager.createMatchExplosions(cascadeMatches);
+          }
         }
 
         while (cascadeMatches && cascadeMatches.length > 0) {
@@ -1919,6 +2028,23 @@ export class Game extends Scene {
                 this.soundEffectLibrary.playComboEffect(this.cascadeMultiplier);
               }
 
+              // Create combo celebration particle effect
+              // Requirements: 3.3, 3.4, 3.5
+              if (this.cascadeMultiplier > 1 && this.particleSystemManager && positions.length > 0) {
+                // Calculate center position of the match for combo effect
+                const centerX = positions.reduce((sum, p) => sum + p.x, 0) / positions.length;
+                const centerY = positions.reduce((sum, p) => sum + p.y, 0) / positions.length;
+                
+                // Convert grid position to screen coordinates
+                if (boardMetrics) {
+                  const screenX = boardMetrics.boardX + (centerX * boardMetrics.cellW) + (boardMetrics.cellW / 2);
+                  const screenY = boardMetrics.boardY + (centerY * boardMetrics.cellH) + (boardMetrics.cellH / 2);
+                  
+                  const comboPosition = new Phaser.Math.Vector2(screenX, screenY);
+                  this.particleSystemManager.createComboEffect(comboPosition, this.cascadeMultiplier);
+                }
+              }
+
               // Increase multiplier for next match (per-match increase)
               this.cascadeMultiplier++;
             }
@@ -1974,6 +2100,15 @@ export class Game extends Scene {
           cascadeMatches = detectMatchesWithBlackDieEffects(this.gameBoard.state, this.gameBoard);
           if (cascadeMatches && cascadeMatches.length > 0) {
             Logger.log(`CASCADE CONTINUED: ${cascadeMatches.length} new match groups detected`);
+            
+            // Hide text on matched dice immediately to prevent visual glitches
+            this.hideMatchedDiceText(cascadeMatches);
+            
+            // Create particle effects for continued cascade matches
+            // Requirements: 2.1, 2.2, 2.3, 2.4
+            if (this.particleSystemManager && boardMetrics) {
+              this.particleSystemManager.createMatchExplosions(cascadeMatches);
+            }
           }
         }
       } catch (e) {
@@ -2231,6 +2366,16 @@ export class Game extends Scene {
 
       for (const mv of moved) {
         try {
+          // Start cascade trail for falling die
+          // Requirements: 3.1, 3.2
+          if (this.particleSystemManager && mv.die.id) {
+            this.particleSystemManager.startCascadeTrail(
+              mv.die.id,
+              new Phaser.Math.Vector2(mv.from.x, mv.from.y),
+              mv.die.color || 'white'
+            );
+          }
+
           const spr = drawDie(
             this,
             mv.from.x,
@@ -2252,7 +2397,28 @@ export class Game extends Scene {
             y: mv.to.y,
             duration: 300,
             ease: 'Cubic.easeOut',
+            onUpdate: () => {
+              // Update cascade trail position during animation
+              // Requirements: 3.1, 3.2
+              if (this.particleSystemManager && mv.die.id) {
+                const currentPos = new Phaser.Math.Vector2(spr.x, spr.y);
+                const velocity = new Phaser.Math.Vector2(
+                  (mv.to.x - mv.from.x) / 300, // pixels per ms
+                  (mv.to.y - mv.from.y) / 300
+                );
+                this.particleSystemManager.updateCascadeTrail(mv.die.id, currentPos, velocity);
+              }
+            },
             onComplete: () => {
+              // End cascade trail when die stops falling
+              // Requirements: 3.1, 3.2
+              if (this.particleSystemManager && mv.die.id) {
+                this.particleSystemManager.endCascadeTrail(
+                  mv.die.id,
+                  new Phaser.Math.Vector2(mv.to.x, mv.to.y)
+                );
+              }
+              
               try {
                 cleanupDie(spr);
               } catch (e) {}
@@ -2413,6 +2579,10 @@ export class Game extends Scene {
     Logger.log('INIT STEP 5.7: Initializing procedural generation systems');
     this.initializeProceduralSystems();
 
+    // Initialize particle system for visual effects
+    Logger.log('INIT STEP 5.8: Initializing particle system');
+    this.initializeParticleSystem();
+
     // Validate UI system readiness
     this.validateUISystemReadiness();
 
@@ -2530,8 +2700,35 @@ export class Game extends Scene {
 
     // Check if the new position is valid for remaining dice in the piece
     if (this.canPlacePiece(this.activePiece, newX, newY)) {
+      const oldPos = new Phaser.Math.Vector2(this.activePiece.x, this.activePiece.y);
       this.activePiece.x = newX;
       this.activePiece.y = newY;
+      
+      // Create movement particle effects
+      // Requirements: 4.3, 4.4
+      if (this.particleSystemManager && this.gameUI) {
+        const boardMetrics = (this.gameUI as any).boardMetrics;
+        if (boardMetrics) {
+          // Convert grid positions to screen coordinates for particle effects
+          const oldScreenPos = this.coordinateConverter.gridToScreen(oldPos.x, oldPos.y, boardMetrics);
+          const newScreenPos = this.coordinateConverter.gridToScreen(newX, newY, boardMetrics);
+          
+          if (dx !== 0) {
+            // Horizontal movement feedback
+            this.particleSystemManager.createHorizontalMovementFeedback(
+              new Phaser.Math.Vector2(newScreenPos.x, newScreenPos.y), 
+              dx
+            );
+          } else if (dy !== 0) {
+            // Vertical movement trail
+            this.particleSystemManager.createMovementTrail(
+              new Phaser.Math.Vector2(oldScreenPos.x, oldScreenPos.y),
+              new Phaser.Math.Vector2(newScreenPos.x, newScreenPos.y)
+            );
+          }
+        }
+      }
+      
       this.renderGameState();
       Logger.log(`Successfully moved piece to bottom-left (${newX}, ${newY})`);
       
@@ -2569,8 +2766,25 @@ export class Game extends Scene {
       testY += GAME_CONSTANTS.FALL_STEP; // FALL_STEP is -1, so this decreases Y (moves down)
     }
 
+    const originalY = this.activePiece.y;
     this.activePiece.y = dropY;
-    Logger.log(`Hard dropped piece to lowest valid Y=${dropY}`);
+    const dropDistance = Math.abs(originalY - dropY);
+    
+    Logger.log(`Hard dropped piece to lowest valid Y=${dropY}, distance=${dropDistance}`);
+
+    // Create hard drop impact particle effect
+    // Requirements: 4.1, 4.2
+    if (this.particleSystemManager && this.gameUI) {
+      const boardMetrics = (this.gameUI as any).boardMetrics;
+      if (boardMetrics) {
+        // Create impact effect at the final position
+        const screenPos = this.coordinateConverter.gridToScreen(this.activePiece.x, dropY, boardMetrics);
+        this.particleSystemManager.createHardDropImpact(
+          new Phaser.Math.Vector2(screenPos.x, screenPos.y),
+          dropDistance
+        );
+      }
+    }
 
     // Play hard drop sound effect
     // Requirements: 2.1, 2.2
@@ -2772,6 +2986,20 @@ export class Game extends Scene {
     // Update rotation angle for reference
     this.activePiece.rotation =
       (this.activePiece.rotation + (direction > 0 ? 90 : -90) + 360) % 360;
+
+    // Create rotation feedback particle effect
+    // Requirements: 4.3, 4.4
+    if (this.particleSystemManager && this.gameUI) {
+      const boardMetrics = (this.gameUI as any).boardMetrics;
+      if (boardMetrics) {
+        // Create rotation effect at piece center
+        const screenPos = this.coordinateConverter.gridToScreen(this.activePiece.x, this.activePiece.y, boardMetrics);
+        this.particleSystemManager.createRotationFeedback(
+          new Phaser.Math.Vector2(screenPos.x, screenPos.y),
+          direction
+        );
+      }
+    }
 
     // Play rotation sound effect
     // Requirements: 2.1, 2.2
@@ -3557,6 +3785,11 @@ export class Game extends Scene {
       this.gameUI.update();
     }
     
+    // Update particle system
+    if (this.particleSystemManager) {
+      this.particleSystemManager.update(delta);
+    }
+    
     // Update background bouncing using BackgroundBouncer
     if (this.backgroundBouncer && this.backgroundSprite) {
       try {
@@ -3655,6 +3888,94 @@ export class Game extends Scene {
   }
 
 
+  /**
+   * Reset all game state variables to initial values
+   * Prevents memory leaks and ensures fresh game starts
+   */
+  private resetGameState(): void {
+    Logger.log('Game: Resetting all game state variables');
+
+    // Reset core game state
+    this.phase = 'Idle';
+    this.score = 0;
+    this.cascadeMultiplier = 1;
+    this.currentLevel = 1;
+    this.gameStartTime = 0;
+    this.scoreAchievementTime = 0;
+    this.isPaused = false;
+
+    // Reset score breakdown
+    this.scoreBreakdown = {
+      baseScore: 0,
+      chainMultiplier: 1,
+      ultimateComboMultiplier: 1,
+      boosterModifiers: 0,
+      totalScore: 0
+    };
+
+    // Clear piece references
+    this.activePiece = null;
+    this.nextPiece = null;
+
+    // Reset booster chance to default
+    this.boosterChance = 0.15;
+
+    // Clear sprite arrays (they should already be cleaned up, but ensure they're empty)
+    this.activeSprites = [];
+    this.nextSprites = [];
+    this.lockedSprites = [];
+
+    // Reset procedural system references (they should be destroyed, but clear references)
+    this.blackDieManager = null;
+    this.boosterEffectSystem = null;
+    this.scoreMultiplierManager = null;
+    this.currentDifficultyConfig = null;
+
+    // Reset initialization metrics
+    this.initializationMetrics = {
+      sceneCreateStart: 0,
+      backgroundSetComplete: 0,
+      registrySetupComplete: 0,
+      gameBoardInitComplete: 0,
+      coordinateConverterInitComplete: 0,
+      gameUICreateStart: 0,
+      gameUICreateComplete: 0,
+      firstPieceGenerationStart: 0,
+      firstPieceGenerationComplete: 0,
+      firstPieceSpawnStart: 0,
+      firstPieceSpawnComplete: 0,
+      timersSetupComplete: 0,
+      initialRenderStart: 0,
+      initialRenderComplete: 0,
+      sceneCreateEnd: 0
+    };
+
+    // Reset game board if it exists
+    if (this.gameBoard) {
+      try {
+        // Clear all cells in the game board
+        const allPositions: Array<{ x: number; y: number }> = [];
+        for (let x = 0; x < this.gameBoard.state.width; x++) {
+          for (let y = 0; y < this.gameBoard.state.height; y++) {
+            if (!this.gameBoard.isEmpty(x, y)) {
+              allPositions.push({ x, y });
+            }
+          }
+        }
+        if (allPositions.length > 0) {
+          this.gameBoard.clearCells(allPositions);
+          Logger.log(`Game: Cleared ${allPositions.length} cells from game board`);
+        } else {
+          Logger.log('Game: Game board was already empty');
+        }
+      } catch (error) {
+        Logger.log(`Game: Error clearing game board - ${error}`);
+      }
+    }
+
+    Logger.log('Game: Game state reset completed');
+  }
+
   shutdown(): void {
     try {
       Logger.log('Game scene: Starting shutdown cleanup process');
@@ -3694,6 +4015,17 @@ export class Game extends Scene {
         Logger.log('Game scene: Audio system cleaned up successfully');
       } catch (error) {
         Logger.log(`Game scene: Error cleaning up audio system - ${error}`);
+      }
+
+      // Clean up particle system
+      try {
+        if (this.particleSystemManager) {
+          this.particleSystemManager.destroy();
+          this.particleSystemManager = null;
+        }
+        Logger.log('Game scene: Particle system cleaned up successfully');
+      } catch (error) {
+        Logger.log(`Game scene: Error cleaning up particle system - ${error}`);
       }
 
       // Clean up pause menu
@@ -3752,6 +4084,14 @@ export class Game extends Scene {
         Logger.log('Game scene: Glow effect pool cleaned up successfully');
       } catch (error) {
         Logger.log(`Game scene: Error cleaning up glow effect pool - ${error}`);
+      }
+
+      // Reset all game state variables to prevent memory leaks and ensure fresh starts
+      try {
+        this.resetGameState();
+        Logger.log('Game scene: Game state variables reset successfully');
+      } catch (error) {
+        Logger.log(`Game scene: Error resetting game state - ${error}`);
       }
 
       Logger.log('Game scene: Shutdown cleanup completed successfully');

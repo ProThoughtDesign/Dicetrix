@@ -147,8 +147,8 @@ export class ScoreSubmissionUI {
     // Reddit sharing checkbox
     this.createRedditCheckbox(width / 2, dialogY + 220);
     
-    // Buttons
-    this.createButtons(width / 2, dialogY + 280, dialogY + 330);
+    // Buttons (both on same level now)
+    this.createButtons(width / 2, dialogY + 280, dialogY + 280);
     
     // Status text (initially hidden)
     this.statusText = this.scene.add.text(width / 2, dialogY + 380, '', {
@@ -196,9 +196,15 @@ export class ScoreSubmissionUI {
     this.container.add(this.shareToRedditCheckbox);
   }
 
-  private createButtons(centerX: number, submitY: number, continueY: number): void {
-    // Submit button
-    this.submitButton = this.scene.add.container(centerX - 80, submitY);
+  private createButtons(centerX: number, submitY: number, _continueY: number): void {
+    // Calculate button spacing for even distribution
+    const buttonSpacing = 100; // Distance between button centers
+    
+    // Both buttons on the same Y level (use submitY for both)
+    const buttonY = submitY;
+    
+    // Submit button (left)
+    this.submitButton = this.scene.add.container(centerX - buttonSpacing / 2, buttonY);
     
     this.submitButtonBg = this.scene.add.graphics();
     this.submitButtonBg.fillStyle(0x00aa00, 1);
@@ -218,8 +224,8 @@ export class ScoreSubmissionUI {
     
     this.container.add(this.submitButton);
     
-    // Continue button
-    this.continueButton = this.scene.add.container(centerX + 80, continueY);
+    // Continue button (right)
+    this.continueButton = this.scene.add.container(centerX + buttonSpacing / 2, buttonY);
     
     this.continueButtonBg = this.scene.add.graphics();
     this.continueButtonBg.fillStyle(0x666666, 1);

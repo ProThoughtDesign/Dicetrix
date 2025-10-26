@@ -377,9 +377,11 @@ export class LeaderboardScene extends Scene {
 
     Logger.log(`LeaderboardScene: Switching to ${mode} difficulty`);
 
-    // Play sound effect
+    // Play sound effect (respecting global mute state)
     try {
-      audioHandler.playSound('menu-select');
+      if (audioHandler.getSoundEnabled() && audioHandler.isInitialized()) {
+        audioHandler.playSound('menu-select');
+      }
     } catch (error) {
       Logger.log(`LeaderboardScene: Sound effect failed: ${String(error)}`);
     }
@@ -402,9 +404,11 @@ export class LeaderboardScene extends Scene {
   async refreshData(): Promise<void> {
     Logger.log('LeaderboardScene: Refreshing leaderboard data');
 
-    // Play sound effect
+    // Play sound effect (respecting global mute state)
     try {
-      audioHandler.playSound('menu-select');
+      if (audioHandler.getSoundEnabled() && audioHandler.isInitialized()) {
+        audioHandler.playSound('menu-select');
+      }
     } catch (error) {
       Logger.log(`LeaderboardScene: Sound effect failed: ${String(error)}`);
     }
@@ -419,9 +423,11 @@ export class LeaderboardScene extends Scene {
   private returnToMenu(): void {
     Logger.log('LeaderboardScene: Returning to start menu');
 
-    // Play sound effect
+    // Play sound effect (respecting global mute state)
     try {
-      audioHandler.playSound('menu-select');
+      if (audioHandler.getSoundEnabled() && audioHandler.isInitialized()) {
+        audioHandler.playSound('menu-select');
+      }
     } catch (error) {
       Logger.log(`LeaderboardScene: Sound effect failed: ${String(error)}`);
     }
@@ -900,9 +906,11 @@ export class LeaderboardScene extends Scene {
       this.updateLeaderboardDisplay();
       this.updatePaginationControls();
       
-      // Play sound effect
+      // Play sound effect (respecting global mute state)
       try {
-        audioHandler.playSound('menu-select');
+        if (audioHandler.getSoundEnabled() && audioHandler.isInitialized()) {
+          audioHandler.playSound('menu-select');
+        }
       } catch (error) {
         Logger.log(`LeaderboardScene: Sound effect failed: ${String(error)}`);
       }
@@ -924,9 +932,11 @@ export class LeaderboardScene extends Scene {
       this.updateLeaderboardDisplay();
       this.updatePaginationControls();
       
-      // Play sound effect
+      // Play sound effect (respecting global mute state)
       try {
-        audioHandler.playSound('menu-select');
+        if (audioHandler.getSoundEnabled() && audioHandler.isInitialized()) {
+          audioHandler.playSound('menu-select');
+        }
       } catch (error) {
         Logger.log(`LeaderboardScene: Sound effect failed: ${String(error)}`);
       }
