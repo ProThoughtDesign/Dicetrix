@@ -1,6 +1,6 @@
 import { Scene } from 'phaser';
-import { settings } from '../services/Settings';
 import { audioHandler } from '../services/AudioHandler';
+import { SettingsManager } from '../../../shared/services/SettingsManager';
 import Logger from '../../utils/Logger';
 
 /**
@@ -76,9 +76,9 @@ export class StartMenu extends Scene {
   private standardButtonDimensions: ButtonDimensions | null = null;
   private lastDimensionsCacheKey: string | null = null;
 
-  // Audio state synchronization system
-  private audioStateSyncInitialized = false;
-  private lastKnownAudioState: { music: boolean; sound: boolean; global: boolean } | null = null;
+  // Settings Manager integration
+  private settingsManager: SettingsManager;
+  private settingsSubscriptions: (() => void)[] = [];
 
   // Button references for consistent visual feedback and state management
   // Requirements: 7.4, 7.5
@@ -91,6 +91,7 @@ export class StartMenu extends Scene {
 
   constructor() {
     super('StartMenu');
+    this.settingsManager = SettingsManager.getInstance();
   }
 
   /**
@@ -1016,8 +1017,8 @@ export class StartMenu extends Scene {
     } as Record<string, string>;
     // User-specified palette (ordered). We'll map first five colors to the five modes.
     const palette = [0x00ff88, 0xffff33, 0xff3366, 0xff9933, 0xcc33ff];
-    // Load persisted selection from Settings service if present
-    const persisted = settings.get('selectedMode');
+    // Load persisted selection from Settings Manager if present
+    const persisted = this.settingsManager.get<string>('game.selectedMode');
     const defaultMode = (this.registry.get('selectedMode') as string) || persisted || 'medium';
 
     const dropdownX = width / 2;
@@ -1143,9 +1144,9 @@ export class StartMenu extends Scene {
             });
             
             this.registry.set('selectedMode', m);
-            // persist via Settings service
+            // persist via Settings Manager
             try {
-              settings.set('selectedMode', String(m));
+              this.settingsManager.set('game.selectedMode', String(m));
             } catch (e) {}
             // update dropdown appearance
             dropdownLabel.setText(`Mode: ${modeLabels[m as keyof typeof modeLabels] || m}`);
@@ -1243,13 +1244,41 @@ export class StartMenu extends Scene {
     
     Logger.log('StartMenu: All buttons successfully created with consistent visual feedback using standardized factory pattern');
 
-    // Initialize audio state synchronization system (Requirements 3.1, 3.2, 3.3, 3.4, 3.5, 4.1, 4.2, 4.3, 4.4, 4.5)
+    // Initialize audio state synchronization using Settings Manager
     this.initializeAudioStateSynchronization();
 
     // Setup responsive behavior and cross-platform support (Requirements 6.1, 6.2, 6.4, 6.5)
     this.setupResponsiveBehavior();
 
+    // Setup cleanup for Settings Manager subscriptions
+    this.events.once('shutdown', this.cleanupSettingsManagerSubscriptions, this);
+
     // Audio will be enabled on first user interaction through the audio button
+  }
+
+  /**
+   * Clean up Settings Manager subscriptions when scene is destroyed
+   * Requirements: 2.5
+   */
+  private cleanupSettingsManagerSubscriptions(): void {
+    return Logger.withSilentLogging(() => {
+      try {
+        // Unsubscribe from all Settings Manager events to prevent memory leaks
+        this.settingsSubscriptions.forEach(unsubscribe => {
+          try {
+            unsubscribe();
+          } catch (error) {
+            Logger.log(`StartMenu: Error unsubscribing from Settings Manager - ${error}`);
+          }
+        });
+        this.settingsSubscriptions = [];
+        
+        Logger.log('StartMenu: Settings Manager subscriptions cleaned up');
+        
+      } catch (error) {
+        Logger.log(`StartMenu: Error during Settings Manager cleanup - ${error}`);
+      }
+    });
   }
 
   /**
@@ -1439,12 +1468,12 @@ export class StartMenu extends Scene {
   }
 
   /**
-   * Handle audio button click with enhanced cross-browser compatibility and error handling
-   * Requirements: 3.1, 3.2, 3.5, 4.1, 4.2, 4.4, 5.1, 5.2, 6.3, 8.1, 8.2, 8.3, 8.4, 8.5
+   * Handle audio button click using centralized Settings Manager
+   * Requirements: 2.1, 2.2, 2.5, 4.1, 4.2, 4.3, 4.4
    */
   private async handleAudioButtonClick(): Promise<void> {
     return Logger.withSilentLogging(async () => {
-      Logger.log('StartMenu: Audio button clicked with enhanced cross-browser compatibility and error handling');
+      Logger.log('StartMenu: Audio button clicked - using Settings Manager');
       
       // Prevent multiple simultaneous initialization attempts
       if (this.isAudioInitializing) {
@@ -1453,26 +1482,119 @@ export class StartMenu extends Scene {
       }
 
       try {
-        // Provide immediate visual feedback for button press (Requirement 4.4)
+        // Provide immediate visual feedback for button press
         this.showButtonPressEffect();
 
-        // Enhanced browser-specific audio policy handling (Requirements 8.1, 8.2)
-        await this.handleBrowserSpecificAudioPolicies();
+        // Get current audio settings from Settings Manager
+        const currentMusicEnabled = this.settingsManager.get<boolean>('audio.musicEnabled');
+        const currentSoundEnabled = this.settingsManager.get<boolean>('audio.soundEnabled');
+        const currentMasterMute = this.settingsManager.get<boolean>('audio.masterMute');
 
-        if (this.audioButtonState === 'muted') {
-          // Attempt to enable audio and start music with enhanced cross-browser error handling (Requirements 3.1, 3.2, 3.5, 4.1, 5.1, 5.2, 8.3, 8.4, 8.5)
-          await this.enableAudioAndStartMusicWithCrossBrowserSupport();
-        } else if (this.audioButtonState === 'unmuted') {
-          // Implement toggle functionality to stop music and return to muted state with cross-browser support (Requirement 4.2, 8.4, 8.5)
-          this.stopMusicAndMuteWithCrossBrowserSupport();
+        if (currentMasterMute || (!currentMusicEnabled && !currentSoundEnabled)) {
+          // Enable audio through Settings Manager
+          await this.enableAudioThroughSettingsManager();
+        } else {
+          // Disable audio through Settings Manager
+          this.disableAudioThroughSettingsManager();
         }
-        // If state is 'loading', do nothing (initialization in progress)
         
       } catch (error) {
         Logger.log(`StartMenu: Audio button click handler failed - ${error}`);
         
-        // Enhanced cross-browser error handling with graceful degradation (Requirements 3.5, 5.2, 8.3, 8.4, 8.5)
-        await this.handleAudioButtonError(error);
+        // Graceful error handling - ensure button remains functional
+        this.updateAudioButtonState('muted');
+      }
+    });
+  }
+
+  /**
+   * Enable audio through Settings Manager
+   * Requirements: 2.1, 2.2, 4.1, 4.2, 4.3, 4.4
+   */
+  private async enableAudioThroughSettingsManager(): Promise<void> {
+    return Logger.withSilentLogging(async () => {
+      this.isAudioInitializing = true;
+      this.updateAudioButtonState('loading');
+
+      try {
+        // Enable audio context first
+        await this.enableAudioOnUserInteraction();
+
+        // Update settings through Settings Manager
+        this.settingsManager.set('audio.musicEnabled', true);
+        this.settingsManager.set('audio.soundEnabled', true);
+        this.settingsManager.set('audio.masterMute', false);
+
+        // Settings Manager will automatically propagate changes to AudioHandler
+        // through the AudioSettingsAdapter, so we don't need to call AudioHandler directly
+
+        // Update button state to reflect enabled audio
+        this.updateAudioButtonState('unmuted');
+        
+        Logger.log('StartMenu: Audio enabled through Settings Manager');
+        
+      } catch (error) {
+        Logger.log(`StartMenu: Failed to enable audio through Settings Manager - ${error}`);
+        this.updateAudioButtonState('muted');
+        throw error;
+      } finally {
+        this.isAudioInitializing = false;
+      }
+    });
+  }
+
+  /**
+   * Disable audio through Settings Manager
+   * Requirements: 2.1, 2.2, 4.1, 4.2, 4.3, 4.4
+   */
+  private disableAudioThroughSettingsManager(): void {
+    return Logger.withSilentLogging(() => {
+      try {
+        // Update settings through Settings Manager
+        this.settingsManager.set('audio.masterMute', true);
+
+        // Settings Manager will automatically propagate changes to AudioHandler
+        // through the AudioSettingsAdapter, so we don't need to call AudioHandler directly
+
+        // Update button state to reflect disabled audio
+        this.updateAudioButtonState('muted');
+        
+        Logger.log('StartMenu: Audio disabled through Settings Manager');
+        
+      } catch (error) {
+        Logger.log(`StartMenu: Failed to disable audio through Settings Manager - ${error}`);
+        // Maintain button functionality even if Settings Manager fails
+        this.updateAudioButtonState('muted');
+      }
+    });
+  }
+
+  /**
+   * Update audio button state based on current Settings Manager values
+   * Requirements: 2.1, 2.2, 2.5, 4.1, 4.2, 4.3, 4.4
+   */
+  private updateAudioButtonFromSettings(): void {
+    return Logger.withSilentLogging(() => {
+      try {
+        // Get current audio settings from Settings Manager
+        const musicEnabled = this.settingsManager.get<boolean>('audio.musicEnabled');
+        const soundEnabled = this.settingsManager.get<boolean>('audio.soundEnabled');
+        const masterMute = this.settingsManager.get<boolean>('audio.masterMute');
+
+        // Determine button state based on settings
+        const isAudioEnabled = !masterMute && (musicEnabled || soundEnabled);
+        const newButtonState: 'muted' | 'unmuted' = isAudioEnabled ? 'unmuted' : 'muted';
+
+        // Only update if state has changed to avoid unnecessary updates
+        if (this.audioButtonState !== newButtonState) {
+          this.updateAudioButtonState(newButtonState);
+          Logger.log(`StartMenu: Audio button updated from Settings Manager - ${newButtonState} (music: ${musicEnabled}, sound: ${soundEnabled}, masterMute: ${masterMute})`);
+        }
+        
+      } catch (error) {
+        Logger.log(`StartMenu: Error updating audio button from Settings Manager - ${error}`);
+        // Fallback to muted state if update fails
+        this.updateAudioButtonState('muted');
       }
     });
   }
@@ -2030,9 +2152,7 @@ export class StartMenu extends Scene {
         this.registry.events.off('changedata-musicEnabled');
         this.registry.events.off('changedata-soundEnabled');
         
-        // Reset synchronization state
-        this.audioStateSyncInitialized = false;
-        this.lastKnownAudioState = null;
+        // Audio state synchronization cleanup completed
         
         Logger.log('StartMenu: Audio state synchronization cleanup completed');
         
@@ -2114,131 +2234,7 @@ export class StartMenu extends Scene {
     }
   }
 
-  /**
-   * Enable audio and start playing menu music with enhanced error handling
-   * Requirements: 3.3, 3.4, 3.5, 4.1, 4.2, 5.2, 5.3, 5.4
-   */
-  private async enableAudioAndStartMusicWithErrorHandling(): Promise<void> {
-    return Logger.withSilentLogging(async () => {
-      this.isAudioInitializing = true;
-      this.updateAudioButtonState('loading');
 
-      try {
-        Logger.log('StartMenu: Attempting to enable audio and start music with enhanced error handling');
-        
-        // Call enhanced enableAudioOnUserInteraction method with timeout protection
-        await this.enableAudioOnUserInteraction();
-        
-        // Check if audio was successfully initialized
-        if (audioHandler.isInitialized()) {
-          // Audio is initialized, enable audio globally and start menu music
-          Logger.log('StartMenu: Audio initialized, enabling audio globally and starting menu music');
-          
-          // Create new audio state with all audio enabled
-          const newAudioState = {
-            music: true,
-            sound: true,
-            global: true
-          };
-          
-          // Synchronize state with all services and persist
-          this.syncAudioStateWithServices(newAudioState);
-          this.persistAudioState(newAudioState);
-          
-          try {
-            audioHandler.playMusic('menu-theme', true);
-            
-            // Update button icon using the synchronization system
-            this.updateAudioButtonIconFromState(newAudioState);
-            Logger.log('StartMenu: Audio successfully enabled globally and music started');
-            
-            // Add appropriate sound effects for button interactions when audio is enabled (Requirement 4.5)
-            audioHandler.playSound('menu-select');
-            
-          } catch (musicError) {
-            Logger.log(`StartMenu: Music playback failed but audio is initialized - ${musicError}`);
-            // Still update to unmuted state since audio system is working
-            this.updateAudioButtonIconFromState(newAudioState);
-          }
-        } else {
-          // Audio initialization failed but maintain button functionality (Requirement 5.4)
-          Logger.log('StartMenu: Audio initialization completed but handler not marked as initialized - maintaining button functionality');
-          const failedState = { music: false, sound: false, global: false };
-          this.updateAudioButtonIconFromState(failedState);
-          this.persistAudioState(failedState);
-        }
-        
-      } catch (error) {
-        Logger.log(`StartMenu: Failed to enable audio - ${error}`);
-        
-        // Handle audio initialization failures gracefully with appropriate logging (Requirements 3.5, 5.2)
-        await this.handleAudioInitializationError(error, Date.now());
-        
-        // Maintain button functionality even when audio systems fail (Requirement 5.4)
-        const errorState = { music: false, sound: false, global: false };
-        this.updateAudioButtonIconFromState(errorState);
-        this.persistAudioState(errorState);
-        
-      } finally {
-        this.isAudioInitializing = false;
-      }
-    });
-  }
-
-  /**
-   * Stop music and return to muted state with enhanced error handling
-   * Requirements: 4.2, 4.3, 4.5, 5.2, 5.3, 5.4
-   */
-  private stopMusicAndMuteWithErrorHandling(): void {
-    return Logger.withSilentLogging(() => {
-      Logger.log('StartMenu: Stopping music and returning to muted state with enhanced error handling');
-      
-      try {
-        // Add appropriate sound effects for button interactions when audio is enabled (Requirement 4.5)
-        if (audioHandler.isInitialized()) {
-          try {
-            audioHandler.playSound('menu-select');
-          } catch (soundError) {
-            Logger.log(`StartMenu: Sound effect failed during music stop - ${soundError}`);
-            // Continue with music stop even if sound effect fails
-          }
-        }
-        
-        // Create new audio state with all audio disabled
-        const newAudioState = {
-          music: false,
-          sound: false,
-          global: false
-        };
-        
-        // Synchronize state with all services and persist
-        this.syncAudioStateWithServices(newAudioState);
-        this.persistAudioState(newAudioState);
-        
-        // Stop music playback using existing audioHandler service (Requirement 4.2, 5.3)
-        try {
-          audioHandler.stopMusic();
-          Logger.log('StartMenu: Music stopped successfully and audio disabled globally');
-        } catch (stopError) {
-          Logger.log(`StartMenu: Music stop failed - ${stopError}`);
-          // Continue to update button state even if stop fails
-        }
-        
-        // Update button icon using the synchronization system (Requirement 4.3)
-        this.updateAudioButtonIconFromState(newAudioState);
-        
-        Logger.log('StartMenu: Music stopped and button returned to muted state');
-        
-      } catch (error) {
-        Logger.log(`StartMenu: Error during music stop operation - ${error}`);
-        
-        // Maintain button functionality even when audio systems fail (Requirement 5.4)
-        const errorState = { music: false, sound: false, global: false };
-        this.updateAudioButtonIconFromState(errorState);
-        this.persistAudioState(errorState);
-      }
-    });
-  }
 
   /**
    * Handle audio button errors with graceful degradation
@@ -2298,380 +2294,62 @@ export class StartMenu extends Scene {
     }
   }
 
-  /**
-   * Read current audio state from AudioHandler and Settings services
-   * Requirements: 3.1, 3.2, 3.3
-   * @returns Current audio state from all sources
-   */
-  private readCurrentAudioState(): { music: boolean; sound: boolean; global: boolean } {
-    return Logger.withSilentLogging(() => {
-      try {
-        // Read from AudioHandler service (primary source)
-        const musicEnabled = audioHandler.getMusicEnabled();
-        const soundEnabled = audioHandler.getSoundEnabled();
-        
-        // Read from Settings service (persistent storage)
-        const settingsAudioMuted = settings.get('audioMuted');
-        const settingsGlobalEnabled = !settingsAudioMuted;
-        
-        // Calculate global audio state (both music and sound must be enabled)
-        const globalEnabled = musicEnabled && soundEnabled && settingsGlobalEnabled;
-        
-        const currentState = {
-          music: musicEnabled,
-          sound: soundEnabled,
-          global: globalEnabled
-        };
-        
-        Logger.log(`StartMenu: Current audio state read - music: ${currentState.music}, sound: ${currentState.sound}, global: ${currentState.global}, settingsAudioMuted: ${settingsAudioMuted}`);
-        
-        return currentState;
-        
-      } catch (error) {
-        Logger.log(`StartMenu: Error reading current audio state - ${error}`);
-        
-        // Fallback to safe defaults if reading fails
-        return {
-          music: false,
-          sound: false,
-          global: false
-        };
-      }
-    });
-  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
   /**
-   * Update audio button icon based on actual current audio state
-   * Requirements: 3.2, 3.4, 4.1, 4.3
-   * @param audioState - Current audio state to reflect in button
-   */
-  private updateAudioButtonIconFromState(audioState: { music: boolean; sound: boolean; global: boolean }): void {
-    return Logger.withSilentLogging(() => {
-      try {
-        // Determine button state based on global audio state
-        const newButtonState: 'muted' | 'unmuted' | 'loading' = audioState.global ? 'unmuted' : 'muted';
-        
-        // Only update if state has actually changed to avoid unnecessary updates
-        if (this.audioButtonState !== newButtonState) {
-          this.updateAudioButtonState(newButtonState);
-          Logger.log(`StartMenu: Audio button icon updated from state - ${newButtonState} (music: ${audioState.music}, sound: ${audioState.sound}, global: ${audioState.global})`);
-        }
-        
-      } catch (error) {
-        Logger.log(`StartMenu: Error updating audio button icon from state - ${error}`);
-        
-        // Fallback to muted state if update fails
-        this.updateAudioButtonState('muted');
-      }
-    });
-  }
-
-  /**
-   * Persist audio state to ensure settings survive scene transitions
-   * Requirements: 3.3, 4.2, 4.3
-   * @param audioState - Audio state to persist
-   */
-  private persistAudioState(audioState: { music: boolean; sound: boolean; global: boolean }): void {
-    return Logger.withSilentLogging(() => {
-      try {
-        // Persist to Settings service for long-term storage
-        settings.set('audioMuted', !audioState.global);
-        
-        // Persist to AudioHandler service for immediate use
-        audioHandler.setMusicEnabled(audioState.music);
-        audioHandler.setSoundEnabled(audioState.sound);
-        
-        // Store in registry for cross-scene synchronization
-        this.registry.set('audioEnabled', audioState.global);
-        this.registry.set('musicEnabled', audioState.music);
-        this.registry.set('soundEnabled', audioState.sound);
-        
-        // Update last known state for change detection
-        this.lastKnownAudioState = { ...audioState };
-        
-        Logger.log(`StartMenu: Audio state persisted - music: ${audioState.music}, sound: ${audioState.sound}, global: ${audioState.global}`);
-        
-      } catch (error) {
-        Logger.log(`StartMenu: Error persisting audio state - ${error}`);
-        // Continue execution even if persistence fails
-      }
-    });
-  }
-
-  /**
-   * Synchronize audio state with services using cross-browser support
-   * Requirements: 8.4, 8.5
-   */
-  private syncAudioStateWithCrossBrowserSupport(audioState: { music: boolean; sound: boolean; global: boolean }): void {
-    return Logger.withSilentLogging(() => {
-      try {
-        // Synchronize with AudioHandler service with cross-browser error handling
-        try {
-          audioHandler.setMusicEnabled(audioState.music);
-          audioHandler.setSoundEnabled(audioState.sound);
-        } catch (audioHandlerError) {
-          Logger.log(`StartMenu: AudioHandler synchronization failed with cross-browser support - ${audioHandlerError}`);
-          // Continue with other synchronization even if AudioHandler fails
-        }
-        
-        // Store in registry for cross-scene synchronization with cross-browser support
-        try {
-          this.registry.set('audioEnabled', audioState.global);
-          this.registry.set('musicEnabled', audioState.music);
-          this.registry.set('soundEnabled', audioState.sound);
-        } catch (registryError) {
-          Logger.log(`StartMenu: Registry synchronization failed with cross-browser support - ${registryError}`);
-          // Continue even if registry fails
-        }
-        
-        // Update last known state for change detection
-        this.lastKnownAudioState = { ...audioState };
-        
-        Logger.log(`StartMenu: Audio state synchronized with cross-browser support - music: ${audioState.music}, sound: ${audioState.sound}, global: ${audioState.global}`);
-        
-      } catch (error) {
-        Logger.log(`StartMenu: Error synchronizing audio state with cross-browser support - ${error}`);
-      }
-    });
-  }
-
-  /**
-   * Persist audio state with cross-browser support to ensure settings survive scene transitions
-   * Requirements: 3.3, 4.2, 4.3, 8.4, 8.5
-   * @param audioState - Audio state to persist
-   */
-  private persistAudioStateWithCrossBrowserSupport(audioState: { music: boolean; sound: boolean; global: boolean }): void {
-    return Logger.withSilentLogging(() => {
-      try {
-        // Persist to Settings service for long-term storage with cross-browser error handling
-        try {
-          settings.set('audioMuted', !audioState.global);
-        } catch (settingsError) {
-          Logger.log(`StartMenu: Settings persistence failed with cross-browser support - ${settingsError}`);
-          // Continue with other persistence methods
-        }
-        
-        // Persist to AudioHandler service for immediate use with cross-browser error handling
-        try {
-          audioHandler.setMusicEnabled(audioState.music);
-          audioHandler.setSoundEnabled(audioState.sound);
-        } catch (audioHandlerError) {
-          Logger.log(`StartMenu: AudioHandler persistence failed with cross-browser support - ${audioHandlerError}`);
-          // Continue with other persistence methods
-        }
-        
-        // Store in registry for cross-scene synchronization with cross-browser error handling
-        try {
-          this.registry.set('audioEnabled', audioState.global);
-          this.registry.set('musicEnabled', audioState.music);
-          this.registry.set('soundEnabled', audioState.sound);
-        } catch (registryError) {
-          Logger.log(`StartMenu: Registry persistence failed with cross-browser support - ${registryError}`);
-          // Continue even if registry fails
-        }
-        
-        // Update last known state for change detection
-        this.lastKnownAudioState = { ...audioState };
-        
-        Logger.log(`StartMenu: Audio state persisted with cross-browser support - music: ${audioState.music}, sound: ${audioState.sound}, global: ${audioState.global}`);
-        
-      } catch (error) {
-        Logger.log(`StartMenu: Error persisting audio state with cross-browser support - ${error}`);
-      }
-    });
-  }
-
-  /**
-   * Load persisted audio state from all sources
-   * Requirements: 3.3, 4.4, 4.5
-   * @returns Loaded audio state from persistent storage
-   */
-  private loadPersistedAudioState(): { music: boolean; sound: boolean; global: boolean } {
-    return Logger.withSilentLogging(() => {
-      try {
-        // Load from registry first (most recent cross-scene state)
-        const registryGlobal = this.registry.get('audioEnabled') as boolean;
-        const registryMusic = this.registry.get('musicEnabled') as boolean;
-        const registrySound = this.registry.get('soundEnabled') as boolean;
-        
-        // Load from Settings service (persistent storage)
-        const settingsAudioMuted = settings.get('audioMuted');
-        const settingsGlobalEnabled = !settingsAudioMuted;
-        
-        // Use registry values if available, otherwise fall back to settings
-        const loadedState = {
-          music: registryMusic !== undefined ? registryMusic : settingsGlobalEnabled,
-          sound: registrySound !== undefined ? registrySound : settingsGlobalEnabled,
-          global: registryGlobal !== undefined ? registryGlobal : settingsGlobalEnabled
-        };
-        
-        Logger.log(`StartMenu: Audio state loaded - music: ${loadedState.music}, sound: ${loadedState.sound}, global: ${loadedState.global} (registry: ${registryGlobal}/${registryMusic}/${registrySound}, settings: ${settingsGlobalEnabled})`);
-        
-        return loadedState;
-        
-      } catch (error) {
-        Logger.log(`StartMenu: Error loading persisted audio state - ${error}`);
-        
-        // Fallback to safe defaults if loading fails
-        return {
-          music: true,
-          sound: true,
-          global: true
-        };
-      }
-    });
-  }
-
-  /**
-   * Create cross-scene audio state synchronization using Phaser registry system
-   * Requirements: 3.4, 3.5, 4.4, 4.5
-   */
-  private setupCrossSceneAudioStateSynchronization(): void {
-    return Logger.withSilentLogging(() => {
-      try {
-        if (this.audioStateSyncInitialized) {
-          Logger.log('StartMenu: Audio state synchronization already initialized');
-          return;
-        }
-        
-        // Listen for audio state changes from other scenes
-        this.registry.events.on('changedata-audioEnabled', (_parent: any, _key: string, data: boolean) => {
-          Logger.log(`StartMenu: Cross-scene audio state change detected - audioEnabled: ${data}`);
-          this.handleCrossSceneAudioStateChange();
-        });
-        
-        this.registry.events.on('changedata-musicEnabled', (_parent: any, _key: string, data: boolean) => {
-          Logger.log(`StartMenu: Cross-scene audio state change detected - musicEnabled: ${data}`);
-          this.handleCrossSceneAudioStateChange();
-        });
-        
-        this.registry.events.on('changedata-soundEnabled', (_parent: any, _key: string, data: boolean) => {
-          Logger.log(`StartMenu: Cross-scene audio state change detected - soundEnabled: ${data}`);
-          this.handleCrossSceneAudioStateChange();
-        });
-        
-        // Initialize with current persisted state
-        const persistedState = this.loadPersistedAudioState();
-        this.syncAudioStateWithServices(persistedState);
-        this.updateAudioButtonIconFromState(persistedState);
-        
-        this.audioStateSyncInitialized = true;
-        Logger.log('StartMenu: Cross-scene audio state synchronization initialized');
-        
-      } catch (error) {
-        Logger.log(`StartMenu: Error setting up cross-scene audio state synchronization - ${error}`);
-        // Continue execution even if sync setup fails
-      }
-    });
-  }
-
-  /**
-   * Handle cross-scene audio state changes
-   * Requirements: 3.4, 3.5, 4.4, 4.5
-   */
-  private handleCrossSceneAudioStateChange(): void {
-    return Logger.withSilentLogging(() => {
-      try {
-        // Read current state from registry
-        const currentState = {
-          music: this.registry.get('musicEnabled') as boolean ?? true,
-          sound: this.registry.get('soundEnabled') as boolean ?? true,
-          global: this.registry.get('audioEnabled') as boolean ?? true
-        };
-        
-        // Check if state has actually changed
-        if (this.lastKnownAudioState && 
-            this.lastKnownAudioState.music === currentState.music &&
-            this.lastKnownAudioState.sound === currentState.sound &&
-            this.lastKnownAudioState.global === currentState.global) {
-          // No actual change, skip update
-          return;
-        }
-        
-        // Sync with services and update button
-        this.syncAudioStateWithServices(currentState);
-        this.updateAudioButtonIconFromState(currentState);
-        
-        // Update last known state
-        this.lastKnownAudioState = { ...currentState };
-        
-        Logger.log(`StartMenu: Handled cross-scene audio state change - music: ${currentState.music}, sound: ${currentState.sound}, global: ${currentState.global}`);
-        
-      } catch (error) {
-        Logger.log(`StartMenu: Error handling cross-scene audio state change - ${error}`);
-        // Continue execution even if handling fails
-      }
-    });
-  }
-
-  /**
-   * Synchronize audio state with AudioHandler and Settings services
-   * Requirements: 3.1, 3.3, 4.2, 4.3
-   * @param audioState - Audio state to synchronize with services
-   */
-  private syncAudioStateWithServices(audioState: { music: boolean; sound: boolean; global: boolean }): void {
-    return Logger.withSilentLogging(() => {
-      try {
-        // Sync with AudioHandler service
-        if (audioHandler.isInitialized()) {
-          audioHandler.setMusicEnabled(audioState.music);
-          audioHandler.setSoundEnabled(audioState.sound);
-        }
-        
-        // Sync with Settings service
-        settings.set('audioMuted', !audioState.global);
-        
-        Logger.log(`StartMenu: Audio state synchronized with services - music: ${audioState.music}, sound: ${audioState.sound}, global: ${audioState.global}`);
-        
-      } catch (error) {
-        Logger.log(`StartMenu: Error synchronizing audio state with services - ${error}`);
-        // Continue execution even if sync fails
-      }
-    });
-  }
-
-  /**
-   * Initialize audio state synchronization system
-   * Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 4.1, 4.2, 4.3, 4.4, 4.5
+   * Initialize audio state synchronization using Settings Manager
+   * Requirements: 2.1, 2.2, 2.5, 4.1, 4.2, 4.3, 4.4
    */
   private initializeAudioStateSynchronization(): void {
     return Logger.withSilentLogging(() => {
       try {
-        Logger.log('StartMenu: Initializing audio state synchronization system');
+        Logger.log('StartMenu: Initializing audio state synchronization using Settings Manager');
         
-        // Step 1: Read current audio state from all sources
-        this.readCurrentAudioState();
+        // Subscribe to audio settings changes from Settings Manager
+        const musicEnabledUnsubscribe = this.settingsManager.subscribe('audio.musicEnabled', (event) => {
+          Logger.log(`StartMenu: Music enabled changed to ${event.newValue}`);
+          this.updateAudioButtonFromSettings();
+        });
+
+        const soundEnabledUnsubscribe = this.settingsManager.subscribe('audio.soundEnabled', (event) => {
+          Logger.log(`StartMenu: Sound enabled changed to ${event.newValue}`);
+          this.updateAudioButtonFromSettings();
+        });
+
+        const masterMuteUnsubscribe = this.settingsManager.subscribe('audio.masterMute', (event) => {
+          Logger.log(`StartMenu: Master mute changed to ${event.newValue}`);
+          this.updateAudioButtonFromSettings();
+        });
+
+        // Store unsubscribe functions for cleanup
+        this.settingsSubscriptions.push(musicEnabledUnsubscribe, soundEnabledUnsubscribe, masterMuteUnsubscribe);
+
+        // Initialize button state from current settings
+        this.updateAudioButtonFromSettings();
         
-        // Step 2: Load any persisted state and merge with current state
-        const persistedAudioState = this.loadPersistedAudioState();
-        
-        // Use persisted state as the authoritative source, but validate against current state
-        const finalAudioState = {
-          music: persistedAudioState.music,
-          sound: persistedAudioState.sound,
-          global: persistedAudioState.global
-        };
-        
-        // Step 3: Synchronize state with all services
-        this.syncAudioStateWithServices(finalAudioState);
-        
-        // Step 4: Update button icon to reflect actual state
-        this.updateAudioButtonIconFromState(finalAudioState);
-        
-        // Step 5: Persist the synchronized state
-        this.persistAudioState(finalAudioState);
-        
-        // Step 6: Setup cross-scene synchronization
-        this.setupCrossSceneAudioStateSynchronization();
-        
-        Logger.log(`StartMenu: Audio state synchronization system initialized - final state: music: ${finalAudioState.music}, sound: ${finalAudioState.sound}, global: ${finalAudioState.global}`);
+        Logger.log('StartMenu: Audio state synchronization initialized using Settings Manager');
         
       } catch (error) {
-        Logger.log(`StartMenu: Error initializing audio state synchronization system - ${error}`);
+        Logger.log(`StartMenu: Error initializing audio state synchronization - ${error}`);
         
-        // Fallback to safe state if initialization fails
-        const fallbackState = { music: false, sound: false, global: false };
-        this.updateAudioButtonIconFromState(fallbackState);
+        // Fallback to muted state if initialization fails
+        this.updateAudioButtonState('muted');
       }
     });
   }
@@ -3152,131 +2830,7 @@ export class StartMenu extends Scene {
     }
   }
 
-  /**
-   * Enable audio and start music with enhanced cross-browser support
-   * Requirements: 3.3, 3.4, 3.5, 4.1, 4.2, 5.2, 5.3, 5.4, 8.3, 8.4, 8.5
-   */
-  private async enableAudioAndStartMusicWithCrossBrowserSupport(): Promise<void> {
-    return Logger.withSilentLogging(async () => {
-      this.isAudioInitializing = true;
-      this.updateAudioButtonState('loading');
 
-      try {
-        Logger.log('StartMenu: Attempting to enable audio and start music with cross-browser support');
-        
-        // Enhanced cross-browser audio initialization with fallback behavior (Requirements 8.3, 8.4, 8.5)
-        await this.enableAudioOnUserInteraction();
-        
-        // Check if audio was successfully initialized
-        if (audioHandler.isInitialized()) {
-          // Audio is initialized, enable audio globally and start menu music
-          Logger.log('StartMenu: Audio initialized with cross-browser support, enabling audio globally and starting menu music');
-          
-          // Create new audio state with all audio enabled
-          const newAudioState = {
-            music: true,
-            sound: true,
-            global: true
-          };
-          
-          // Synchronize state with all services and persist with cross-browser compatibility
-          this.syncAudioStateWithCrossBrowserSupport(newAudioState);
-          this.persistAudioStateWithCrossBrowserSupport(newAudioState);
-          
-          try {
-            audioHandler.playMusic('menu-theme', true);
-            
-            // Update button icon using the synchronization system
-            this.updateAudioButtonIconFromState(newAudioState);
-            Logger.log('StartMenu: Audio successfully enabled globally with cross-browser support and music started');
-            
-            // Add appropriate sound effects for button interactions when audio is enabled (Requirement 4.5)
-            audioHandler.playSound('menu-select');
-            
-          } catch (musicError) {
-            Logger.log(`StartMenu: Music playback failed but audio is initialized with cross-browser support - ${musicError}`);
-            // Still update to unmuted state since audio system is working
-            this.updateAudioButtonIconFromState(newAudioState);
-          }
-        } else {
-          // Audio initialization failed but maintain button functionality with cross-browser fallback (Requirements 8.4, 8.5)
-          Logger.log('StartMenu: Audio initialization completed but handler not marked as initialized - maintaining button functionality with cross-browser fallback');
-          const failedState = { music: false, sound: false, global: false };
-          this.updateAudioButtonIconFromState(failedState);
-          this.persistAudioStateWithCrossBrowserSupport(failedState);
-        }
-        
-      } catch (error) {
-        Logger.log(`StartMenu: Failed to enable audio with cross-browser support - ${error}`);
-        
-        // Handle cross-browser audio initialization failures gracefully (Requirements 3.5, 5.2, 8.3, 8.4, 8.5)
-        await this.handleAudioInitializationError(error, Date.now());
-        
-        // Maintain button functionality even when audio systems fail with cross-browser fallback (Requirements 8.4, 8.5)
-        const errorState = { music: false, sound: false, global: false };
-        this.updateAudioButtonIconFromState(errorState);
-        this.persistAudioStateWithCrossBrowserSupport(errorState);
-        
-      } finally {
-        this.isAudioInitializing = false;
-      }
-    });
-  }
-
-  /**
-   * Stop music and return to muted state with cross-browser support
-   * Requirements: 4.2, 4.3, 4.5, 5.2, 5.3, 5.4, 8.4, 8.5
-   */
-  private stopMusicAndMuteWithCrossBrowserSupport(): void {
-    return Logger.withSilentLogging(() => {
-      Logger.log('StartMenu: Stopping music and returning to muted state with cross-browser support');
-      
-      try {
-        // Add appropriate sound effects for button interactions when audio is enabled (Requirement 4.5)
-        if (audioHandler.isInitialized()) {
-          try {
-            audioHandler.playSound('menu-select');
-          } catch (soundError) {
-            Logger.log(`StartMenu: Sound effect failed during music stop with cross-browser support - ${soundError}`);
-            // Continue with music stop even if sound effect fails
-          }
-        }
-        
-        // Create new audio state with all audio disabled
-        const newAudioState = {
-          music: false,
-          sound: false,
-          global: false
-        };
-        
-        // Synchronize state with all services and persist with cross-browser support
-        this.syncAudioStateWithCrossBrowserSupport(newAudioState);
-        this.persistAudioStateWithCrossBrowserSupport(newAudioState);
-        
-        // Stop music playback using existing audioHandler service with cross-browser support (Requirements 4.2, 5.3, 8.4, 8.5)
-        try {
-          audioHandler.stopMusic();
-          Logger.log('StartMenu: Music stopped successfully and audio disabled globally with cross-browser support');
-        } catch (stopError) {
-          Logger.log(`StartMenu: Music stop failed with cross-browser support - ${stopError}`);
-          // Continue to update button state even if stop fails
-        }
-        
-        // Update button icon using the synchronization system (Requirement 4.3)
-        this.updateAudioButtonIconFromState(newAudioState);
-        
-        Logger.log('StartMenu: Music stopped and button returned to muted state with cross-browser support');
-        
-      } catch (error) {
-        Logger.log(`StartMenu: Error during music stop operation with cross-browser support - ${error}`);
-        
-        // Maintain button functionality even when audio systems fail with cross-browser fallback (Requirements 8.4, 8.5)
-        const errorState = { music: false, sound: false, global: false };
-        this.updateAudioButtonIconFromState(errorState);
-        this.persistAudioStateWithCrossBrowserSupport(errorState);
-      }
-    });
-  }
 
   /**
    * Clean up visual feedback system and button references

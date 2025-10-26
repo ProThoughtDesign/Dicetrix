@@ -1,12 +1,14 @@
 import * as Phaser from 'phaser';
 import { BaseUI } from './BaseUI';
-import { audioHandler } from '../services/AudioHandler';
+import { settingsManager } from '../../../shared/services/SettingsManager';
+import { SettingsChangeCallback } from '../../../shared/types/settings';
 import { SoundEffectLibrary } from '../services/SoundEffectLibrary';
 import Logger from '../../utils/Logger';
 
 /**
  * Compact audio control configuration for pause menu
  * Requirements: 3.3, 3.4
+ * Note: This interface is maintained for backward compatibility but values are now sourced from Settings Manager
  */
 export interface CompactAudioConfig {
   musicVolume: number;
@@ -56,9 +58,11 @@ interface CompactToggle {
  * Requirements: 3.3, 3.4
  */
 export class PauseMenuUI extends BaseUI {
-  private config: CompactAudioConfig;
   private callbacks: PauseMenuCallbacks;
   private soundEffectLibrary: SoundEffectLibrary | null = null;
+  
+  // Settings Manager subscriptions for cleanup
+  private settingsSubscriptions: (() => void)[] = [];
   
   // UI Components
   private overlay: Phaser.GameObjects.Rectangle;
@@ -93,14 +97,6 @@ export class PauseMenuUI extends BaseUI {
     
     this.callbacks = callbacks || {};
     
-    // Initialize configuration with current audio settings
-    this.config = {
-      musicVolume: audioHandler.getMusicEnabled() ? 0.8 : 0,
-      soundVolume: audioHandler.getSoundEnabled() ? 0.8 : 0,
-      musicEnabled: audioHandler.getMusicEnabled(),
-      soundEnabled: audioHandler.getSoundEnabled()
-    };
-    
     // Initialize SoundEffectLibrary for immediate audio changes
     try {
       this.soundEffectLibrary = new SoundEffectLibrary(scene);
@@ -112,10 +108,8 @@ export class PauseMenuUI extends BaseUI {
     
     this.createUIComponents();
     this.setupInputHandlers();
+    this.setupSettingsSubscriptions();
     this.updateLayout();
-    
-    // Pause game music when menu opens
-    audioHandler.pauseMusic();
     
     Logger.log('PauseMenuUI: Compact pause menu with audio controls initialized');
   }
@@ -158,28 +152,28 @@ export class PauseMenuUI extends BaseUI {
       strokeThickness: 1
     }).setOrigin(0.5, 0.5);
     
-    // Create compact audio controls
+    // Create compact audio controls using Settings Manager values
     this.musicVolumeSlider = this.createCompactSlider(
       'Music',
-      this.config.musicVolume,
+      settingsManager.get<number>('audio.musicVolume'),
       (value) => this.handleMusicVolumeChange(value)
     );
     
     this.soundVolumeSlider = this.createCompactSlider(
       'SFX',
-      this.config.soundVolume,
+      settingsManager.get<number>('audio.soundVolume'),
       (value) => this.handleSoundVolumeChange(value)
     );
     
     this.musicToggle = this.createCompactToggle(
       'Music',
-      this.config.musicEnabled,
+      settingsManager.get<boolean>('audio.musicEnabled'),
       (enabled) => this.handleMusicToggle(enabled)
     );
     
     this.soundToggle = this.createCompactToggle(
       'SFX',
-      this.config.soundEnabled,
+      settingsManager.get<boolean>('audio.soundEnabled'),
       (enabled) => this.handleSoundToggle(enabled)
     );
     
@@ -439,11 +433,10 @@ export class PauseMenuUI extends BaseUI {
 
   /**
    * Handle music volume changes with immediate feedback
-   * Requirements: 3.3, 3.4
+   * Requirements: 2.1, 2.2, 3.3, 3.4
    */
   private handleMusicVolumeChange(volume: number): void {
-    this.config.musicVolume = volume;
-    audioHandler.setMusicVolume(volume);
+    settingsManager.set('audio.musicVolume', volume);
     
     // Immediate audio feedback
     if (this.soundEffectLibrary) {
@@ -455,11 +448,10 @@ export class PauseMenuUI extends BaseUI {
 
   /**
    * Handle sound effects volume changes with immediate feedback
-   * Requirements: 3.3, 3.4
+   * Requirements: 2.1, 2.2, 3.3, 3.4
    */
   private handleSoundVolumeChange(volume: number): void {
-    this.config.soundVolume = volume;
-    audioHandler.setSoundVolume(volume);
+    settingsManager.set('audio.soundVolume', volume);
     
     // Update SoundEffectLibrary volume and provide immediate feedback
     if (this.soundEffectLibrary) {
@@ -472,11 +464,10 @@ export class PauseMenuUI extends BaseUI {
 
   /**
    * Handle music toggle changes with immediate feedback
-   * Requirements: 3.3, 3.4
+   * Requirements: 2.1, 2.2, 3.3, 3.4
    */
   private handleMusicToggle(enabled: boolean): void {
-    this.config.musicEnabled = enabled;
-    audioHandler.setMusicEnabled(enabled);
+    settingsManager.set('audio.musicEnabled', enabled);
     
     // Immediate audio feedback
     if (this.soundEffectLibrary) {
@@ -488,11 +479,10 @@ export class PauseMenuUI extends BaseUI {
 
   /**
    * Handle sound effects toggle changes with immediate feedback
-   * Requirements: 3.3, 3.4
+   * Requirements: 2.1, 2.2, 3.3, 3.4
    */
   private handleSoundToggle(enabled: boolean): void {
-    this.config.soundEnabled = enabled;
-    audioHandler.setSoundEnabled(enabled);
+    settingsManager.set('audio.soundEnabled', enabled);
     
     // Update SoundEffectLibrary state and provide immediate feedback
     if (this.soundEffectLibrary) {
@@ -515,9 +505,6 @@ export class PauseMenuUI extends BaseUI {
       if (this.soundEffectLibrary) {
         this.soundEffectLibrary.playResume();
       }
-      
-      // Resume game music
-      audioHandler.resumeMusic();
       
       // Trigger callback
       this.callbacks.onResume?.();
@@ -626,6 +613,54 @@ export class PauseMenuUI extends BaseUI {
   }
 
   /**
+   * Setup Settings Manager subscriptions for external changes
+   * Requirements: 2.5, 8.1, 8.2, 8.3, 8.4
+   */
+  private setupSettingsSubscriptions(): void {
+    // Subscribe to audio setting changes to keep UI in sync
+    const audioKeys = [
+      'audio.musicVolume',
+      'audio.soundVolume', 
+      'audio.musicEnabled',
+      'audio.soundEnabled'
+    ];
+
+    const handleSettingsChange: SettingsChangeCallback = (event) => {
+      // Update visual indicators to reflect external changes
+      switch (event.key) {
+        case 'audio.musicVolume':
+          this.setCompactSliderValue(this.musicVolumeSlider, event.newValue);
+          break;
+        case 'audio.soundVolume':
+          this.setCompactSliderValue(this.soundVolumeSlider, event.newValue);
+          if (this.soundEffectLibrary) {
+            this.soundEffectLibrary.setVolume(event.newValue);
+          }
+          break;
+        case 'audio.musicEnabled':
+          this.musicToggle.isEnabled = event.newValue;
+          this.updateCompactToggleVisuals(this.musicToggle);
+          break;
+        case 'audio.soundEnabled':
+          this.soundToggle.isEnabled = event.newValue;
+          this.updateCompactToggleVisuals(this.soundToggle);
+          if (this.soundEffectLibrary) {
+            this.soundEffectLibrary.setEnabled(event.newValue);
+          }
+          break;
+      }
+      
+      Logger.log(`PauseMenuUI: Updated UI for external settings change: ${event.key} = ${event.newValue}`);
+    };
+
+    // Subscribe to all audio-related settings
+    const unsubscribe = settingsManager.subscribeToKeys(audioKeys, handleSettingsChange);
+    this.settingsSubscriptions.push(unsubscribe);
+
+    Logger.log('PauseMenuUI: Settings Manager subscriptions established');
+  }
+
+  /**
    * Setup input handlers
    */
   public setupInputHandlers(): void {
@@ -636,29 +671,49 @@ export class PauseMenuUI extends BaseUI {
   }
 
   /**
-   * Get current audio configuration
+   * Get current audio configuration from Settings Manager
+   * Requirements: 8.1, 8.2, 8.3, 8.4
    */
   getConfig(): CompactAudioConfig {
-    return { ...this.config };
+    return {
+      musicVolume: settingsManager.get<number>('audio.musicVolume'),
+      soundVolume: settingsManager.get<number>('audio.soundVolume'),
+      musicEnabled: settingsManager.get<boolean>('audio.musicEnabled'),
+      soundEnabled: settingsManager.get<boolean>('audio.soundEnabled')
+    };
   }
 
   /**
    * Cleanup resources
    */
   public override destroy(): void {
-    // Clean up sound effect library
-    if (this.soundEffectLibrary) {
-      this.soundEffectLibrary.destroy();
-      this.soundEffectLibrary = null;
+    try {
+      // Clean up Settings Manager subscriptions first
+      this.settingsSubscriptions.forEach(unsubscribe => {
+        try {
+          unsubscribe();
+        } catch (error) {
+          Logger.log(`PauseMenuUI: Error unsubscribing from settings - ${error}`);
+        }
+      });
+      this.settingsSubscriptions = [];
+
+      // Clean up sound effect library
+      if (this.soundEffectLibrary) {
+        this.soundEffectLibrary.destroy();
+        this.soundEffectLibrary = null;
+      }
+      
+      // Clean up tweens
+      this.scene.tweens.killTweensOf([
+        this.musicToggle.handle,
+        this.soundToggle.handle
+      ]);
+      
+      super.destroy();
+      Logger.log('PauseMenuUI: Destroyed successfully with proper cleanup');
+    } catch (error) {
+      Logger.log(`PauseMenuUI: Error during destroy - ${error}`);
     }
-    
-    // Clean up tweens
-    this.scene.tweens.killTweensOf([
-      this.musicToggle.handle,
-      this.soundToggle.handle
-    ]);
-    
-    super.destroy();
-    Logger.log('PauseMenuUI: Destroyed');
   }
 }

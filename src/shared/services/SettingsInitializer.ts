@@ -22,16 +22,28 @@ export class SettingsInitializer {
       // Check if migration is needed
       if (SettingsMigration.needsMigration()) {
         console.log('SettingsInitializer: Migration needed, attempting to migrate...');
-        const migrationSuccess = await SettingsMigration.migrateSettings();
+        const migrationResult = await SettingsMigration.migrateSettings();
         
-        if (migrationSuccess) {
-          console.log('SettingsInitializer: Migration completed successfully');
+        if (migrationResult.success) {
+          console.log(`SettingsInitializer: Migration completed successfully from ${migrationResult.fromVersion} to ${migrationResult.toVersion}`);
+          
+          if (migrationResult.warnings.length > 0) {
+            console.warn('SettingsInitializer: Migration warnings:', migrationResult.warnings);
+          }
+          
           // Clean up old settings after successful migration
           setTimeout(() => {
             SettingsMigration.cleanupOldSettings();
           }, 1000); // Delay cleanup to ensure new settings are saved
         } else {
-          console.warn('SettingsInitializer: Migration failed, will use defaults');
+          console.error('SettingsInitializer: Migration failed:', migrationResult.errors);
+          
+          if (migrationResult.recoveredSettings && Object.keys(migrationResult.recoveredSettings).length > 0) {
+            console.log('SettingsInitializer: Using partially recovered settings');
+            // The migration system already saved what it could recover
+          } else {
+            console.warn('SettingsInitializer: No settings recovered, will use defaults');
+          }
         }
       }
 
@@ -49,8 +61,20 @@ export class SettingsInitializer {
       }
 
       if (diagnostics.corruptionDetected) {
-        console.warn('SettingsInitializer: Settings corruption detected, reset to defaults');
-        settingsManager.reset();
+        console.warn('SettingsInitializer: Settings corruption detected, attempting recovery...');
+        const recoveryResult = await SettingsMigration.handleCorruptedSettings();
+        
+        if (recoveryResult.success) {
+          console.log('SettingsInitializer: Corruption recovery successful');
+          if (recoveryResult.warnings.length > 0) {
+            console.warn('SettingsInitializer: Recovery warnings:', recoveryResult.warnings);
+          }
+          // Reload the recovered settings
+          await settingsManager.load();
+        } else {
+          console.error('SettingsInitializer: Corruption recovery failed, using defaults');
+          settingsManager.reset();
+        }
       }
 
       // Save settings to ensure they're persisted in the correct format
@@ -101,6 +125,17 @@ export class SettingsInitializer {
         storageSize: 0,
         validationErrors: ['Not initialized'],
         corruptionDetected: false,
+        corruptionAnalysis: undefined,
+        lastRecovery: undefined,
+        errorLog: [],
+        eventSystem: {
+          keySubscriptions: 0,
+          globalSubscriptions: 0,
+          totalCallbacks: 0,
+          pendingChanges: 0,
+          batchingActive: false,
+          isDestroyed: false,
+        },
       },
     };
   }

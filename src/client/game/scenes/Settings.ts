@@ -1,9 +1,10 @@
 import { Scene } from 'phaser';
-import { settings } from '../services/Settings';
 import { audioHandler } from '../services/AudioHandler';
 import Logger from '../../utils/Logger';
 import { AudioControlsUI, AudioControlsConfig, AudioControlsCallbacks } from '../ui/AudioControlsUI';
 import { SoundEffectLibrary } from '../services/SoundEffectLibrary';
+import { settingsManager } from '../../../shared/services/SettingsManager.js';
+import { AudioSettings } from '../../../shared/types/settings.js';
 
 export class Settings extends Scene {
   private audioControlsUI: AudioControlsUI | null = null;
@@ -24,6 +25,9 @@ export class Settings extends Scene {
   private confirmationText: Phaser.GameObjects.Text | null = null;
   private confirmYesButton: Phaser.GameObjects.Text | null = null;
   private confirmCancelButton: Phaser.GameObjects.Text | null = null;
+
+  // Settings Manager subscriptions for cleanup
+  private settingsSubscriptions: (() => void)[] = [];
 
   constructor() {
     super('Settings');
@@ -69,14 +73,15 @@ export class Settings extends Scene {
 
 
 
-    // Initialize AudioControlsUI with current settings and callbacks
-    // Requirements: 3.1, 3.2, 3.3, 3.4, 3.5
+    // Initialize AudioControlsUI with current settings from Settings Manager
+    // Requirements: 2.1, 2.2, 8.1, 8.2, 8.3, 8.4
+    const audioSettings = settingsManager.get<AudioSettings>('audio');
     const initialConfig: Partial<AudioControlsConfig> = {
-      musicVolume: settings.get('audioVolume') || 0.8,
-      soundVolume: settings.get('audioVolume') || 0.8,
-      musicEnabled: audioHandler.getMusicEnabled(),
-      soundEnabled: audioHandler.getSoundEnabled(),
-      masterMute: false
+      musicVolume: audioSettings.musicVolume,
+      soundVolume: audioSettings.soundVolume,
+      musicEnabled: audioSettings.musicEnabled,
+      soundEnabled: audioSettings.soundEnabled,
+      masterMute: audioSettings.masterMute
     };
 
     const callbacks: AudioControlsCallbacks = {
@@ -95,43 +100,113 @@ export class Settings extends Scene {
     controlsContainer.setPosition(width / 2, height * 0.5);
     controlsContainer.setScale(2.5);
 
+    // Subscribe to Settings Manager events for external changes
+    // Requirements: 2.5, 8.1, 8.2, 8.3, 8.4
+    this.setupSettingsSubscriptions();
+
 
 
     // Create context-appropriate buttons
     this.createGameContextButtons(width, height, UI_SCALE);
 
-    Logger.log('Settings: Scene created with enhanced AudioControlsUI');
+    Logger.log('Settings: Scene created with enhanced AudioControlsUI and Settings Manager integration');
+  }
+
+  /**
+   * Setup Settings Manager event subscriptions for external changes
+   * Requirements: 2.5, 8.1, 8.2, 8.3, 8.4
+   */
+  private setupSettingsSubscriptions(): void {
+    // Subscribe to audio settings changes
+    const audioSubscription = settingsManager.subscribe('audio', (event) => {
+      Logger.log(`Settings: External audio settings change detected - ${event.key}`);
+      this.updateVisualIndicators();
+    });
+    this.settingsSubscriptions.push(audioSubscription);
+
+    // Subscribe to specific audio property changes for granular updates
+    const musicVolumeSubscription = settingsManager.subscribe('audio.musicVolume', (event) => {
+      if (this.audioControlsUI) {
+        this.audioControlsUI.updateConfig({ musicVolume: event.newValue });
+      }
+    });
+    this.settingsSubscriptions.push(musicVolumeSubscription);
+
+    const soundVolumeSubscription = settingsManager.subscribe('audio.soundVolume', (event) => {
+      if (this.audioControlsUI) {
+        this.audioControlsUI.updateConfig({ soundVolume: event.newValue });
+      }
+    });
+    this.settingsSubscriptions.push(soundVolumeSubscription);
+
+    const musicEnabledSubscription = settingsManager.subscribe('audio.musicEnabled', (event) => {
+      if (this.audioControlsUI) {
+        this.audioControlsUI.updateConfig({ musicEnabled: event.newValue });
+      }
+    });
+    this.settingsSubscriptions.push(musicEnabledSubscription);
+
+    const soundEnabledSubscription = settingsManager.subscribe('audio.soundEnabled', (event) => {
+      if (this.audioControlsUI) {
+        this.audioControlsUI.updateConfig({ soundEnabled: event.newValue });
+      }
+    });
+    this.settingsSubscriptions.push(soundEnabledSubscription);
+
+    const masterMuteSubscription = settingsManager.subscribe('audio.masterMute', (event) => {
+      if (this.audioControlsUI) {
+        this.audioControlsUI.updateConfig({ masterMute: event.newValue });
+      }
+    });
+    this.settingsSubscriptions.push(masterMuteSubscription);
+
+    Logger.log('Settings: Settings Manager subscriptions established');
+  }
+
+  /**
+   * Update visual indicators to reflect current Settings Manager state
+   * Requirements: 8.1, 8.2, 8.3, 8.4
+   */
+  private updateVisualIndicators(): void {
+    if (!this.audioControlsUI) return;
+
+    const audioSettings = settingsManager.get<AudioSettings>('audio');
+    
+    // Update all visual indicators to match Settings Manager state
+    this.audioControlsUI.updateConfig({
+      musicVolume: audioSettings.musicVolume,
+      soundVolume: audioSettings.soundVolume,
+      musicEnabled: audioSettings.musicEnabled,
+      soundEnabled: audioSettings.soundEnabled,
+      masterMute: audioSettings.masterMute
+    });
+
+    Logger.log('Settings: Visual indicators updated to match Settings Manager state');
   }
 
   /**
    * Handle music volume changes with immediate feedback and audio preview
-   * Requirements: 3.1, 3.3
+   * Requirements: 2.1, 2.2, 2.5
    */
   private handleMusicVolumeChange(volume: number): void {
-    // Update audio handler
-    audioHandler.setMusicVolume(volume);
-    
-    // Update settings persistence
-    settings.set('audioVolume', volume);
+    // Update Settings Manager - this will trigger audio system updates via AudioSettingsAdapter
+    settingsManager.set('audio.musicVolume', volume);
     
     // Play settings change sound for immediate feedback
     if (this.soundEffectLibrary) {
       this.soundEffectLibrary.playSettingsChange();
     }
     
-    Logger.log(`Settings: Music volume changed to ${Math.round(volume * 100)}%`);
+    Logger.log(`Settings: Music volume changed to ${Math.round(volume * 100)}% via Settings Manager`);
   }
 
   /**
    * Handle sound effects volume changes with immediate feedback and audio preview
-   * Requirements: 3.1, 3.3
+   * Requirements: 2.1, 2.2, 2.5
    */
   private handleSoundVolumeChange(volume: number): void {
-    // Update audio handler
-    audioHandler.setSoundVolume(volume);
-    
-    // Update settings persistence
-    settings.set('audioVolume', volume);
+    // Update Settings Manager - this will trigger audio system updates via AudioSettingsAdapter
+    settingsManager.set('audio.soundVolume', volume);
     
     // Update SoundEffectLibrary volume if available
     if (this.soundEffectLibrary) {
@@ -140,32 +215,32 @@ export class Settings extends Scene {
       this.soundEffectLibrary.playSettingsChange();
     }
     
-    Logger.log(`Settings: Sound effects volume changed to ${Math.round(volume * 100)}%`);
+    Logger.log(`Settings: Sound effects volume changed to ${Math.round(volume * 100)}% via Settings Manager`);
   }
 
   /**
    * Handle music toggle changes with audio feedback
-   * Requirements: 3.2, 3.5
+   * Requirements: 2.1, 2.2, 2.5
    */
   private handleMusicToggle(enabled: boolean): void {
-    // Update audio handler
-    audioHandler.setMusicEnabled(enabled);
+    // Update Settings Manager - this will trigger audio system updates via AudioSettingsAdapter
+    settingsManager.set('audio.musicEnabled', enabled);
     
     // Play menu select sound for feedback
     if (this.soundEffectLibrary) {
       this.soundEffectLibrary.playMenuNavigate();
     }
     
-    Logger.log(`Settings: Music ${enabled ? 'enabled' : 'disabled'}`);
+    Logger.log(`Settings: Music ${enabled ? 'enabled' : 'disabled'} via Settings Manager`);
   }
 
   /**
    * Handle sound effects toggle changes with audio feedback
-   * Requirements: 3.2, 3.5
+   * Requirements: 2.1, 2.2, 2.5
    */
   private handleSoundToggle(enabled: boolean): void {
-    // Update audio handler
-    audioHandler.setSoundEnabled(enabled);
+    // Update Settings Manager - this will trigger audio system updates via AudioSettingsAdapter
+    settingsManager.set('audio.soundEnabled', enabled);
     
     // Update SoundEffectLibrary state
     if (this.soundEffectLibrary) {
@@ -177,51 +252,39 @@ export class Settings extends Scene {
       }
     }
     
-    Logger.log(`Settings: Sound effects ${enabled ? 'enabled' : 'disabled'}`);
+    Logger.log(`Settings: Sound effects ${enabled ? 'enabled' : 'disabled'} via Settings Manager`);
   }
 
   /**
    * Handle master mute toggle that overrides all other audio settings
-   * Requirements: 3.2, 3.5
+   * Requirements: 2.1, 2.2, 2.5
    */
   private handleMasterMuteToggle(muted: boolean): void {
-    if (muted) {
-      // Mute all audio
-      audioHandler.setMusicEnabled(false);
-      audioHandler.setSoundEnabled(false);
-      
-      if (this.soundEffectLibrary) {
-        this.soundEffectLibrary.setEnabled(false);
-      }
-    } else {
-      // Restore audio based on individual settings
-      const config = this.audioControlsUI?.getConfig();
-      if (config) {
-        audioHandler.setMusicEnabled(config.musicEnabled);
-        audioHandler.setSoundEnabled(config.soundEnabled);
-        
-        if (this.soundEffectLibrary) {
-          this.soundEffectLibrary.setEnabled(config.soundEnabled);
-        }
-      }
+    // Update Settings Manager - this will trigger audio system updates via AudioSettingsAdapter
+    settingsManager.set('audio.masterMute', muted);
+    
+    // Update SoundEffectLibrary state based on effective sound state
+    if (this.soundEffectLibrary) {
+      const audioSettings = settingsManager.get<AudioSettings>('audio');
+      const effectiveSoundEnabled = !muted && audioSettings.soundEnabled;
+      this.soundEffectLibrary.setEnabled(effectiveSoundEnabled);
     }
     
-    Logger.log(`Settings: Master mute ${muted ? 'enabled' : 'disabled'}`);
+    Logger.log(`Settings: Master mute ${muted ? 'enabled' : 'disabled'} via Settings Manager`);
   }
 
   /**
    * Handle settings reset with confirmation and audio feedback
-   * Requirements: 3.4
+   * Requirements: 2.1, 2.2, 2.5
    */
   private handleSettingsReset(): void {
-    // Reset audio handler to defaults
-    audioHandler.setMusicVolume(0.8);
-    audioHandler.setSoundVolume(0.8);
-    audioHandler.setMusicEnabled(true);
-    audioHandler.setSoundEnabled(true);
-    
-    // Reset settings persistence
-    settings.set('audioVolume', 0.8);
+    // Reset audio settings to defaults via Settings Manager
+    // This will trigger audio system updates via AudioSettingsAdapter
+    settingsManager.set('audio.musicVolume', 0.8);
+    settingsManager.set('audio.soundVolume', 0.8);
+    settingsManager.set('audio.musicEnabled', true);
+    settingsManager.set('audio.soundEnabled', true);
+    settingsManager.set('audio.masterMute', false);
     
     // Reset SoundEffectLibrary
     if (this.soundEffectLibrary) {
@@ -230,7 +293,10 @@ export class Settings extends Scene {
       this.soundEffectLibrary.playSettingsChange();
     }
     
-    Logger.log('Settings: Audio settings reset to defaults');
+    // Update visual indicators to reflect reset values
+    this.updateVisualIndicators();
+    
+    Logger.log('Settings: Audio settings reset to defaults via Settings Manager');
   }
 
 
@@ -480,9 +546,13 @@ export class Settings extends Scene {
 
 
   /**
-   * Clean up UI elements
+   * Clean up UI elements and Settings Manager subscriptions
    */
   private cleanupUI(): void {
+    // Clean up Settings Manager subscriptions
+    this.settingsSubscriptions.forEach(unsubscribe => unsubscribe());
+    this.settingsSubscriptions = [];
+    
     if (this.audioControlsUI) {
       this.audioControlsUI.destroy();
       this.audioControlsUI = null;
@@ -509,7 +579,7 @@ export class Settings extends Scene {
 
   /**
    * Close settings and return to appropriate scene with proper cleanup
-   * Requirements: 3.1, 3.2, 3.3, 3.4, 3.5
+   * Requirements: 2.1, 2.2, 2.5, 8.1, 8.2, 8.3, 8.4
    */
   private closeSettings(): void {
     try {
@@ -520,7 +590,7 @@ export class Settings extends Scene {
         audioHandler.playSound('menu-back');
       }
       
-      // Clean up UI
+      // Clean up UI and Settings Manager subscriptions
       this.cleanupUI();
       
       // Clean up any lingering registry state to prevent interference with new games
@@ -532,10 +602,11 @@ export class Settings extends Scene {
       
       // Always return to StartMenu when using closeSettings (menu context)
       this.scene.start('StartMenu');
-      Logger.log('Settings: Returning to StartMenu with proper cleanup and registry cleared');
+      Logger.log('Settings: Returning to StartMenu with proper cleanup, Settings Manager subscriptions cleared, and registry cleared');
     } catch (error) {
       Logger.log(`Settings: Error during close - ${error}`);
       // Fallback to direct scene transition with cleanup
+      this.cleanupUI(); // Ensure Settings Manager subscriptions are cleaned up
       this.registry.remove('pausedGameState');
       this.registry.remove('settingsContext');
       this.registry.remove('gameResumedFromSettings');
@@ -547,13 +618,13 @@ export class Settings extends Scene {
    * Scene shutdown cleanup
    */
   shutdown(): void {
-    // Clean up UI
+    // Clean up UI and Settings Manager subscriptions
     this.cleanupUI();
     
     // Reset context
     this.gameContext = 'menu';
     this.gameState = null;
     
-    Logger.log('Settings: Scene shutdown cleanup completed');
+    Logger.log('Settings: Scene shutdown cleanup completed with Settings Manager subscriptions cleared');
   }
 }

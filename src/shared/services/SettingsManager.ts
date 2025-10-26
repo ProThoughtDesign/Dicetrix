@@ -7,6 +7,11 @@ import {
   SettingsValidator,
   StoredSettings,
   SettingsDiagnostics,
+  EventSystemDiagnostics,
+  ErrorSeverity,
+  ErrorLogEntry,
+  RecoveryResult,
+  CorruptionAnalysis,
   DEFAULT_SETTINGS,
 } from '../types/settings.js';
 import { BrowserUtils } from '../utils/BrowserUtils.js';
@@ -25,6 +30,13 @@ export class SettingsManager implements ISettingsManager {
   private readonly storageKey = 'dicetrix_settings_v2';
   private pendingChanges: SettingsChangeEvent[] = [];
   private batchTimeout: number | null = null;
+  private readonly debounceDelay = 16; // ~60fps for smooth UI updates
+  private readonly maxBatchSize = 50; // Prevent excessive event batching
+  private subscriberCleanupCallbacks: Set<() => void> = new Set();
+  private isDestroyed = false;
+  private errorLog: ErrorLogEntry[] = [];
+  private readonly maxErrorLogSize = 100; // Prevent memory buildup
+  private lastRecoveryResult?: RecoveryResult;
 
 
 
@@ -99,7 +111,7 @@ export class SettingsManager implements ISettingsManager {
 
     // Validate the new value
     if (!this.validateValue(key, value)) {
-      console.warn(`SettingsManager: Invalid value for key '${key}':`, value);
+      this.logError(ErrorSeverity.WARNING, 'validation', `Invalid value for key '${key}'`, { key, value, oldValue });
       return;
     }
 
@@ -128,7 +140,7 @@ export class SettingsManager implements ISettingsManager {
 
     // Save to persistence (async, non-blocking)
     this.save().catch(error => {
-      console.error('SettingsManager: Failed to save settings:', error);
+      this.logError(ErrorSeverity.ERROR, 'persistence', 'Failed to save settings after value change', { key, value, error });
     });
   }
 
@@ -155,7 +167,7 @@ export class SettingsManager implements ISettingsManager {
 
     // Save to persistence
     this.save().catch(error => {
-      console.error('SettingsManager: Failed to save settings after reset:', error);
+      this.logError(ErrorSeverity.ERROR, 'persistence', 'Failed to save settings after reset', { error });
     });
   }
 
@@ -191,15 +203,21 @@ export class SettingsManager implements ISettingsManager {
       this.emitChangeEvents(changeEvents);
       
       this.save().catch(error => {
-        console.error('SettingsManager: Failed to save settings after partial reset:', error);
+        this.logError(ErrorSeverity.ERROR, 'persistence', 'Failed to save settings after partial reset', { keys, error });
       });
     }
   }
 
   /**
    * Subscribe to changes for a specific setting key
+   * Enhanced with automatic cleanup and memory leak prevention
    */
   public subscribe(key: string, callback: SettingsChangeCallback): () => void {
+    if (this.isDestroyed) {
+      this.logError(ErrorSeverity.WARNING, 'subscription', 'Cannot subscribe to destroyed instance', { key });
+      return () => {}; // Return no-op unsubscribe function
+    }
+
     if (!this.subscribers.has(key)) {
       this.subscribers.set(key, new Set());
     }
@@ -207,25 +225,79 @@ export class SettingsManager implements ISettingsManager {
     const keySubscribers = this.subscribers.get(key)!;
     keySubscribers.add(callback);
 
-    // Return unsubscribe function
-    return () => {
+    // Create unsubscribe function with enhanced cleanup
+    const unsubscribe = () => {
       keySubscribers.delete(callback);
       if (keySubscribers.size === 0) {
         this.subscribers.delete(key);
       }
+      // Remove from cleanup callbacks
+      this.subscriberCleanupCallbacks.delete(unsubscribe);
     };
+
+    // Track cleanup callback for automatic cleanup
+    this.subscriberCleanupCallbacks.add(unsubscribe);
+
+    return unsubscribe;
   }
 
   /**
    * Subscribe to all settings changes
+   * Enhanced with automatic cleanup and memory leak prevention
    */
   public subscribeAll(callback: AllSettingsChangeCallback): () => void {
+    if (this.isDestroyed) {
+      this.logError(ErrorSeverity.WARNING, 'subscription', 'Cannot subscribe to destroyed instance');
+      return () => {}; // Return no-op unsubscribe function
+    }
+
     this.globalSubscribers.add(callback);
 
-    // Return unsubscribe function
-    return () => {
+    // Create unsubscribe function with enhanced cleanup
+    const unsubscribe = () => {
       this.globalSubscribers.delete(callback);
+      // Remove from cleanup callbacks
+      this.subscriberCleanupCallbacks.delete(unsubscribe);
     };
+
+    // Track cleanup callback for automatic cleanup
+    this.subscriberCleanupCallbacks.add(unsubscribe);
+
+    return unsubscribe;
+  }
+
+  /**
+   * Subscribe to multiple specific keys at once
+   * Useful for components that need to listen to related settings
+   */
+  public subscribeToKeys(keys: string[], callback: SettingsChangeCallback): () => void {
+    const unsubscribeFunctions = keys.map(key => this.subscribe(key, callback));
+    
+    // Return combined unsubscribe function
+    return () => {
+      unsubscribeFunctions.forEach(unsubscribe => unsubscribe());
+    };
+  }
+
+  /**
+   * Subscribe with automatic cleanup when a condition is met
+   * Useful for component lifecycle management
+   */
+  public subscribeWithCleanup(
+    key: string, 
+    callback: SettingsChangeCallback,
+    cleanupCondition: () => boolean
+  ): () => void {
+    const unsubscribe = this.subscribe(key, (event) => {
+      // Check cleanup condition before calling callback
+      if (cleanupCondition()) {
+        unsubscribe();
+        return;
+      }
+      callback(event);
+    });
+
+    return unsubscribe;
   }
 
   /**
@@ -236,13 +308,23 @@ export class SettingsManager implements ISettingsManager {
   }
 
   /**
-   * Save settings to persistent storage
+   * Save settings to persistent storage with comprehensive error handling
    */
   public async save(): Promise<void> {
     try {
       const localStorage = BrowserUtils.getLocalStorage();
       if (!localStorage) {
+        this.logError(ErrorSeverity.WARNING, 'storage', 'No localStorage available, cannot save settings');
         return; // No storage available
+      }
+
+      // Validate settings before saving
+      const validationErrors: string[] = [];
+      this.validateAllSettings(this.settings, '', validationErrors);
+      
+      if (validationErrors.length > 0) {
+        this.logError(ErrorSeverity.ERROR, 'validation', 'Settings validation failed before save', { validationErrors });
+        throw new Error(`Settings validation failed: ${validationErrors.join(', ')}`);
       }
 
       const storedSettings: StoredSettings = {
@@ -253,47 +335,353 @@ export class SettingsManager implements ISettingsManager {
       };
 
       const serialized = JSON.stringify(storedSettings);
-      localStorage.setItem(this.storageKey, serialized);
+      
+      // Check storage quota before saving
+      try {
+        localStorage.setItem(this.storageKey, serialized);
+        this.logError(ErrorSeverity.INFO, 'storage', 'Settings saved successfully', { size: serialized.length });
+      } catch (storageError) {
+        // Handle specific storage errors
+        if (storageError instanceof Error) {
+          if (storageError.name === 'QuotaExceededError' || storageError.message.includes('quota')) {
+            this.logError(ErrorSeverity.ERROR, 'storage', 'Storage quota exceeded', { size: serialized.length });
+            
+            // Try to clear old data and retry
+            try {
+              this.clearOldStorageData();
+              localStorage.setItem(this.storageKey, serialized);
+              this.logError(ErrorSeverity.WARNING, 'storage', 'Settings saved after clearing old data');
+            } catch (retryError) {
+              this.logError(ErrorSeverity.CRITICAL, 'storage', 'Failed to save even after clearing old data', { retryError });
+              throw retryError;
+            }
+          } else {
+            this.logError(ErrorSeverity.ERROR, 'storage', 'Storage error during save', { storageError });
+            throw storageError;
+          }
+        } else {
+          throw storageError;
+        }
+      }
+
     } catch (error) {
-      console.error('SettingsManager: Failed to save settings:', error);
+      this.logError(ErrorSeverity.ERROR, 'saving', 'Failed to save settings', { error });
       throw error;
     }
   }
 
   /**
-   * Load settings from persistent storage
+   * Load settings from persistent storage with comprehensive error handling
    */
   public async load(): Promise<void> {
     try {
       const localStorage = BrowserUtils.getLocalStorage();
       if (!localStorage) {
+        this.logError(ErrorSeverity.INFO, 'storage', 'No localStorage available, using defaults');
         return; // No storage available, use defaults
       }
 
       const stored = localStorage.getItem(this.storageKey);
       if (!stored) {
+        this.logError(ErrorSeverity.INFO, 'storage', 'No stored settings found, using defaults');
         return; // No stored settings, use defaults
       }
 
-      const storedSettings: StoredSettings = JSON.parse(stored);
+      let storedSettings: StoredSettings;
+      try {
+        storedSettings = JSON.parse(stored);
+      } catch (parseError) {
+        this.logError(ErrorSeverity.ERROR, 'parsing', 'Failed to parse stored settings JSON', { parseError });
+        await this.recoverFromCorruption();
+        return;
+      }
+
+      // Analyze for corruption
+      const analysis = this.analyzeCorruption(storedSettings);
       
-      // Validate checksum if present
-      if (storedSettings.checksum) {
-        const expectedChecksum = this.generateChecksum(storedSettings.data);
-        if (storedSettings.checksum !== expectedChecksum) {
-          console.warn('SettingsManager: Settings corruption detected, using defaults');
-          return;
+      if (analysis.isCorrupted) {
+        this.logError(ErrorSeverity.WARNING, 'corruption', 'Settings corruption detected', analysis);
+        
+        // Attempt recovery
+        const recoveryResult = await this.recoverFromCorruption(storedSettings);
+        
+        if (!recoveryResult.success) {
+          this.logError(ErrorSeverity.ERROR, 'recovery', 'Failed to recover from corruption, using defaults', recoveryResult);
+          this.settings = this.deepClone(DEFAULT_SETTINGS);
+          this.settings.meta.lastModified = Date.now();
+        }
+        return;
+      }
+
+      // Settings are valid, merge with defaults to handle missing keys
+      this.settings = this.mergeWithDefaults(storedSettings.data);
+      this.settings.meta.lastModified = Date.now();
+      
+      this.logError(ErrorSeverity.INFO, 'storage', 'Settings loaded successfully');
+
+    } catch (error) {
+      this.logError(ErrorSeverity.ERROR, 'loading', 'Failed to load settings', { error });
+      
+      // Attempt recovery as last resort
+      try {
+        await this.recoverFromCorruption();
+      } catch (recoveryError) {
+        this.logError(ErrorSeverity.CRITICAL, 'recovery', 'Complete failure to load or recover settings', { error, recoveryError });
+        // Use defaults as final fallback
+        this.settings = this.deepClone(DEFAULT_SETTINGS);
+        this.settings.meta.lastModified = Date.now();
+      }
+    }
+  }
+
+  /**
+   * Clean up all subscriptions and resources
+   * Should be called when the settings manager is no longer needed
+   */
+  public destroy(): void {
+    if (this.isDestroyed) {
+      return;
+    }
+
+    // Clear any pending batch timeout
+    if (this.batchTimeout !== null) {
+      BrowserUtils.clearTimeout(this.batchTimeout);
+      this.batchTimeout = null;
+    }
+
+    // Clear all pending changes
+    this.pendingChanges = [];
+
+    // Call all cleanup callbacks
+    this.subscriberCleanupCallbacks.forEach(cleanup => {
+      try {
+        cleanup();
+      } catch (error) {
+        this.logError(ErrorSeverity.ERROR, 'cleanup', 'Error during subscription cleanup', { error });
+      }
+    });
+    this.subscriberCleanupCallbacks.clear();
+
+    // Clear all subscribers
+    this.subscribers.clear();
+    this.globalSubscribers.clear();
+
+    // Mark as destroyed
+    this.isDestroyed = true;
+  }
+
+  /**
+   * Get the number of active subscriptions for monitoring memory usage
+   */
+  public getSubscriptionCount(): { keySubscriptions: number; globalSubscriptions: number; totalCallbacks: number } {
+    let totalCallbacks = 0;
+    for (const subscribers of this.subscribers.values()) {
+      totalCallbacks += subscribers.size;
+    }
+    totalCallbacks += this.globalSubscribers.size;
+
+    return {
+      keySubscriptions: this.subscribers.size,
+      globalSubscriptions: this.globalSubscribers.size,
+      totalCallbacks,
+    };
+  }
+
+  /**
+   * Remove all subscribers for a specific key
+   * Useful for cleaning up when a component type is no longer used
+   */
+  public clearSubscribersForKey(key: string): void {
+    const keySubscribers = this.subscribers.get(key);
+    if (keySubscribers) {
+      keySubscribers.clear();
+      this.subscribers.delete(key);
+    }
+  }
+
+  /**
+   * Remove all global subscribers
+   * Useful for cleaning up global listeners
+   */
+  public clearGlobalSubscribers(): void {
+    this.globalSubscribers.clear();
+  }
+
+  /**
+   * Log an error with severity and details
+   */
+  private logError(severity: ErrorSeverity, category: string, message: string, details?: any, error?: Error): void {
+    const entry: ErrorLogEntry = {
+      timestamp: Date.now(),
+      severity,
+      category,
+      message,
+      details,
+      stack: error?.stack || undefined,
+    };
+
+    this.errorLog.push(entry);
+
+    // Prevent memory buildup by limiting log size
+    if (this.errorLog.length > this.maxErrorLogSize) {
+      this.errorLog.shift(); // Remove oldest entry
+    }
+
+    // Also log to console based on severity
+    const consoleMessage = `SettingsManager [${category}]: ${message}`;
+    switch (severity) {
+      case ErrorSeverity.INFO:
+        console.info(consoleMessage, details);
+        break;
+      case ErrorSeverity.WARNING:
+        console.warn(consoleMessage, details);
+        break;
+      case ErrorSeverity.ERROR:
+        console.error(consoleMessage, details, error);
+        break;
+      case ErrorSeverity.CRITICAL:
+        console.error(`CRITICAL - ${consoleMessage}`, details, error);
+        break;
+    }
+  }
+
+  /**
+   * Analyze data for corruption and structural issues
+   */
+  public analyzeCorruption(data?: any): CorruptionAnalysis {
+    const analysis: CorruptionAnalysis = {
+      isCorrupted: false,
+      corruptedKeys: [],
+      recoverableKeys: [],
+      checksumMismatch: false,
+      structuralDamage: false,
+      details: [],
+    };
+
+    try {
+      if (!data) {
+        // Try to load from storage for analysis
+        const localStorage = BrowserUtils.getLocalStorage();
+        if (!localStorage) {
+          analysis.details.push('No storage available for analysis');
+          return analysis;
+        }
+
+        const stored = localStorage.getItem(this.storageKey);
+        if (!stored) {
+          analysis.details.push('No stored data found');
+          return analysis;
+        }
+
+        data = JSON.parse(stored);
+      }
+
+      // Check if it's a StoredSettings object
+      if (!data.data || !data.version) {
+        analysis.structuralDamage = true;
+        analysis.isCorrupted = true;
+        analysis.details.push('Missing required StoredSettings structure');
+        return analysis;
+      }
+
+      // Verify checksum if present
+      if (data.checksum) {
+        const expectedChecksum = this.generateChecksum(data.data);
+        if (data.checksum !== expectedChecksum) {
+          analysis.checksumMismatch = true;
+          analysis.isCorrupted = true;
+          analysis.details.push(`Checksum mismatch: expected ${expectedChecksum}, got ${data.checksum}`);
         }
       }
 
-      // Merge stored settings with defaults to handle missing keys
-      this.settings = this.mergeWithDefaults(storedSettings.data);
-      this.settings.meta.lastModified = Date.now();
+      // Analyze individual settings for corruption
+      this.analyzeSettingsStructure(data.data, '', analysis);
+
+      // Determine recoverable keys
+      this.identifyRecoverableKeys(data.data, analysis);
 
     } catch (error) {
-      console.error('SettingsManager: Failed to load settings, using defaults:', error);
-      // Continue with defaults on error
+      analysis.isCorrupted = true;
+      analysis.structuralDamage = true;
+      analysis.details.push(`Analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      this.logError(ErrorSeverity.ERROR, 'corruption-analysis', 'Failed to analyze corruption', { error });
     }
+
+    return analysis;
+  }
+
+  /**
+   * Attempt to recover from corrupted settings data
+   */
+  public async recoverFromCorruption(corruptedData?: any): Promise<RecoveryResult> {
+    const result: RecoveryResult = {
+      success: false,
+      recoveredKeys: [],
+      failedKeys: [],
+      fallbacksUsed: [],
+      message: 'Recovery not attempted',
+    };
+
+    try {
+      this.logError(ErrorSeverity.WARNING, 'recovery', 'Starting corruption recovery process');
+
+      // Analyze the corruption first
+      const analysis = this.analyzeCorruption(corruptedData);
+      
+      if (!analysis.isCorrupted) {
+        result.success = true;
+        result.message = 'No corruption detected, no recovery needed';
+        return result;
+      }
+
+      // Start with a clean slate based on defaults
+      const recoveredSettings = this.deepClone(DEFAULT_SETTINGS);
+      
+      // Try to recover individual settings if data exists
+      if (corruptedData?.data) {
+        this.attemptPartialRecovery(corruptedData.data, recoveredSettings, result);
+      }
+
+      // Apply the recovered settings
+      const oldSettings = this.deepClone(this.settings);
+      this.settings = recoveredSettings;
+      this.settings.meta.lastModified = Date.now();
+
+      // Save the recovered settings
+      await this.save();
+
+      // Create change events for recovered settings
+      const changeEvents = this.createChangeEventsForReset(oldSettings, this.settings);
+      this.emitChangeEvents(changeEvents);
+
+      result.success = true;
+      result.message = `Recovery completed: ${result.recoveredKeys.length} keys recovered, ${result.failedKeys.length} keys failed, ${result.fallbacksUsed.length} fallbacks used`;
+      
+      this.lastRecoveryResult = result;
+      this.logError(ErrorSeverity.INFO, 'recovery', result.message, result);
+
+    } catch (error) {
+      result.success = false;
+      result.message = `Recovery failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
+      this.logError(ErrorSeverity.CRITICAL, 'recovery', 'Recovery process failed', { error });
+    }
+
+    return result;
+  }
+
+  /**
+   * Clear the error log
+   */
+  public clearErrorLog(): void {
+    this.errorLog = [];
+    this.logError(ErrorSeverity.INFO, 'maintenance', 'Error log cleared');
+  }
+
+  /**
+   * Export the current error log
+   */
+  public exportErrorLog(): ErrorLogEntry[] {
+    return [...this.errorLog]; // Return a copy
   }
 
   /**
@@ -328,6 +716,16 @@ export class SettingsManager implements ISettingsManager {
       validationErrors.push(`Storage access error: ${error}`);
     }
 
+    const subscriptionInfo = this.getSubscriptionCount();
+
+    // Analyze current settings for corruption
+    let corruptionAnalysis: CorruptionAnalysis | undefined;
+    try {
+      corruptionAnalysis = this.analyzeCorruption({ data: this.settings, version: this.settings.meta.version, timestamp: Date.now() });
+    } catch (error) {
+      this.logError(ErrorSeverity.WARNING, 'diagnostics', 'Failed to analyze corruption during diagnostics', { error });
+    }
+
     return {
       isValid: validationErrors.length === 0,
       version: this.settings.meta.version,
@@ -335,6 +733,17 @@ export class SettingsManager implements ISettingsManager {
       storageSize,
       validationErrors,
       corruptionDetected,
+      corruptionAnalysis,
+      lastRecovery: this.lastRecoveryResult,
+      errorLog: [...this.errorLog], // Return a copy
+      eventSystem: {
+        keySubscriptions: subscriptionInfo.keySubscriptions,
+        globalSubscriptions: subscriptionInfo.globalSubscriptions,
+        totalCallbacks: subscriptionInfo.totalCallbacks,
+        pendingChanges: this.pendingChanges.length,
+        batchingActive: this.batchTimeout !== null,
+        isDestroyed: this.isDestroyed,
+      },
     };
   }
 
@@ -375,48 +784,102 @@ export class SettingsManager implements ISettingsManager {
       return; // Already scheduled
     }
 
+    // If we have too many pending changes, emit immediately to prevent memory buildup
+    if (this.pendingChanges.length >= this.maxBatchSize) {
+      this.flushPendingChanges();
+      return;
+    }
+
     const timeoutId = BrowserUtils.setTimeout(() => {
-      const events = [...this.pendingChanges];
-      this.pendingChanges = [];
-      this.batchTimeout = null;
-      
-      this.emitChangeEvents(events);
-    }, 0);
+      this.flushPendingChanges();
+    }, this.debounceDelay);
 
     if (timeoutId !== null) {
       this.batchTimeout = timeoutId;
     } else {
       // Non-browser environment - emit immediately
-      const events = [...this.pendingChanges];
-      this.pendingChanges = [];
-      this.emitChangeEvents(events);
+      this.flushPendingChanges();
     }
   }
 
+  /**
+   * Flush all pending changes and emit events
+   */
+  private flushPendingChanges(): void {
+    if (this.pendingChanges.length === 0) {
+      return;
+    }
+
+    const events = [...this.pendingChanges];
+    this.pendingChanges = [];
+    this.batchTimeout = null;
+    
+    this.emitChangeEvents(events);
+  }
+
+  /**
+   * Force immediate emission of all pending changes
+   * Useful for critical updates that shouldn't be debounced
+   */
+  public flushEvents(): void {
+    if (this.batchTimeout !== null) {
+      BrowserUtils.clearTimeout(this.batchTimeout);
+      this.batchTimeout = null;
+    }
+    this.flushPendingChanges();
+  }
+
   private emitChangeEvents(events: SettingsChangeEvent[]): void {
-    // Emit individual key events
+    if (this.isDestroyed || events.length === 0) {
+      return;
+    }
+
+    // Group events by key for more efficient processing
+    const eventsByKey = new Map<string, SettingsChangeEvent[]>();
     for (const event of events) {
-      const keySubscribers = this.subscribers.get(event.key);
-      if (keySubscribers) {
-        keySubscribers.forEach(callback => {
+      if (!eventsByKey.has(event.key)) {
+        eventsByKey.set(event.key, []);
+      }
+      eventsByKey.get(event.key)!.push(event);
+    }
+
+    // Emit individual key events
+    for (const [key, keyEvents] of eventsByKey) {
+      const keySubscribers = this.subscribers.get(key);
+      if (keySubscribers && keySubscribers.size > 0) {
+        // Create a copy of subscribers to avoid issues if callbacks modify the set
+        const subscribersCopy = Array.from(keySubscribers);
+        
+        for (const callback of subscribersCopy) {
           try {
-            callback(event);
+            // For multiple events on the same key, emit the latest one
+            const latestEvent = keyEvents[keyEvents.length - 1];
+            if (latestEvent) {
+              callback(latestEvent);
+            }
           } catch (error) {
-            console.error(`SettingsManager: Error in subscriber callback for key '${event.key}':`, error);
+            this.logError(ErrorSeverity.ERROR, 'event-emission', `Error in subscriber callback for key '${key}'`, { key, error });
+            // Remove problematic callback to prevent repeated errors
+            keySubscribers.delete(callback);
           }
-        });
+        }
       }
     }
 
     // Emit global events
-    if (this.globalSubscribers.size > 0 && events.length > 0) {
-      this.globalSubscribers.forEach(callback => {
+    if (this.globalSubscribers.size > 0) {
+      // Create a copy of global subscribers to avoid issues if callbacks modify the set
+      const globalSubscribersCopy = Array.from(this.globalSubscribers);
+      
+      for (const callback of globalSubscribersCopy) {
         try {
           callback(events);
         } catch (error) {
-          console.error('SettingsManager: Error in global subscriber callback:', error);
+          this.logError(ErrorSeverity.ERROR, 'event-emission', 'Error in global subscriber callback', { error });
+          // Remove problematic callback to prevent repeated errors
+          this.globalSubscribers.delete(callback);
         }
-      });
+      }
     }
   }
 
@@ -531,6 +994,187 @@ export class SettingsManager implements ISettingsManager {
     }
     
     return true;
+  }
+
+  /**
+   * Analyze settings structure for corruption
+   */
+  private analyzeSettingsStructure(data: any, prefix: string, analysis: CorruptionAnalysis): void {
+    if (!data || typeof data !== 'object') {
+      analysis.corruptedKeys.push(prefix || 'root');
+      analysis.details.push(`Invalid data structure at ${prefix || 'root'}`);
+      return;
+    }
+
+    // Check required top-level structure
+    if (!prefix) {
+      const requiredSections = ['audio', 'game', 'ui', 'meta'];
+      for (const section of requiredSections) {
+        if (!(section in data)) {
+          analysis.corruptedKeys.push(section);
+          analysis.details.push(`Missing required section: ${section}`);
+          analysis.isCorrupted = true;
+        }
+      }
+    }
+
+    // Recursively check each property
+    for (const [key, value] of Object.entries(data)) {
+      const fullKey = prefix ? `${prefix}.${key}` : key;
+      
+      // Validate against expected structure
+      const expectedValue = this.getNestedValue(DEFAULT_SETTINGS, fullKey);
+      
+      if (expectedValue === undefined) {
+        analysis.details.push(`Unexpected key: ${fullKey}`);
+        continue;
+      }
+
+      // Type validation
+      if (typeof value !== typeof expectedValue) {
+        analysis.corruptedKeys.push(fullKey);
+        analysis.details.push(`Type mismatch for ${fullKey}: expected ${typeof expectedValue}, got ${typeof value}`);
+        analysis.isCorrupted = true;
+        continue;
+      }
+
+      // Value validation using existing validators
+      if (!this.validateValue(fullKey, value)) {
+        analysis.corruptedKeys.push(fullKey);
+        analysis.details.push(`Invalid value for ${fullKey}: ${value}`);
+        analysis.isCorrupted = true;
+        continue;
+      }
+
+      // Recursive analysis for objects
+      if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+        this.analyzeSettingsStructure(value, fullKey, analysis);
+      }
+    }
+  }
+
+  /**
+   * Identify which keys can potentially be recovered
+   */
+  private identifyRecoverableKeys(data: any, analysis: CorruptionAnalysis): void {
+    if (!data || typeof data !== 'object') {
+      return;
+    }
+
+    this.identifyRecoverableKeysRecursive(data, '', analysis);
+  }
+
+  private identifyRecoverableKeysRecursive(data: any, prefix: string, analysis: CorruptionAnalysis): void {
+    for (const [key, value] of Object.entries(data)) {
+      const fullKey = prefix ? `${prefix}.${key}` : key;
+      
+      // Skip if already marked as corrupted
+      if (analysis.corruptedKeys.includes(fullKey)) {
+        continue;
+      }
+
+      // Check if this key exists in defaults and has valid type
+      const expectedValue = this.getNestedValue(DEFAULT_SETTINGS, fullKey);
+      if (expectedValue !== undefined && typeof value === typeof expectedValue) {
+        // Additional validation
+        if (this.validateValue(fullKey, value)) {
+          analysis.recoverableKeys.push(fullKey);
+        }
+      }
+
+      // Recursive check for objects
+      if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+        this.identifyRecoverableKeysRecursive(value, fullKey, analysis);
+      }
+    }
+  }
+
+  /**
+   * Attempt to recover individual settings from corrupted data
+   */
+  private attemptPartialRecovery(corruptedData: any, recoveredSettings: SettingsState, result: RecoveryResult): void {
+    this.attemptPartialRecoveryRecursive(corruptedData, recoveredSettings, '', result);
+  }
+
+  private attemptPartialRecoveryRecursive(corruptedData: any, recoveredSettings: any, prefix: string, result: RecoveryResult): void {
+    if (!corruptedData || typeof corruptedData !== 'object') {
+      return;
+    }
+
+    for (const [key, value] of Object.entries(corruptedData)) {
+      const fullKey = prefix ? `${prefix}.${key}` : key;
+      
+      try {
+        // Check if this key exists in the expected structure
+        const expectedValue = this.getNestedValue(DEFAULT_SETTINGS, fullKey);
+        if (expectedValue === undefined) {
+          continue; // Skip unknown keys
+        }
+
+        // Type check
+        if (typeof value !== typeof expectedValue) {
+          result.failedKeys.push(fullKey);
+          result.fallbacksUsed.push(fullKey);
+          continue;
+        }
+
+        // Validation check
+        if (!this.validateValue(fullKey, value)) {
+          result.failedKeys.push(fullKey);
+          result.fallbacksUsed.push(fullKey);
+          continue;
+        }
+
+        // If it's an object, recurse
+        if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+          this.attemptPartialRecoveryRecursive(value, this.getNestedValue(recoveredSettings, prefix) || recoveredSettings, fullKey, result);
+        } else {
+          // Recover this value
+          this.setNestedValue(recoveredSettings, fullKey, value);
+          result.recoveredKeys.push(fullKey);
+        }
+
+      } catch (error) {
+        result.failedKeys.push(fullKey);
+        result.fallbacksUsed.push(fullKey);
+        this.logError(ErrorSeverity.WARNING, 'recovery', `Failed to recover key ${fullKey}`, { error });
+      }
+    }
+  }
+
+  /**
+   * Clear old storage data to free up space
+   */
+  private clearOldStorageData(): void {
+    try {
+      const localStorage = BrowserUtils.getLocalStorage();
+      if (!localStorage) {
+        return;
+      }
+
+      // List of old storage keys that might exist
+      const oldKeys = [
+        'dicetrix_settings', // Old version without version suffix
+        'dicetrix_settings_v1', // Previous version
+        'game_settings', // Generic old key
+        'audio_settings', // Old audio-specific key
+      ];
+
+      let clearedCount = 0;
+      for (const key of oldKeys) {
+        if (localStorage.getItem(key)) {
+          localStorage.removeItem(key);
+          clearedCount++;
+        }
+      }
+
+      if (clearedCount > 0) {
+        this.logError(ErrorSeverity.INFO, 'storage', `Cleared ${clearedCount} old storage entries to free space`);
+      }
+
+    } catch (error) {
+      this.logError(ErrorSeverity.WARNING, 'storage', 'Failed to clear old storage data', { error });
+    }
   }
 }
 

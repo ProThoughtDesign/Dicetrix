@@ -1,6 +1,6 @@
 import * as Phaser from 'phaser';
-import { settings } from '../services/Settings';
-import { audioHandler } from '../services/AudioHandler';
+import { settingsManager } from '../../../shared/services/SettingsManager';
+import { SettingsChangeCallback } from '../../../shared/types/settings';
 import Logger from '../../utils/Logger';
 import { AudioControlsUI, AudioControlsConfig, AudioControlsCallbacks } from './AudioControlsUI';
 import { SoundEffectLibrary } from '../services/SoundEffectLibrary';
@@ -25,6 +25,9 @@ export class SettingsOverlayUI {
   private backButton: Phaser.GameObjects.Text | null = null;
   private exitToMenuButton: Phaser.GameObjects.Text | null = null;
   private confirmationDialog: Phaser.GameObjects.Container | null = null;
+  
+  // Settings Manager subscriptions for cleanup
+  private settingsSubscriptions: (() => void)[] = [];
 
   constructor(scene: Phaser.Scene, callbacks: SettingsOverlayCallbacks) {
     this.scene = scene;
@@ -74,13 +77,13 @@ export class SettingsOverlayUI {
       this.soundEffectLibrary = null;
     }
 
-    // Initialize AudioControlsUI
+    // Initialize AudioControlsUI with Settings Manager values
     const initialConfig: Partial<AudioControlsConfig> = {
-      musicVolume: settings.get('audioVolume') || 0.8,
-      soundVolume: settings.get('audioVolume') || 0.8,
-      musicEnabled: audioHandler.getMusicEnabled(),
-      soundEnabled: audioHandler.getSoundEnabled(),
-      masterMute: false
+      musicVolume: settingsManager.get<number>('audio.musicVolume'),
+      soundVolume: settingsManager.get<number>('audio.soundVolume'),
+      musicEnabled: settingsManager.get<boolean>('audio.musicEnabled'),
+      soundEnabled: settingsManager.get<boolean>('audio.soundEnabled'),
+      masterMute: settingsManager.get<boolean>('audio.masterMute')
     };
 
     const audioCallbacks: AudioControlsCallbacks = {
@@ -97,6 +100,9 @@ export class SettingsOverlayUI {
     controlsContainer.setPosition(width / 2, height / 2);
     controlsContainer.setScale(2);
     this.container.add(controlsContainer);
+
+    // Subscribe to Settings Manager changes for external updates
+    this.setupSettingsSubscriptions();
 
     // Back button
     this.backButton = this.scene.add.text(width / 2 - 100 * UI_SCALE, height / 2 + 180 * UI_SCALE, 'BACK', {
@@ -134,8 +140,7 @@ export class SettingsOverlayUI {
   }
 
   private handleMusicVolumeChange(volume: number): void {
-    audioHandler.setMusicVolume(volume);
-    settings.set('audioVolume', volume);
+    settingsManager.set('audio.musicVolume', volume);
     
     if (this.soundEffectLibrary) {
       this.soundEffectLibrary.playSettingsChange();
@@ -145,8 +150,7 @@ export class SettingsOverlayUI {
   }
 
   private handleSoundVolumeChange(volume: number): void {
-    audioHandler.setSoundVolume(volume);
-    settings.set('audioVolume', volume);
+    settingsManager.set('audio.soundVolume', volume);
     
     if (this.soundEffectLibrary) {
       this.soundEffectLibrary.setVolume(volume);
@@ -157,7 +161,7 @@ export class SettingsOverlayUI {
   }
 
   private handleMusicToggle(enabled: boolean): void {
-    audioHandler.setMusicEnabled(enabled);
+    settingsManager.set('audio.musicEnabled', enabled);
     
     if (this.soundEffectLibrary) {
       this.soundEffectLibrary.playMenuNavigate();
@@ -167,7 +171,7 @@ export class SettingsOverlayUI {
   }
 
   private handleSoundToggle(enabled: boolean): void {
-    audioHandler.setSoundEnabled(enabled);
+    settingsManager.set('audio.soundEnabled', enabled);
     
     if (this.soundEffectLibrary) {
       this.soundEffectLibrary.setEnabled(enabled);
@@ -181,35 +185,24 @@ export class SettingsOverlayUI {
   }
 
   private handleMasterMuteToggle(muted: boolean): void {
-    if (muted) {
-      audioHandler.setMusicEnabled(false);
-      audioHandler.setSoundEnabled(false);
-      
-      if (this.soundEffectLibrary) {
-        this.soundEffectLibrary.setEnabled(false);
-      }
-    } else {
-      const config = this.audioControlsUI?.getConfig();
-      if (config) {
-        audioHandler.setMusicEnabled(config.musicEnabled);
-        audioHandler.setSoundEnabled(config.soundEnabled);
-        
-        if (this.soundEffectLibrary) {
-          this.soundEffectLibrary.setEnabled(config.soundEnabled);
-        }
-      }
+    settingsManager.set('audio.masterMute', muted);
+    
+    if (this.soundEffectLibrary) {
+      this.soundEffectLibrary.setEnabled(!muted && settingsManager.get<boolean>('audio.soundEnabled'));
     }
     
     Logger.log(`SettingsOverlayUI: Master mute ${muted ? 'enabled' : 'disabled'}`);
   }
 
   private handleSettingsReset(): void {
-    audioHandler.setMusicVolume(0.8);
-    audioHandler.setSoundVolume(0.8);
-    audioHandler.setMusicEnabled(true);
-    audioHandler.setSoundEnabled(true);
-    
-    settings.set('audioVolume', 0.8);
+    // Reset audio settings to defaults using Settings Manager
+    settingsManager.resetToDefaults([
+      'audio.musicVolume',
+      'audio.soundVolume', 
+      'audio.musicEnabled',
+      'audio.soundEnabled',
+      'audio.masterMute'
+    ]);
     
     if (this.soundEffectLibrary) {
       this.soundEffectLibrary.setVolume(0.8);
@@ -329,8 +322,81 @@ export class SettingsOverlayUI {
     Logger.log('SettingsOverlayUI: Confirmed exit to menu');
   }
 
+  /**
+   * Setup Settings Manager subscriptions for external changes
+   * Requirements: 2.5, 8.1, 8.2, 8.3, 8.4
+   */
+  private setupSettingsSubscriptions(): void {
+    // Subscribe to audio setting changes to keep UI in sync
+    const audioKeys = [
+      'audio.musicVolume',
+      'audio.soundVolume', 
+      'audio.musicEnabled',
+      'audio.soundEnabled',
+      'audio.masterMute'
+    ];
+
+    const handleSettingsChange: SettingsChangeCallback = (event) => {
+      if (!this.audioControlsUI) return;
+
+      // Update AudioControlsUI to reflect external changes
+      const currentConfig = this.audioControlsUI.getConfig();
+      const updatedConfig = { ...currentConfig };
+
+      switch (event.key) {
+        case 'audio.musicVolume':
+          updatedConfig.musicVolume = event.newValue;
+          break;
+        case 'audio.soundVolume':
+          updatedConfig.soundVolume = event.newValue;
+          if (this.soundEffectLibrary) {
+            this.soundEffectLibrary.setVolume(event.newValue);
+          }
+          break;
+        case 'audio.musicEnabled':
+          updatedConfig.musicEnabled = event.newValue;
+          break;
+        case 'audio.soundEnabled':
+          updatedConfig.soundEnabled = event.newValue;
+          if (this.soundEffectLibrary) {
+            const masterMute = settingsManager.get<boolean>('audio.masterMute');
+            this.soundEffectLibrary.setEnabled(event.newValue && !masterMute);
+          }
+          break;
+        case 'audio.masterMute':
+          updatedConfig.masterMute = event.newValue;
+          if (this.soundEffectLibrary) {
+            const soundEnabled = settingsManager.get<boolean>('audio.soundEnabled');
+            this.soundEffectLibrary.setEnabled(soundEnabled && !event.newValue);
+          }
+          break;
+      }
+
+      // Update the AudioControlsUI with new configuration
+      this.audioControlsUI.updateConfig(updatedConfig);
+      
+      Logger.log(`SettingsOverlayUI: Updated UI for external settings change: ${event.key} = ${event.newValue}`);
+    };
+
+    // Subscribe to all audio-related settings
+    const unsubscribe = settingsManager.subscribeToKeys(audioKeys, handleSettingsChange);
+    this.settingsSubscriptions.push(unsubscribe);
+
+    Logger.log('SettingsOverlayUI: Settings Manager subscriptions established');
+  }
+
   public destroy(): void {
     try {
+      // Clean up Settings Manager subscriptions first
+      this.settingsSubscriptions.forEach(unsubscribe => {
+        try {
+          unsubscribe();
+        } catch (error) {
+          Logger.log(`SettingsOverlayUI: Error unsubscribing from settings - ${error}`);
+        }
+      });
+      this.settingsSubscriptions = [];
+
       if (this.confirmationDialog) {
         this.confirmationDialog.destroy();
         this.confirmationDialog = null;
@@ -350,7 +416,7 @@ export class SettingsOverlayUI {
         this.container.destroy();
       }
 
-      Logger.log('SettingsOverlayUI: Destroyed successfully');
+      Logger.log('SettingsOverlayUI: Destroyed successfully with proper cleanup');
     } catch (error) {
       Logger.log(`SettingsOverlayUI: Error during destroy - ${error}`);
     }

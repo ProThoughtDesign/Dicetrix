@@ -68,6 +68,63 @@ export interface StoredSettings {
 }
 
 /**
+ * Event system diagnostics information
+ */
+export interface EventSystemDiagnostics {
+  keySubscriptions: number;
+  globalSubscriptions: number;
+  totalCallbacks: number;
+  pendingChanges: number;
+  batchingActive: boolean;
+  isDestroyed: boolean;
+}
+
+/**
+ * Error severity levels for logging
+ */
+export enum ErrorSeverity {
+  INFO = 'info',
+  WARNING = 'warning',
+  ERROR = 'error',
+  CRITICAL = 'critical'
+}
+
+/**
+ * Error log entry structure
+ */
+export interface ErrorLogEntry {
+  timestamp: number;
+  severity: ErrorSeverity;
+  category: string;
+  message: string;
+  details?: any;
+  stack?: string | undefined;
+}
+
+/**
+ * Recovery operation result
+ */
+export interface RecoveryResult {
+  success: boolean;
+  recoveredKeys: string[];
+  failedKeys: string[];
+  fallbacksUsed: string[];
+  message: string;
+}
+
+/**
+ * Corruption detection result
+ */
+export interface CorruptionAnalysis {
+  isCorrupted: boolean;
+  corruptedKeys: string[];
+  recoverableKeys: string[];
+  checksumMismatch: boolean;
+  structuralDamage: boolean;
+  details: string[];
+}
+
+/**
  * Settings diagnostics information
  */
 export interface SettingsDiagnostics {
@@ -77,6 +134,10 @@ export interface SettingsDiagnostics {
   storageSize: number;
   validationErrors: string[];
   corruptionDetected: boolean;
+  corruptionAnalysis?: CorruptionAnalysis | undefined;
+  lastRecovery?: RecoveryResult | undefined;
+  errorLog: ErrorLogEntry[];
+  eventSystem: EventSystemDiagnostics;
 }
 
 /**
@@ -93,6 +154,15 @@ export interface ISettingsManager {
   // Event System
   subscribe(key: string, callback: SettingsChangeCallback): () => void;
   subscribeAll(callback: AllSettingsChangeCallback): () => void;
+  subscribeToKeys(keys: string[], callback: SettingsChangeCallback): () => void;
+  subscribeWithCleanup(key: string, callback: SettingsChangeCallback, cleanupCondition: () => boolean): () => void;
+  flushEvents(): void;
+  
+  // Cleanup and Memory Management
+  destroy(): void;
+  getSubscriptionCount(): { keySubscriptions: number; globalSubscriptions: number; totalCallbacks: number };
+  clearSubscribersForKey(key: string): void;
+  clearGlobalSubscribers(): void;
   
   // Validation
   addValidator(key: string, validator: SettingsValidator): void;
@@ -100,6 +170,12 @@ export interface ISettingsManager {
   // Persistence
   save(): Promise<void>;
   load(): Promise<void>;
+  
+  // Error Handling and Recovery
+  analyzeCorruption(data?: any): CorruptionAnalysis;
+  recoverFromCorruption(corruptedData?: any): Promise<RecoveryResult>;
+  clearErrorLog(): void;
+  exportErrorLog(): ErrorLogEntry[];
   
   // Diagnostics
   getDiagnostics(): SettingsDiagnostics;

@@ -1,6 +1,5 @@
 import { settingsManager } from '../../../shared/services/SettingsManager.js';
 import { AudioSettings, SettingsChangeEvent } from '../../../shared/types/settings.js';
-import { audioHandler } from './AudioHandler.js';
 import Logger from '../../utils/Logger.js';
 
 /**
@@ -8,10 +7,20 @@ import Logger from '../../utils/Logger.js';
  * Bridges the centralized Settings Manager with the AudioHandler
  * Provides bidirectional synchronization between settings and audio state
  */
+// Interface for audio handler to avoid circular dependency
+interface IAudioHandlerRef {
+  isInitialized(): boolean;
+  setMusicVolume(volume: number): void;
+  setSoundVolume(volume: number): void;
+  setMusicEnabled(enabled: boolean): void;
+  setSoundEnabled(enabled: boolean): void;
+}
+
 export class AudioSettingsAdapter {
   private static instance: AudioSettingsAdapter;
   private unsubscribeFunctions: (() => void)[] = [];
   private isInitialized = false;
+  private audioHandlerRef: IAudioHandlerRef | null = null;
 
   private constructor() {
     // Private constructor for singleton
@@ -30,10 +39,15 @@ export class AudioSettingsAdapter {
   /**
    * Initialize the adapter and set up bidirectional synchronization
    */
-  public initialize(): void {
+  public initialize(audioHandlerRef?: IAudioHandlerRef): void {
     if (this.isInitialized) {
       Logger.log('AudioSettingsAdapter: Already initialized');
       return;
+    }
+
+    // Store reference to audio handler if provided
+    if (audioHandlerRef) {
+      this.audioHandlerRef = audioHandlerRef;
     }
 
     // Sync current settings to AudioHandler
@@ -47,16 +61,34 @@ export class AudioSettingsAdapter {
   }
 
   /**
+   * Set the audio handler reference (used to break circular dependency)
+   */
+  public setAudioHandlerRef(audioHandlerRef: IAudioHandlerRef): void {
+    this.audioHandlerRef = audioHandlerRef;
+    
+    // Sync settings now that we have the audio handler reference
+    if (this.isInitialized) {
+      this.syncFromSettings();
+    }
+  }
+
+  /**
    * Sync settings from Settings Manager to AudioHandler
    */
   public syncFromSettings(): void {
     const audioSettings = this.getAudioSettings();
     
+    // Check if AudioHandler is initialized before syncing
+    if (!this.audioHandlerRef || !this.audioHandlerRef.isInitialized()) {
+      Logger.log('AudioSettingsAdapter: AudioHandler not initialized yet, settings will sync when AudioHandler becomes available');
+      return;
+    }
+    
     // Apply settings to AudioHandler
-    audioHandler.setMusicVolume(audioSettings.musicVolume);
-    audioHandler.setSoundVolume(audioSettings.soundVolume);
-    audioHandler.setMusicEnabled(audioSettings.musicEnabled && !audioSettings.masterMute);
-    audioHandler.setSoundEnabled(audioSettings.soundEnabled && !audioSettings.masterMute);
+    this.audioHandlerRef.setMusicVolume(audioSettings.musicVolume);
+    this.audioHandlerRef.setSoundVolume(audioSettings.soundVolume);
+    this.audioHandlerRef.setMusicEnabled(audioSettings.musicEnabled && !audioSettings.masterMute);
+    this.audioHandlerRef.setSoundEnabled(audioSettings.soundEnabled && !audioSettings.masterMute);
 
     Logger.log(`AudioSettingsAdapter: Synced settings to AudioHandler - Music: ${audioSettings.musicEnabled}, Sound: ${audioSettings.soundEnabled}, MusicVol: ${audioSettings.musicVolume}, SoundVol: ${audioSettings.soundVolume}`);
   }
@@ -171,8 +203,13 @@ export class AudioSettingsAdapter {
    */
   private handleMusicVolumeChange(event: SettingsChangeEvent): void {
     const volume = event.newValue as number;
-    audioHandler.setMusicVolume(volume);
-    Logger.log(`AudioSettingsAdapter: Music volume changed to ${Math.round(volume * 100)}%`);
+    
+    if (this.audioHandlerRef && this.audioHandlerRef.isInitialized()) {
+      this.audioHandlerRef.setMusicVolume(volume);
+      Logger.log(`AudioSettingsAdapter: Music volume changed to ${Math.round(volume * 100)}%`);
+    } else {
+      Logger.log(`AudioSettingsAdapter: Music volume setting changed to ${Math.round(volume * 100)}%, will apply when AudioHandler initializes`);
+    }
   }
 
   /**
@@ -180,8 +217,13 @@ export class AudioSettingsAdapter {
    */
   private handleSoundVolumeChange(event: SettingsChangeEvent): void {
     const volume = event.newValue as number;
-    audioHandler.setSoundVolume(volume);
-    Logger.log(`AudioSettingsAdapter: Sound volume changed to ${Math.round(volume * 100)}%`);
+    
+    if (this.audioHandlerRef && this.audioHandlerRef.isInitialized()) {
+      this.audioHandlerRef.setSoundVolume(volume);
+      Logger.log(`AudioSettingsAdapter: Sound volume changed to ${Math.round(volume * 100)}%`);
+    } else {
+      Logger.log(`AudioSettingsAdapter: Sound volume setting changed to ${Math.round(volume * 100)}%, will apply when AudioHandler initializes`);
+    }
   }
 
   /**
@@ -191,9 +233,13 @@ export class AudioSettingsAdapter {
     const enabled = event.newValue as boolean;
     const masterMute = settingsManager.get<boolean>('audio.masterMute');
     
-    // Apply master mute override
-    audioHandler.setMusicEnabled(enabled && !masterMute);
-    Logger.log(`AudioSettingsAdapter: Music ${enabled ? 'enabled' : 'disabled'}`);
+    if (this.audioHandlerRef && this.audioHandlerRef.isInitialized()) {
+      // Apply master mute override
+      this.audioHandlerRef.setMusicEnabled(enabled && !masterMute);
+      Logger.log(`AudioSettingsAdapter: Music ${enabled ? 'enabled' : 'disabled'}`);
+    } else {
+      Logger.log(`AudioSettingsAdapter: Music setting changed to ${enabled ? 'enabled' : 'disabled'}, will apply when AudioHandler initializes`);
+    }
   }
 
   /**
@@ -203,9 +249,13 @@ export class AudioSettingsAdapter {
     const enabled = event.newValue as boolean;
     const masterMute = settingsManager.get<boolean>('audio.masterMute');
     
-    // Apply master mute override
-    audioHandler.setSoundEnabled(enabled && !masterMute);
-    Logger.log(`AudioSettingsAdapter: Sound effects ${enabled ? 'enabled' : 'disabled'}`);
+    if (this.audioHandlerRef && this.audioHandlerRef.isInitialized()) {
+      // Apply master mute override
+      this.audioHandlerRef.setSoundEnabled(enabled && !masterMute);
+      Logger.log(`AudioSettingsAdapter: Sound effects ${enabled ? 'enabled' : 'disabled'}`);
+    } else {
+      Logger.log(`AudioSettingsAdapter: Sound setting changed to ${enabled ? 'enabled' : 'disabled'}, will apply when AudioHandler initializes`);
+    }
   }
 
   /**
@@ -214,20 +264,24 @@ export class AudioSettingsAdapter {
   private handleMasterMuteChange(event: SettingsChangeEvent): void {
     const masterMute = event.newValue as boolean;
     
-    if (masterMute) {
-      // Mute all audio
-      audioHandler.setMusicEnabled(false);
-      audioHandler.setSoundEnabled(false);
-    } else {
-      // Restore audio based on individual settings
-      const musicEnabled = settingsManager.get<boolean>('audio.musicEnabled');
-      const soundEnabled = settingsManager.get<boolean>('audio.soundEnabled');
+    if (this.audioHandlerRef && this.audioHandlerRef.isInitialized()) {
+      if (masterMute) {
+        // Mute all audio
+        this.audioHandlerRef.setMusicEnabled(false);
+        this.audioHandlerRef.setSoundEnabled(false);
+      } else {
+        // Restore audio based on individual settings
+        const musicEnabled = settingsManager.get<boolean>('audio.musicEnabled');
+        const soundEnabled = settingsManager.get<boolean>('audio.soundEnabled');
+        
+        this.audioHandlerRef.setMusicEnabled(musicEnabled);
+        this.audioHandlerRef.setSoundEnabled(soundEnabled);
+      }
       
-      audioHandler.setMusicEnabled(musicEnabled);
-      audioHandler.setSoundEnabled(soundEnabled);
+      Logger.log(`AudioSettingsAdapter: Master mute ${masterMute ? 'enabled' : 'disabled'}`);
+    } else {
+      Logger.log(`AudioSettingsAdapter: Master mute setting changed to ${masterMute ? 'enabled' : 'disabled'}, will apply when AudioHandler initializes`);
     }
-    
-    Logger.log(`AudioSettingsAdapter: Master mute ${masterMute ? 'enabled' : 'disabled'}`);
   }
 
   /**

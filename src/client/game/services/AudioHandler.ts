@@ -1,7 +1,8 @@
 import * as Phaser from 'phaser';
-import { settings } from './Settings';
 import { hybridAudioService } from './HybridAudioService';
 import Logger from '../../utils/Logger';
+import { audioSettingsAdapter } from './AudioSettingsAdapter.js';
+import { AudioSettings } from '../../../shared/types/settings.js';
 
 export interface IAudioHandler {
   // Initialization
@@ -31,27 +32,18 @@ export interface IAudioHandler {
   destroy(): void;
 }
 
-export interface AudioSettings {
-  musicEnabled: boolean;
-  soundEnabled: boolean;
-  musicVolume: number;
-  soundVolume: number;
-}
+// AudioSettings interface is now imported from shared types
 
 export class AudioHandler implements IAudioHandler {
   private static instance: AudioHandler;
   private scene: Phaser.Scene | null = null;
   private audioSettings: AudioSettings;
   private initialized = false;
+  private settingsUnsubscribeFunctions: (() => void)[] = [];
 
   private constructor() {
-    // Load audio settings from the existing Settings service
-    this.audioSettings = {
-      musicEnabled: !settings.get('audioMuted'),
-      soundEnabled: !settings.get('audioMuted'),
-      musicVolume: settings.get('audioVolume'),
-      soundVolume: settings.get('audioVolume'),
-    };
+    // Load audio settings from the centralized Settings Manager via AudioSettingsAdapter
+    this.audioSettings = audioSettingsAdapter.getAudioSettings();
   }
 
   static getInstance(): AudioHandler {
@@ -73,18 +65,169 @@ export class AudioHandler implements IAudioHandler {
       // Initialize hybrid audio service (Strudel + Phaser)
       await hybridAudioService.initialize(scene);
       
+      // Initialize AudioSettingsAdapter if not already initialized
+      if (!audioSettingsAdapter.isReady()) {
+        audioSettingsAdapter.initialize();
+      }
+      
+      // Set the audio handler reference to break circular dependency
+      audioSettingsAdapter.setAudioHandlerRef(this);
+      
+      // Get current settings from centralized Settings Manager
+      this.audioSettings = audioSettingsAdapter.getAudioSettings();
+      
       // Sync settings with hybrid service
-      hybridAudioService.setMusicEnabled(this.audioSettings.musicEnabled);
-      hybridAudioService.setSoundEnabled(this.audioSettings.soundEnabled);
+      hybridAudioService.setMusicEnabled(this.audioSettings.musicEnabled && !this.audioSettings.masterMute);
+      hybridAudioService.setSoundEnabled(this.audioSettings.soundEnabled && !this.audioSettings.masterMute);
       hybridAudioService.setMusicVolume(this.audioSettings.musicVolume);
       hybridAudioService.setSoundVolume(this.audioSettings.soundVolume);
       
+      // Set up Settings Manager event subscriptions
+      this.setupSettingsSubscriptions();
+      
       this.initialized = true;
-      Logger.log(`AudioHandler: Initialized with scene ${scene.scene.key} using Hybrid Audio (Strudel + Phaser)`);
+      Logger.log(`AudioHandler: Initialized with scene ${scene.scene.key} using Hybrid Audio (Strudel + Phaser) and centralized settings`);
+      
+      // Notify AudioSettingsAdapter that AudioHandler is ready
+      // This ensures proper synchronization between centralized settings and audio state
+      this.notifyAudioSettingsAdapter();
+      
     } catch (error) {
       Logger.log(`AudioHandler: Failed to initialize Hybrid Audio - ${error}`);
       // Don't throw error - allow graceful degradation
       this.initialized = false;
+    }
+  }
+
+  /**
+   * Set up subscriptions to Settings Manager changes through AudioSettingsAdapter
+   * This ensures AudioHandler updates when settings change externally
+   */
+  private setupSettingsSubscriptions(): void {
+    try {
+      // Import settingsManager to subscribe to changes
+      import('../../../shared/services/SettingsManager.js').then(({ settingsManager }) => {
+        // Subscribe to audio setting changes
+        const musicVolumeUnsub = settingsManager.subscribe('audio.musicVolume', (event) => {
+          this.handleExternalMusicVolumeChange(event.newValue as number);
+        });
+
+        const soundVolumeUnsub = settingsManager.subscribe('audio.soundVolume', (event) => {
+          this.handleExternalSoundVolumeChange(event.newValue as number);
+        });
+
+        const musicEnabledUnsub = settingsManager.subscribe('audio.musicEnabled', (event) => {
+          this.handleExternalMusicEnabledChange(event.newValue as boolean);
+        });
+
+        const soundEnabledUnsub = settingsManager.subscribe('audio.soundEnabled', (event) => {
+          this.handleExternalSoundEnabledChange(event.newValue as boolean);
+        });
+
+        const masterMuteUnsub = settingsManager.subscribe('audio.masterMute', (event) => {
+          this.handleExternalMasterMuteChange(event.newValue as boolean);
+        });
+
+        // Store unsubscribe functions for cleanup
+        this.settingsUnsubscribeFunctions.push(
+          musicVolumeUnsub,
+          soundVolumeUnsub,
+          musicEnabledUnsub,
+          soundEnabledUnsub,
+          masterMuteUnsub
+        );
+
+        Logger.log('AudioHandler: Set up Settings Manager subscriptions');
+      }).catch(error => {
+        Logger.log(`AudioHandler: Failed to set up Settings Manager subscriptions - ${error}`);
+      });
+    } catch (error) {
+      Logger.log(`AudioHandler: Error setting up Settings Manager subscriptions - ${error}`);
+    }
+  }
+
+  /**
+   * Handle external music volume changes from Settings Manager
+   */
+  private handleExternalMusicVolumeChange(volume: number): void {
+    return Logger.withSilentLogging(() => {
+      this.audioSettings.musicVolume = volume;
+      hybridAudioService.setMusicVolume(volume);
+      Logger.log(`AudioHandler: External music volume change to ${Math.round(volume * 100)}%`);
+    });
+  }
+
+  /**
+   * Handle external sound volume changes from Settings Manager
+   */
+  private handleExternalSoundVolumeChange(volume: number): void {
+    return Logger.withSilentLogging(() => {
+      this.audioSettings.soundVolume = volume;
+      hybridAudioService.setSoundVolume(volume);
+      Logger.log(`AudioHandler: External sound volume change to ${Math.round(volume * 100)}%`);
+    });
+  }
+
+  /**
+   * Handle external music enabled changes from Settings Manager
+   */
+  private handleExternalMusicEnabledChange(enabled: boolean): void {
+    return Logger.withSilentLogging(() => {
+      this.audioSettings.musicEnabled = enabled;
+      // Apply master mute override
+      const effectiveEnabled = enabled && !this.audioSettings.masterMute;
+      hybridAudioService.setMusicEnabled(effectiveEnabled);
+      Logger.log(`AudioHandler: External music ${enabled ? 'enabled' : 'disabled'}`);
+    });
+  }
+
+  /**
+   * Handle external sound enabled changes from Settings Manager
+   */
+  private handleExternalSoundEnabledChange(enabled: boolean): void {
+    return Logger.withSilentLogging(() => {
+      this.audioSettings.soundEnabled = enabled;
+      // Apply master mute override
+      const effectiveEnabled = enabled && !this.audioSettings.masterMute;
+      hybridAudioService.setSoundEnabled(effectiveEnabled);
+      Logger.log(`AudioHandler: External sound ${enabled ? 'enabled' : 'disabled'}`);
+    });
+  }
+
+  /**
+   * Handle external master mute changes from Settings Manager
+   */
+  private handleExternalMasterMuteChange(masterMute: boolean): void {
+    return Logger.withSilentLogging(() => {
+      this.audioSettings.masterMute = masterMute;
+      
+      if (masterMute) {
+        // Mute all audio
+        hybridAudioService.setMusicEnabled(false);
+        hybridAudioService.setSoundEnabled(false);
+      } else {
+        // Restore audio based on individual settings
+        hybridAudioService.setMusicEnabled(this.audioSettings.musicEnabled);
+        hybridAudioService.setSoundEnabled(this.audioSettings.soundEnabled);
+      }
+      
+      Logger.log(`AudioHandler: External master mute ${masterMute ? 'enabled' : 'disabled'}`);
+    });
+  }
+
+  /**
+   * Notify AudioSettingsAdapter that AudioHandler is ready for synchronization
+   * This ensures the adapter can properly sync settings when AudioHandler becomes available
+   */
+  private notifyAudioSettingsAdapter(): void {
+    try {
+      if (audioSettingsAdapter.isReady()) {
+        // Sync current settings from centralized Settings Manager to AudioHandler
+        audioSettingsAdapter.syncFromSettings();
+        Logger.log('AudioHandler: Synchronized with AudioSettingsAdapter');
+      }
+    } catch (error) {
+      Logger.log(`AudioHandler: Error notifying AudioSettingsAdapter - ${error}`);
     }
   }
 
@@ -143,8 +286,8 @@ export class AudioHandler implements IAudioHandler {
     return Logger.withSilentLogging(() => {
       this.audioSettings.musicEnabled = enabled;
 
-      // Update the existing Settings service
-      settings.set('audioMuted', !enabled);
+      // Update settings through AudioSettingsAdapter (centralized settings)
+      audioSettingsAdapter.updateAudioSettings({ musicEnabled: enabled });
 
       // Update hybrid service
       hybridAudioService.setMusicEnabled(enabled);
@@ -158,8 +301,8 @@ export class AudioHandler implements IAudioHandler {
     return Logger.withSilentLogging(() => {
       this.audioSettings.soundEnabled = enabled;
 
-      // Update the existing Settings service
-      settings.set('audioMuted', !enabled);
+      // Update settings through AudioSettingsAdapter (centralized settings)
+      audioSettingsAdapter.updateAudioSettings({ soundEnabled: enabled });
 
       // Update hybrid service
       hybridAudioService.setSoundEnabled(enabled);
@@ -187,8 +330,8 @@ export class AudioHandler implements IAudioHandler {
       // Clamp volume between 0 and 1
       this.audioSettings.musicVolume = Math.max(0, Math.min(1, volume));
 
-      // Update the existing Settings service
-      settings.set('audioVolume', this.audioSettings.musicVolume);
+      // Update settings through AudioSettingsAdapter (centralized settings)
+      audioSettingsAdapter.updateAudioSettings({ musicVolume: this.audioSettings.musicVolume });
 
       // Update hybrid service
       hybridAudioService.setMusicVolume(this.audioSettings.musicVolume);
@@ -205,8 +348,8 @@ export class AudioHandler implements IAudioHandler {
       // Clamp volume between 0 and 1
       this.audioSettings.soundVolume = Math.max(0, Math.min(1, volume));
 
-      // Update the existing Settings service
-      settings.set('audioVolume', this.audioSettings.soundVolume);
+      // Update settings through AudioSettingsAdapter (centralized settings)
+      audioSettingsAdapter.updateAudioSettings({ soundVolume: this.audioSettings.soundVolume });
 
       // Update hybrid service
       hybridAudioService.setSoundVolume(this.audioSettings.soundVolume);
@@ -220,10 +363,14 @@ export class AudioHandler implements IAudioHandler {
 
   // Cleanup method
   destroy(): void {
+    // Clean up Settings Manager subscriptions
+    this.settingsUnsubscribeFunctions.forEach(unsubscribe => unsubscribe());
+    this.settingsUnsubscribeFunctions = [];
+    
     hybridAudioService.destroy();
     this.scene = null;
     this.initialized = false;
-    Logger.log('AudioHandler: Destroyed');
+    Logger.log('AudioHandler: Destroyed and cleaned up Settings Manager subscriptions');
   }
 }
 
