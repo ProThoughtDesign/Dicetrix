@@ -1,7 +1,7 @@
 import { Scene } from 'phaser';
 import * as Phaser from 'phaser';
 import GameBoard from '../logic/GameBoard';
-import { settings } from '../services/Settings';
+import { SettingsManager } from '../../../shared/services/SettingsManager';
 import { getMode } from '../config/GameMode';
 import { 
   drawDie, 
@@ -2811,7 +2811,7 @@ export class Game extends Scene {
     // Read selected mode from registry and apply config
     Logger.log('INIT STEP 2: Reading game mode configuration');
     const selectedMode =
-      (this.registry.get('selectedMode') as string) || settings.get('selectedMode') || 'medium';
+      (this.registry.get('selectedMode') as string) || SettingsManager.getInstance().get<string>('game.selectedMode') || 'medium';
     const mode = getMode(selectedMode);
     const cfg = mode.getConfig();
     this.registry.set('gameMode', mode.id);

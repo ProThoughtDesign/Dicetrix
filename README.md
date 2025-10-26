@@ -1,10 +1,25 @@
 # Dicetrix
 
-A puzzle game that combines Tetris-style mechanics with dice-based number matching. Built for Reddit using Phaser.js and the Devvit platform.
+**A revolutionary dice-matching puzzle game that combines Tetris-style falling pieces with strategic number matching mechanics.** Built for Reddit using Phaser.js and the Devvit platform, Dicetrix offers a unique twist on classic puzzle gaming with procedurally generated multi-die pieces, cascade chain reactions, and special dice mechanics.
 
-## 🎮 Game Overview
+## 🎮 What is Dicetrix?
 
-Dicetrix is a gravity-based puzzle game where multi-die pieces fall down an 8×16 grid. Players create matches by connecting 3+ adjacent dice with the same number, triggering cascades and chain reactions for higher scores.
+Dicetrix is an innovative gravity-based puzzle game where **procedurally generated multi-die pieces** fall down an 8×16 grid. Unlike traditional Tetris where you match shapes, Dicetrix challenges you to create matches by connecting **3 or more adjacent dice with the same number**. When matches are cleared, remaining dice fall to create **cascade chain reactions** that can lead to massive scoring combos.
+
+### 🌟 What Makes Dicetrix Unique?
+
+**🎲 Procedural Multi-Die Pieces**: Instead of fixed Tetris shapes, pieces are dynamically generated containing 1-16 dice with various face counts (d4, d6, d8, d10, d12, d20), creating endless variety and strategic depth.
+
+**🔮 Special Dice Mechanics**: 
+- **Black Dice** (Hard/Expert modes): Wild cards that match with any adjacent number and trigger area conversion effects
+- **Booster Dice**: Glowing dice that provide visual assistance for strategic placement
+- **Uniform Rule** (Zen mode): All dice in a piece share the same face count for simplified gameplay
+
+**⚡ Advanced Cascade System**: Cleared dice cause remaining dice to fall and potentially form new matches automatically, creating satisfying chain reactions with increasing score multipliers.
+
+**🎵 Dynamic Audio-Visual Experience**: Mode-specific music compositions, comprehensive sound effects, particle systems, and visual effects that respond to gameplay events.
+
+**🏆 Five Distinct Difficulty Modes**: Each mode features unique constraints, dice types, fall speeds, and special mechanics, offering experiences from relaxed zen gameplay to lightning-fast expert challenges.
 
 ### 🎯 Core Gameplay
 
@@ -78,65 +93,140 @@ Each mode offers distinct challenges and mechanics:
 - **Leaderboard System**: Difficulty-specific rankings stored in Redis
 - **Community Features**: Post creation and subreddit integration through Devvit platform
 
-## 🎮 How to Play
+## 🎮 How to Play Dicetrix
 
-### Getting Started
+### 🚀 Getting Started
 
-1. **🚀 Launch the Game**
-   - Run `npm run dev` in your terminal
-   - Open the provided Reddit playtest URL in your browser
-   - Experience the splash screen with falling dice animation
+**Step 1: Launch the Game**
+1. Run `npm run dev` in your terminal
+2. Open the provided Reddit playtest URL in your browser  
+3. Experience the animated splash screen with falling dice
+4. Press any key or tap the screen to continue to the main menu
 
-2. **🎯 Navigate the Main Menu**
-   - **Difficulty Dropdown**: Select from Easy, Medium, Hard, Expert, or Zen mode
-   - **SETTINGS**: Configure audio with independent music and sound effect controls
-   - **HOW TO PLAY**: Access the interactive tutorial system
-   - **LEADERBOARD**: View community rankings organized by difficulty
-   - **Audio Button**: Click 🔇/🔊 to enable global audio
+**Step 2: Navigate the Main Menu**
+1. **Select Difficulty**: Use the dropdown to choose Easy, Medium, Hard, Expert, or Zen mode
+2. **Enable Audio**: Click the 🔇/🔊 button to activate game audio (required for music and sound effects)
+3. **Access Settings**: Click "SETTINGS" to configure music and sound effect volumes independently
+4. **Learn the Game**: Click "HOW TO PLAY" for an interactive 4-page tutorial
+5. **View Rankings**: Click "LEADERBOARD" to see community scores organized by difficulty
 
-### Core Gameplay
+### 🎮 Master the Game Controls
 
-3. **🎮 Master the Controls**
-   - **Keyboard**: Arrow keys or WASD for movement, Space for hard drop, ↑/Q for rotation
-   - **Mobile**: Use responsive on-screen buttons
-   - **Touch**: Tap grid positions to move pieces horizontally
-   - **Pause**: Press Esc to access pause menu with settings and restart options
+**Desktop Controls:**
+- **Movement**: Arrow keys or WASD to move pieces left/right/down
+- **Rotation**: Up arrow or Q key to rotate pieces clockwise
+- **Hard Drop**: Spacebar to instantly drop pieces to the bottom
+- **Pause**: Escape key to access pause menu with settings and restart options
 
-4. **🎯 Create Dice Matches**
-   - Connect 3+ adjacent dice with the same number (horizontal/vertical only)
-   - Matched dice disappear with particle effects
-   - Different match sizes trigger different sound effects
-   - Remaining dice fall to fill gaps, potentially creating new matches
+**Mobile Controls:**
+- **On-Screen Buttons**: Responsive touch controls for movement and rotation
+- **Touch Grid**: Tap any grid position to move the active piece horizontally to that column
+- **Gesture Support**: Intuitive touch gestures for piece manipulation
 
-5. **💥 Trigger Cascade Chain Reactions**
-   - Falling dice can form new matches automatically
-   - Each cascade level increases score multiplier
-   - Plan initial matches to create maximum chain reactions
-   - Listen for combo sound effects indicating successful chains
+### 🎯 Core Gameplay Mechanics
 
-### Advanced Features
+**Step 1: Understanding Pieces**
+- Multi-die pieces containing 1-16 dice fall from the top of the 8×16 grid
+- Each die shows a number (1 to the die's face count: d4, d6, d8, d10, d12, or d20)
+- Pieces can be moved horizontally and rotated while falling
+- Pieces lock in place when they hit the bottom or collide with other dice
 
-6. **🎲 Choose Your Challenge Level**
-   - **🟢 Easy**: 3×3×5 pieces, d4/d6/d8 dice, slow fall speed, 50% glow assistance
-   - **🟡 Medium**: 4×4×8 pieces, d6/d8/d10/d12 dice, moderate speed, 35% glow
-   - **🔴 Hard**: 5×5×10 pieces, d8/d10/d12/d20 + Black Dice, fast speed, 25% glow
-   - **🟠 Expert**: 5×5×16 pieces, d10/d12/d20 + Black Dice, very fast, 15% glow
-   - **🟣 Zen**: 3×3×5 pieces, d4/d6/d8 uniform dice, slow speed, no cascades
+**Step 2: Creating Matches**
+- Connect **3 or more adjacent dice** with the **same number** (horizontal/vertical connections only)
+- Matched dice disappear with visual particle effects and sound feedback
+- Larger matches (4+, 5+, 6+ dice) provide exponentially higher scores
+- Different match sizes trigger distinct sound effects for audio feedback
 
-7. **🔮 Master Special Mechanics**
-   - **Black Dice** (Hard/Expert): Wild cards that match any number
-   - **Booster Effects**: Glowing dice provide visual assistance for strategic placement
-   - **Uniform Rule** (Zen): All dice in a piece have the same face count
+**Step 3: Triggering Cascades**
+- After matches are cleared, remaining dice **fall down to fill gaps**
+- Falling dice can automatically form **new matches** without player input
+- Each cascade level increases your **score multiplier** (2x, 3x, 4x, etc.)
+- Chain reactions can continue indefinitely, creating massive scoring opportunities
 
-### Victory Conditions
+**Step 4: Strategic Placement**
+- Plan your initial matches to set up potential cascade chains
+- Look for opportunities to create multiple matches simultaneously  
+- Use the "next piece" preview to plan several moves ahead
+- Position pieces to maximize cascade potential rather than just immediate matches
 
-**🎯 Primary Goal**: Achieve the highest score by creating matches and cascade chains before the grid fills up
+### 🎲 Difficulty Mode Selection Guide
 
-**📈 Scoring**: Points based on match size, dice values, cascade multipliers, and difficulty multipliers
+**🟢 Easy Mode** (Perfect for Learning)
+- **Piece Size**: 3×3×5 (width × height × max dice)
+- **Dice Types**: d4, d6, d8 (simpler numbers)
+- **Fall Speed**: 1000ms (slow, plenty of thinking time)
+- **Booster Glow**: 50% (frequent visual assistance)
+- **Best For**: New players learning the mechanics
 
-**💀 Game Over**: When a new piece cannot spawn due to collision at the top of the grid
+**🟡 Medium Mode** (Balanced Experience)  
+- **Piece Size**: 4×4×8 (moderate complexity)
+- **Dice Types**: d6, d8, d10, d12 (varied numbers)
+- **Fall Speed**: 800ms (moderate pace)
+- **Booster Glow**: 35% (regular visual assistance)
+- **Best For**: Players comfortable with basic mechanics
 
-**🏆 Community Competition**: Submit scores and compete on difficulty-specific leaderboards
+**🔴 Hard Mode** (Advanced Challenge)
+- **Piece Size**: 5×5×10 (larger, more complex pieces)
+- **Dice Types**: d8, d10, d12, d20 + **Black Dice** (wild cards)
+- **Fall Speed**: 600ms (fast-paced)
+- **Booster Glow**: 25% (limited assistance)
+- **Special Feature**: Black dice match with any adjacent number
+- **Best For**: Experienced players seeking challenge
+
+**🟠 Expert Mode** (Maximum Difficulty)
+- **Piece Size**: 5×5×16 (largest possible pieces)
+- **Dice Types**: d10, d12, d20 + **Black Dice** (highest numbers + wilds)
+- **Fall Speed**: 400ms (very fast)
+- **Booster Glow**: 15% (minimal assistance)
+- **Special Feature**: Black dice with area conversion effects
+- **Best For**: Master players wanting ultimate challenge
+
+**🟣 Zen Mode** (Relaxed Strategy)
+- **Piece Size**: 3×3×5 (simple pieces)
+- **Dice Types**: d4, d6, d8 with **Uniform Rule** (all dice in a piece have same face count)
+- **Fall Speed**: 1200ms (very slow)
+- **Special Feature**: **No cascades** (matches don't trigger chain reactions)
+- **Best For**: Strategic planning without time pressure
+
+### 🔮 Special Dice Mechanics
+
+**Black Dice (Hard & Expert Modes)**
+- **Wild Matching**: Black dice match with any adjacent number
+- **Visual Identification**: Distinctive black color with special particle auras
+- **Area Conversion**: When cleared, convert surrounding dice to d20 dice (Expert mode)
+- **Strategic Value**: Use to complete difficult matches or bridge number gaps
+
+**Booster Dice (All Modes)**
+- **Visual Glow**: Dice with glowing particle effects around them
+- **Strategic Assistance**: Help identify optimal placement positions
+- **Frequency**: Varies by difficulty (50% Easy → 15% Expert)
+- **Purpose**: Provide visual guidance for strategic piece placement
+
+**Uniform Rule (Zen Mode Only)**
+- **Consistent Pieces**: All dice in a single piece have the same face count
+- **Simplified Strategy**: Easier to predict and plan matches
+- **Reduced Complexity**: Focus on positioning rather than number variety
+
+### 🏆 Scoring and Victory
+
+**Scoring Formula:**
+- **Base Points**: Match size × dice numbers × cascade multiplier × difficulty multiplier
+- **Cascade Bonus**: Each cascade level increases multiplier (2x, 3x, 4x, etc.)
+- **Size Bonus**: Larger matches provide exponential point increases
+- **Difficulty Bonus**: Higher difficulties provide score multipliers
+
+**Victory Conditions:**
+- **Primary Goal**: Achieve the highest possible score before game over
+- **Game Over**: Occurs when a new piece cannot spawn due to grid collision at the top
+- **High Score**: Submit your score to compete on difficulty-specific leaderboards
+- **Community Competition**: Compare your performance with other Reddit players
+
+**Pro Tips for High Scores:**
+1. **Plan Cascades**: Set up initial matches that will trigger chain reactions
+2. **Larger Matches**: Prioritize 4+ dice matches over multiple 3-dice matches  
+3. **Combo Chains**: Maintain cascade multipliers as long as possible
+4. **Grid Management**: Keep the top of the grid clear to avoid early game over
+5. **Special Dice**: Use Black dice strategically to complete difficult matches
 
 ## 🌟 Technical Features
 

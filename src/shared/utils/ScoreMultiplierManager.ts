@@ -1,5 +1,5 @@
 import { DifficultyModeConfig } from '../types/difficulty';
-import Logger from '../../client/utils/Logger';
+import Logger from '../../server/utils/Logger';
 
 /**
  * ScoreMultiplierManager handles difficulty-based score scaling

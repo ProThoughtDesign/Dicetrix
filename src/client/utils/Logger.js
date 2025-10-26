@@ -1,5 +1,5 @@
 export class Logger {
-    static Active = true;
+    static Active = false;
     static log(message) {
         if (!Logger.Active)
             return;
