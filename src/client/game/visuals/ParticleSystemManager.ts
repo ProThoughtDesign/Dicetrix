@@ -7,7 +7,9 @@ import { MatchEffectManager } from './MatchEffectManager';
 import { CascadeEffectManager } from './CascadeEffectManager';
 import { PlacementEffectManager } from './PlacementEffectManager';
 import { ComboEffectManager } from './ComboEffectManager';
-import { MatchGroup } from '../logic/types';
+import { SpecialDiceEffectManager } from './SpecialDiceEffectManager';
+import { MatchGroup, Die } from '../logic/types';
+import { BoosterType } from '../../../shared/types/difficulty';
 
 /**
  * Configuration interface for the particle system
@@ -60,6 +62,7 @@ export class ParticleSystemManager {
   private cascadeEffectManager: CascadeEffectManager;
   private placementEffectManager: PlacementEffectManager;
   private comboEffectManager: ComboEffectManager;
+  private specialDiceEffectManager: SpecialDiceEffectManager;
   private initialized: boolean = false;
 
   constructor() {
@@ -85,6 +88,7 @@ export class ParticleSystemManager {
       this.cascadeEffectManager = new CascadeEffectManager(scene, this.emitterManager, this.performanceMonitor);
       this.placementEffectManager = new PlacementEffectManager(scene, this.emitterManager, this.performanceMonitor);
       this.comboEffectManager = new ComboEffectManager(scene, this.performanceMonitor);
+      this.specialDiceEffectManager = new SpecialDiceEffectManager(scene, this.emitterManager, this.performanceMonitor);
       
       this.initialized = true;
       
@@ -349,7 +353,134 @@ export class ParticleSystemManager {
   }
 
   /**
-   * Create special dice aura effect
+   * Create enhanced dice effect based on die properties
+   * Requirements: 5.1, 5.2, 5.3, 5.4
+   */
+  public createEnhancedDiceEffect(die: Die, position: Phaser.Math.Vector2): void {
+    if (!this.initialized || !this.config.enableEffects) return;
+
+    try {
+      this.specialDiceEffectManager.createEnhancedDiceEffect(die, position);
+      Logger.log(`ParticleSystemManager: Created enhanced dice effect for dice ${die.id}`);
+      
+    } catch (error) {
+      Logger.log(`ParticleSystemManager: Enhanced dice effect creation failed - ${error}`);
+    }
+  }
+
+  /**
+   * Create booster aura effect around enhanced dice
+   * Requirements: 5.1, 5.2
+   */
+  public createBoosterAura(diceId: string, position: Phaser.Math.Vector2, boosterType: BoosterType): void {
+    if (!this.initialized || !this.config.enableEffects) return;
+
+    try {
+      this.specialDiceEffectManager.createBoosterAura(diceId, position, boosterType);
+      Logger.log(`ParticleSystemManager: Created booster aura for dice ${diceId}`);
+      
+    } catch (error) {
+      Logger.log(`ParticleSystemManager: Booster aura creation failed - ${error}`);
+    }
+  }
+
+  /**
+   * Create energy burst effect for booster activation
+   * Requirements: 5.2
+   */
+  public createBoosterActivationBurst(position: Phaser.Math.Vector2, boosterType: BoosterType): void {
+    if (!this.initialized || !this.config.enableEffects) return;
+
+    try {
+      this.specialDiceEffectManager.createBoosterActivationBurst(position, boosterType);
+      Logger.log(`ParticleSystemManager: Created booster activation burst`);
+      
+    } catch (error) {
+      Logger.log(`ParticleSystemManager: Booster activation burst creation failed - ${error}`);
+    }
+  }
+
+  /**
+   * Create magical aura effect for black dice (wild cards)
+   * Requirements: 5.3, 5.4
+   */
+  public createBlackDiceAura(diceId: string, position: Phaser.Math.Vector2): void {
+    if (!this.initialized || !this.config.enableEffects) return;
+
+    try {
+      this.specialDiceEffectManager.createBlackDiceAura(diceId, position);
+      Logger.log(`ParticleSystemManager: Created black dice aura for dice ${diceId}`);
+      
+    } catch (error) {
+      Logger.log(`ParticleSystemManager: Black dice aura creation failed - ${error}`);
+    }
+  }
+
+  /**
+   * Create magical transformation effect for wild card activation
+   * Requirements: 5.4
+   */
+  public createWildTransformationEffect(position: Phaser.Math.Vector2, fromColor: string, toColor: string): void {
+    if (!this.initialized || !this.config.enableEffects) return;
+
+    try {
+      this.specialDiceEffectManager.createWildTransformationEffect(position, fromColor, toColor);
+      Logger.log(`ParticleSystemManager: Created wild transformation effect`);
+      
+    } catch (error) {
+      Logger.log(`ParticleSystemManager: Wild transformation effect creation failed - ${error}`);
+    }
+  }
+
+  /**
+   * Trigger activation effect for special dice
+   * Requirements: 5.2, 5.4
+   */
+  public triggerSpecialDiceActivation(die: Die, position: Phaser.Math.Vector2): void {
+    if (!this.initialized || !this.config.enableEffects) return;
+
+    try {
+      this.specialDiceEffectManager.triggerActivationEffect(die, position);
+      Logger.log(`ParticleSystemManager: Triggered special dice activation for dice ${die.id}`);
+      
+    } catch (error) {
+      Logger.log(`ParticleSystemManager: Special dice activation failed - ${error}`);
+    }
+  }
+
+  /**
+   * Update aura position for moving dice
+   * Requirements: 5.1, 5.3
+   */
+  public updateSpecialDiceAuraPosition(diceId: string, newPosition: Phaser.Math.Vector2): void {
+    if (!this.initialized || !this.config.enableEffects) return;
+
+    try {
+      this.specialDiceEffectManager.updateAuraPosition(diceId, newPosition);
+      
+    } catch (error) {
+      Logger.log(`ParticleSystemManager: Aura position update failed - ${error}`);
+    }
+  }
+
+  /**
+   * Remove aura effect for a specific dice
+   * Requirements: 5.1, 5.3
+   */
+  public removeSpecialDiceAura(diceId: string): void {
+    if (!this.initialized || !this.config.enableEffects) return;
+
+    try {
+      this.specialDiceEffectManager.removeAura(diceId);
+      Logger.log(`ParticleSystemManager: Removed aura for dice ${diceId}`);
+      
+    } catch (error) {
+      Logger.log(`ParticleSystemManager: Aura removal failed - ${error}`);
+    }
+  }
+
+  /**
+   * Create special dice aura effect (legacy method for compatibility)
    * Requirements: 5.1, 5.2, 5.3, 5.4
    */
   public createSpecialDiceAura(position: Phaser.Math.Vector2, diceType: string): void {
@@ -447,6 +578,10 @@ export class ParticleSystemManager {
       
       if (this.comboEffectManager) {
         this.comboEffectManager.destroy();
+      }
+      
+      if (this.specialDiceEffectManager) {
+        this.specialDiceEffectManager.destroy();
       }
       
       if (this.particlePool) {

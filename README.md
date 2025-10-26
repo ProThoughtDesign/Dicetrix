@@ -10,7 +10,7 @@ Unlike traditional Tetris where entire pieces lock as units, Dicetrix features g
 
 The game features a complete Reddit integration system with difficulty-specific leaderboards, automated score submission with optional Reddit posting, periodic resets, user notifications, comprehensive community features, and advanced particle effects for match explosions, making it a fully-featured social gaming experience within the Reddit ecosystem.
 
-**Current Game State**: Dicetrix is a fully functional puzzle game with complete scene progression (Boot → Preloader → SplashScreen → StartMenu → Settings → Game → GameOver → LeaderboardScene → HowToPlayScene), comprehensive Reddit integration, advanced particle systems, and sophisticated individual die physics. The game includes procedural piece generation, Black Die mechanics for advanced modes, booster effect systems, and a complete audio system with mode-specific music.
+**Current Game State**: Dicetrix is a fully functional puzzle game with complete scene progression (Boot → Preloader → SplashScreen → StartMenu → Settings → Game → GameOver → LeaderboardScene → HowToPlayScene), comprehensive Reddit integration, advanced particle systems with special dice effects, and sophisticated individual die physics. The game includes procedural piece generation, Black Die mechanics for advanced modes, booster effect systems, enhanced particle effects for special dice, and a complete audio system with mode-specific music.
 
 ## 🎯 Core Gameplay - How Dicetrix Works
 
@@ -41,7 +41,7 @@ Dicetrix introduces the world's first **individual die collision system** in puz
 
 **Real-World Example**: Imagine a 4-die vertical line falling toward uneven terrain. The bottom die hits an existing piece and locks immediately. The remaining 3 dice continue falling as a smaller line until the next die hits something and locks, then the remaining 2 continue, and so on. This creates dynamic, unpredictable gameplay where no two games play the same way.
 
-**Technical Implementation**: The game uses a sophisticated collision detection system where each die is processed individually every game tick using bottom-up collision detection. The `CoordinateConverter` manages the bottom-left coordinate system (Y=0 at bottom), while the `GameBoard` class handles individual die locking through `lockCell()` operations. The `MatchEffectManager` provides visual feedback with particle explosions when matches are cleared.
+**Technical Implementation**: The game uses a sophisticated collision detection system where each die is processed individually every game tick using bottom-up collision detection. The `CoordinateConverter` manages the bottom-left coordinate system (Y=0 at bottom), while the `GameBoard` class handles individual die locking through `lockCell()` operations. The `ParticleSystemManager` provides spectacular visual feedback with particle explosions when matches are cleared, and special dice effects for enhanced dice including Black Dice auras and booster glows.
 
 ### 2. Complete Reddit Gaming Ecosystem  
 Dicetrix is built from the ground up as a Reddit-native gaming experience with comprehensive social features:
@@ -50,7 +50,7 @@ Dicetrix is built from the ground up as a Reddit-native gaming experience with c
 - **Automated Reset Management**: Configurable daily/weekly/monthly leaderboard cycles with community announcements through `ResetController`
 - **Real-Time Subreddit Widgets**: Live leaderboard displays that update when new scores are submitted
 - **Achievement Notifications**: Automated alerts for top players and leaderboard winners
-- **Advanced Particle Effects**: Color-coded match explosions with performance-optimized particle systems via `ParticleSystemManager`
+- **Advanced Particle Effects**: Color-coded match explosions with performance-optimized particle systems via `ParticleSystemManager`, including special dice auras for Black Dice and booster effects
 
 ### 3. Procedural Piece Generation System
 The game features sophisticated piece generation through the `ProceduralPieceGenerator` class:
@@ -126,7 +126,7 @@ Features comprehensive social integration through the Devvit platform:
 - 🎲 **5 Difficulty Modes**: Easy, Medium, Hard, Expert, and Zen with unique constraints and mechanics
 - 🔮 **Black Die System**: Special wild dice with 3×3 area conversion effects in advanced modes
 - ✨ **Booster Effects**: Visual glow system with difficulty-scaled percentages for strategic assistance
-- 💥 **Match Effect System**: Color-coded particle explosions for dice matches with performance optimization
+- 💥 **Advanced Particle System**: Color-coded match explosions, special dice auras for Black Dice, booster glow effects, and enhanced dice particle effects with performance optimization
 
 ### Reddit Integration & Social Features
 - 🏆 **Comprehensive Leaderboards**: Difficulty-specific rankings with automated periodic resets
@@ -139,7 +139,7 @@ Features comprehensive social integration through the Devvit platform:
 ### Technical Excellence
 - 📱 **Cross-Platform Controls**: Keyboard, touch, and responsive on-screen button support
 - 🎵 **Professional Audio System**: Mode-specific music and specialized dice-match sound effects
-- 🎨 **Enhanced Visuals**: Gold dice numbers, drop shadows, multi-layered glow effects, and particle systems
+- 🎨 **Enhanced Visuals**: Gold dice numbers, drop shadows, multi-layered glow effects, special dice particle auras, and advanced particle systems for enhanced dice
 - 🌟 **Responsive Design**: Mobile-first UI with orientation change support and performance monitoring
 - 🎯 **Complete Scene System**: Splash screen, main menu, settings, game, leaderboards, and tutorials
 - ⚡ **Performance Optimization**: Object pooling, particle management, and frame rate monitoring
@@ -606,23 +606,30 @@ The start menu includes a responsive audio button with comprehensive audio manag
 
 **Booster Types**: Nine different glow colors (red, blue, green, yellow, purple, orange, teal, magenta, cyan) create vibrant visual variety with multi-layered concentric circle rendering for stunning effects.
 
-## 💥 Advanced Particle Effects System
+## 💥 Advanced Particle Effects System with Special Dice Enhancements
 
-**Match Effect Manager**: Dicetrix features a sophisticated particle system that creates spectacular visual feedback for dice matches:
+**Advanced Particle System Manager**: Dicetrix features a sophisticated particle system that creates spectacular visual feedback for dice matches and special dice effects:
 
-- **Color-Coded Explosions**: Each match triggers particle effects that match the primary color of the cleared dice
+- **Color-Coded Match Explosions**: Each match triggers particle effects that match the primary color of the cleared dice
+- **Special Dice Auras**: Black Dice display mystical auras, booster dice show colorful glows, and enhanced dice have unique particle effects
+- **Real-Time Special Effects**: Automatically detects and creates particle auras for Black Dice, booster dice, and glowing dice as they spawn
+- **Dynamic Aura Positioning**: Special dice particle effects update positions in real-time as pieces move during gameplay
 - **Size-Scaled Effects**: Larger matches (5, 7, 9+ dice) create more impressive particle explosions
 - **Performance Optimization**: Advanced object pooling and performance monitoring ensure smooth gameplay
-- **Dynamic Fragmentation**: Particles scale based on match size with configurable base counts and maximum limits
 - **Simultaneous Match Handling**: Multiple matches trigger with slight delays for visual clarity
 - **Grid-Aligned Positioning**: Particle effects are precisely positioned using board metrics for accurate visual feedback
+- **Enhanced Visual Hierarchy**: Special dice effects are layered behind gameplay elements to maintain visibility while adding visual flair
 
 **Technical Features**:
 - **Particle Pool Management**: Efficient object pooling prevents memory leaks and maintains performance
 - **Performance Monitor**: Real-time monitoring ensures particle effects don't impact gameplay framerate  
 - **Emitter Manager**: Centralized particle emitter management with automatic cleanup
+- **Special Dice Effects**: Dedicated particle systems for Black Dice auras, booster glows, and enhanced dice effects
+- **Automatic Effect Creation**: Seamlessly integrates with the game's rendering system to create special effects during piece spawning
 - **Configurable Effects**: Adjustable particle counts, colors, and explosion radius for different devices
 - **Mobile Optimization**: Reduced particle counts and optimized rendering for mobile devices
+- **Dynamic Aura Positioning**: Real-time particle position updates as special dice move during gameplay
+- **Visibility Compliance**: Ensures particles enhance rather than interfere with gameplay visibility
 
 ## 🎬 Immersive Splash Screen Experience
 

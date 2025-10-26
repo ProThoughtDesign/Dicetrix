@@ -387,6 +387,102 @@ export class Game extends Scene {
   }
 
   /**
+   * Create special dice particle effects for enhanced dice (boosters, black dice, etc.)
+   * Requirements: 5.1, 5.2, 5.3, 5.4, 5.5
+   */
+  private createSpecialDiceParticleEffects(die: any, screenPos: { x: number; y: number }): void {
+    if (!this.particleSystemManager) return;
+
+    try {
+      const position = new Phaser.Math.Vector2(screenPos.x, screenPos.y);
+
+      // Check for black dice (wild cards) - Requirements: 5.3, 5.4
+      if (die.isBlack || die.color === 'black') {
+        this.particleSystemManager.createBlackDiceAura(die.id, position);
+        Logger.log(`Game: Created black dice aura for die ${die.id}`);
+        return;
+      }
+
+      // Check for booster dice - Requirements: 5.1, 5.2
+      if (die.boosterType && die.boosterType !== 'none') {
+        this.particleSystemManager.createBoosterAura(die.id, position, die.boosterType);
+        Logger.log(`Game: Created booster aura for die ${die.id} with type ${die.boosterType}`);
+        return;
+      }
+
+      // Check for glowing dice (enhanced dice) - Requirements: 5.1, 5.2
+      if (die.glowColor) {
+        // Create enhanced dice effect for glowing dice
+        this.particleSystemManager.createEnhancedDiceEffect(die, position);
+        Logger.log(`Game: Created enhanced dice effect for glowing die ${die.id}`);
+        return;
+      }
+
+    } catch (error) {
+      Logger.log(`Game: Error creating special dice particle effects - ${error}`);
+    }
+  }
+
+  /**
+   * Update special dice aura positions when pieces move
+   * Requirements: 5.1, 5.3, 5.5
+   */
+  private updateSpecialDiceAuraPositions(boardMetrics: any): void {
+    if (!this.particleSystemManager || !this.activePiece || !this.activePiece.dice) return;
+
+    try {
+      // Update aura positions for active piece dice
+      this.activePiece!.dice.forEach((die: any) => {
+        // Only update auras for special dice
+        if (die.isBlack || die.color === 'black' || die.boosterType || die.glowColor) {
+          const gridX = this.activePiece!.x + die.relativePos.x;
+          const gridY = this.activePiece!.y + die.relativePos.y;
+          const screenPos = this.coordinateConverter!.gridToScreen(gridX, gridY, boardMetrics);
+          const position = new Phaser.Math.Vector2(screenPos.x, screenPos.y);
+          
+          this.particleSystemManager!.updateSpecialDiceAuraPosition(die.id, position);
+        }
+      });
+
+    } catch (error) {
+      Logger.log(`Game: Error updating special dice aura positions - ${error}`);
+    }
+  }
+
+  /**
+   * Ensure particles don't interfere with gameplay visibility
+   * Requirements: 1.3, 2.5, 4.5, 5.5
+   */
+  private ensureParticleVisibilityCompliance(): void {
+    if (!this.particleSystemManager) return;
+
+    try {
+      // Get current performance stats to check particle count
+      const stats = this.particleSystemManager.getPerformanceStats();
+      
+      // If too many particles are active, reduce quality to maintain visibility
+      if (stats.activeParticleCount > stats.maxParticles * 0.8) {
+        Logger.log(`Game: High particle count detected (${stats.activeParticleCount}/${stats.maxParticles}), ensuring visibility`);
+        
+        // Automatically reduce quality if particles are overwhelming
+        if (stats.qualityLevel === 'ultra') {
+          this.particleSystemManager.adjustQuality('high');
+        } else if (stats.qualityLevel === 'high') {
+          this.particleSystemManager.adjustQuality('medium');
+        } else if (stats.qualityLevel === 'medium') {
+          this.particleSystemManager.adjustQuality('low');
+        }
+      }
+      
+      // Ensure particles are rendered behind gameplay elements
+      // This is handled by the particle system's z-index management
+      
+    } catch (error) {
+      Logger.log(`Game: Error ensuring particle visibility compliance - ${error}`);
+    }
+  }
+
+  /**
    * Load fonts asynchronously before creating UI elements
    * Uses the shared FontLoader utility for consistent font loading across scenes
    * Requirements: 1.1, 1.2, 1.3, 1.4, 1.5
@@ -873,9 +969,17 @@ export class Game extends Scene {
   }
 
   private clearSprites(): void {
-    // Clear active piece sprites
+    // Clear active piece sprites and their particle effects
     this.activeSprites.forEach((sprite) => {
       try {
+        // Remove special dice auras before cleaning up sprites
+        // Requirements: 5.1, 5.3, 5.5
+        if (this.particleSystemManager && sprite && sprite.getData) {
+          const dieId = sprite.getData('dieId');
+          if (dieId) {
+            this.particleSystemManager.removeSpecialDiceAura(dieId);
+          }
+        }
         cleanupDie(sprite);
       } catch (e) {
         /* ignore */
@@ -985,6 +1089,11 @@ export class Game extends Scene {
         if (sprite) {
           this.activeSprites.push(sprite);
           successfulSprites++;
+          
+          // Create special dice particle effects for enhanced dice
+          // Requirements: 5.1, 5.2, 5.3, 5.4
+          this.createSpecialDiceParticleEffects(die, screenPos);
+          
           Logger.log(
             `RENDER ACTIVE DIE ${index}: SUCCESS - Created sprite in ${renderDuration.toFixed(2)}ms at screen(${screenPos.x}, ${screenPos.y})`
           );
@@ -1130,9 +1239,17 @@ export class Game extends Scene {
 
     const { height, width, cells } = this.gameBoard.state;
 
-    // Clear old locked sprites
+    // Clear old locked sprites and their particle effects
     this.lockedSprites.forEach((sprite) => {
       try {
+        // Remove special dice auras before cleaning up sprites
+        // Requirements: 5.1, 5.3, 5.5
+        if (this.particleSystemManager && sprite && sprite.getData) {
+          const dieId = sprite.getData('dieId');
+          if (dieId) {
+            this.particleSystemManager.removeSpecialDiceAura(dieId);
+          }
+        }
         cleanupDie(sprite);
       } catch (e) {
         /* ignore */
@@ -1165,6 +1282,10 @@ export class Game extends Scene {
 
         if (sprite) {
           this.lockedSprites.push(sprite);
+          
+          // Create special dice particle effects for locked enhanced dice
+          // Requirements: 5.1, 5.2, 5.3, 5.4, 5.5
+          this.createSpecialDiceParticleEffects(die, screenPos);
         }
       }
     }
@@ -2003,6 +2124,30 @@ export class Game extends Scene {
               const size = m.size || positions.length;
               const matchedNumber = m.matchedNumber ?? 0;
 
+              // Check for special dice activation effects before clearing
+              // Requirements: 5.2, 5.4
+              if (this.particleSystemManager && boardMetrics) {
+                for (const p of positions) {
+                  const die = this.gameBoard.getCell(p as any);
+                  if (die && (die.boosterType || die.isBlack || die.glowColor)) {
+                    // Convert grid position to screen coordinates
+                    const screenPos = this.coordinateConverter.gridToScreen(p.x, p.y, boardMetrics);
+                    const position = new Phaser.Math.Vector2(screenPos.x, screenPos.y);
+                    
+                    // Trigger special dice activation effect
+                    this.particleSystemManager.triggerSpecialDiceActivation(die, position);
+                    
+                    // Create booster activation burst for booster dice
+                    if (die.boosterType && die.boosterType !== 'none') {
+                      this.particleSystemManager.createBoosterActivationBurst(position, die.boosterType);
+                    }
+                    
+                    // Remove aura since the die is being cleared
+                    this.particleSystemManager.removeSpecialDiceAura(die.id);
+                  }
+                }
+              }
+
               // Sum of sides (total possible die faces) for this match
               let facesTotal = 0;
               for (const p of positions) {
@@ -2726,6 +2871,10 @@ export class Game extends Scene {
               new Phaser.Math.Vector2(newScreenPos.x, newScreenPos.y)
             );
           }
+          
+          // Update special dice aura positions for moving dice
+          // Requirements: 5.1, 5.3, 5.5
+          this.updateSpecialDiceAuraPositions(boardMetrics);
         }
       }
       
@@ -3788,6 +3937,10 @@ export class Game extends Scene {
     // Update particle system
     if (this.particleSystemManager) {
       this.particleSystemManager.update(delta);
+      
+      // Ensure particles don't interfere with gameplay visibility
+      // Requirements: 1.3, 2.5, 4.5, 5.5
+      this.ensureParticleVisibilityCompliance();
     }
     
     // Update background bouncing using BackgroundBouncer

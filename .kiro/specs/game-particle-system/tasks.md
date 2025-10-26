@@ -32,7 +32,7 @@
   - Integrate with existing scoring and combo systems
   - _Requirements: 3.3, 3.4, 3.5_
 
-- [ ] 5. Add special dice particle effects
+- [x] 5. Add special dice particle effects
 
   - Create SpecialDiceEffectManager for booster and special dice
   - Implement glowing aura effects around enhanced dice
@@ -40,7 +40,8 @@
   - Create magical transformation effects for black dice (wild cards)
   - _Requirements: 5.1, 5.2, 5.3, 5.4_
 
-- [ ] 6. Integrate particle system with Game scene
+- [x] 6. Integrate particle system with Game scene
+
 
   - Add ParticleSystemManager to Game scene initialization
   - Connect particle effects to existing game event systems
