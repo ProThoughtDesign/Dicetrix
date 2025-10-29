@@ -1,0 +1,181 @@
+// Dicetrix Game Music - Strudel Live Coding
+// This file contains algorithmic music patterns for the Dicetrix game
+// Use with Strudel (https://strudel.tidalcycles.org/) to generate music
+
+// ===== MENU THEME =====
+// Welcoming, energetic theme that sets the game mood
+const menuTheme = stack(
+  // Main melody - bright and inviting
+  note("c4 e4 g4 c5").s("sawtooth").lpf(800).room(0.3)
+    .slow(2).every(4, rev),
+  
+  // Bass line - steady foundation
+  note("c2 c2 f2 g2").s("square").lpf(200)
+    .slow(4).gain(0.7),
+    
+  // Percussion - light and bouncy
+  s("bd ~ sd ~").gain(0.8),
+  s("~ hh ~ hh").gain(0.4).pan(sine.slow(8))
+).slow(1);
+
+// ===== EASY MODE =====
+// Relaxed, friendly melody for casual play
+const easyMode = stack(
+  // Gentle arpeggios
+  note("c4 e4 g4 b4 c5 b4 g4 e4").s("sine").lpf(1000)
+    .slow(4).gain(0.6).delay(0.2).room(0.4),
+    
+  // Soft bass
+  note("c2 ~ g2 ~").s("triangle").lpf(150)
+    .slow(2).gain(0.5),
+    
+  // Minimal percussion
+  s("bd ~ ~ ~").gain(0.6),
+  s("~ ~ sd ~").gain(0.4)
+).slow(2);
+
+// ===== MEDIUM MODE =====
+// Upbeat, engaging rhythm for moderate challenge
+const mediumMode = stack(
+  // Synth lead with movement
+  note("c4 d4 e4 f4 g4 a4 b4 c5").s("sawtooth")
+    .lpf(sine.range(400, 1200).slow(8))
+    .slow(2).gain(0.7),
+    
+  // Driving bass
+  note("c2 c2 f2 f2 g2 g2 c2 c2").s("square").lpf(200)
+    .slow(4).gain(0.8),
+    
+  // Active drums
+  s("bd sd bd sd").gain(0.9),
+  s("hh hh hh hh").gain(0.3).pan(rand.range(-0.5, 0.5))
+).slow(1);
+
+// ===== HARD MODE =====
+// Intense, driving beat for challenging gameplay
+const hardMode = stack(
+  // Aggressive lead
+  note("c4 eb4 f4 g4 bb4 c5").s("sawtooth")
+    .lpf(sine.range(600, 1600).fast(2))
+    .distort(0.3).slow(1.5).gain(0.8),
+    
+  // Heavy bass
+  note("c1 ~ c2 ~ f1 ~ g1 ~").s("square")
+    .lpf(180).distort(0.2).gain(0.9),
+    
+  // Driving percussion
+  s("bd bd sd bd").gain(1.0),
+  s("hh ~ hh hh").gain(0.5).hpf(8000)
+).slow(0.75);
+
+// ===== EXPERT MODE =====
+// Complex, challenging composition for expert players
+const expertMode = stack(
+  // Polyrhythmic melody
+  note("c4 d4 eb4 f4 g4 ab4 bb4 c5").s("sawtooth")
+    .every(3, rev).every(5, x => x.add(7))
+    .lpf(sine.range(500, 2000).slow(6))
+    .slow(3).gain(0.7),
+    
+  // Complex bass pattern
+  note("c2 f2 bb1 eb2 ab1 db2 gb1 b1").s("square")
+    .lpf(220).slow(7).gain(0.8),
+    
+  // Intricate rhythms
+  s("bd ~ sd ~ bd sd ~ bd").gain(0.9),
+  s("hh hh ~ hh ~ hh hh ~").gain(0.4).every(7, rev)
+).slow(1.2);
+
+// ===== ZEN MODE =====
+// Calm, meditative ambient music for relaxed play
+const zenMode = stack(
+  // Floating pads
+  note("c4 e4 g4 b4").s("sine").add(note("e4 g4 b4 d5"))
+    .lpf(600).room(0.8).delay(0.5)
+    .slow(8).gain(0.4),
+    
+  // Deep, slow bass
+  note("c1 ~ ~ ~ g1 ~ ~ ~").s("sine")
+    .lpf(100).slow(8).gain(0.3),
+    
+  // Subtle ambient sounds
+  s("~ ~ ~ bd").gain(0.3).room(0.9),
+  noise().lpf(200).hpf(50).gain(0.1).slow(16)
+).slow(4);
+
+// ===== DYNAMIC MUSIC SYSTEM =====
+// Functions to create adaptive music based on game state
+
+// Cascade intensity - music gets more intense with longer cascades
+const cascadeMusic = (intensity = 1) => {
+  const basePattern = note("c4 e4 g4 c5").s("sawtooth");
+  return basePattern
+    .fast(1 + intensity * 0.5)
+    .lpf(400 + intensity * 400)
+    .gain(0.5 + intensity * 0.3)
+    .distort(intensity * 0.2);
+};
+
+// Level progression - music evolves as player advances
+const levelMusic = (level = 1) => {
+  const complexity = Math.min(level / 10, 1);
+  return stack(
+    note("c4 e4 g4 b4").s("sine")
+      .every(Math.floor(4 - complexity * 3), rev)
+      .lpf(600 + complexity * 800),
+    s("bd ~ sd ~").fast(1 + complexity)
+  );
+};
+
+// Tension music - builds as grid fills up
+const tensionMusic = (fillPercentage = 0) => {
+  return stack(
+    note("c4 d4 e4 f4").s("sawtooth")
+      .lpf(800 - fillPercentage * 400)
+      .distort(fillPercentage * 0.5)
+      .fast(1 + fillPercentage),
+    s("bd bd sd bd").gain(0.7 + fillPercentage * 0.3)
+  );
+};
+
+// ===== EXPORT PATTERNS =====
+// Main patterns to be used in the game
+
+// Menu and mode-specific themes
+export const patterns = {
+  menuTheme,
+  easyMode,
+  mediumMode,
+  hardMode,
+  expertMode,
+  zenMode,
+  
+  // Dynamic patterns
+  cascadeMusic,
+  levelMusic,
+  tensionMusic
+};
+
+// ===== USAGE INSTRUCTIONS =====
+/*
+To use these patterns in Strudel:
+
+1. Copy individual patterns to Strudel editor
+2. Use .play() to start playback: menuTheme.play()
+3. Use .stop() to stop: menuTheme.stop()
+4. Chain modifications: menuTheme.slow(2).lpf(400).play()
+
+For dynamic music:
+- cascadeMusic(3).play() // High intensity cascade
+- levelMusic(15).play() // Level 15 complexity
+- tensionMusic(0.8).play() // 80% grid filled
+
+To export as audio files:
+1. Play pattern in Strudel
+2. Use browser recording or audio interface
+3. Save as MP3 files with appropriate names
+4. Place in /assets/audio/music/ directory
+
+Pattern durations are designed to loop seamlessly.
+Adjust .slow() values to change tempo as needed.
+*/

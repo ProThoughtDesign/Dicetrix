@@ -1,0 +1,118 @@
+Kiro Spec Input: Build Dicetrix – Agentic Phaser Game for Reddit and Kiro Community Games Challenge
+High-Level User Stories
+As a solo game developer, I want to build and deploy "Dicetrix" as a Reddit-embeddable puzzle game, optimized for the Reddit and Kiro: Community Games Challenge (Devpost hackathon, submission deadline October 29, 2025, 6:00 pm PT), so that I can submit a polished Beta within 9 days (by October 28, 2025) and demonstrate Kiro's workflow impact.
+User Story 1: Core Gameplay Loop
+Generate a spec-driven prototype of a gravity-matching puzzle game where dice-based pieces fall onto a grid, matches clear with effects, and chains cascade.
+Acceptance Criteria:
+
+Pieces fall and lock correctly with player controls.
+Matches (3+ same-number dice) clear with size-based effects and color-triggered boosters.
+Cascades handle gravity and re-matching without lag.
+Scoring computes accurately with Base + Chain multipliers.
+Modes (Easy to Expert) scale dice types, colors, and risks.
+Jam Readiness: Playable in Reddit embeds; include Devpost submission metadata (e.g., README with hackathon tags).
+
+User Story 2: Technical Integration, Jam Deployment, and Social Features
+Integrate with Reddit's Devvit-Phaser template for seamless deployment as an embeddable app, with MCP hooks for Reddit API and Devpost submission prep, including leaderboards and score sharing.
+Acceptance Criteria:
+
+Project scaffolds from template (npm create devvit@latest --template=phaser).
+Phaser scenes handle full lifecycle (preload, play, end).
+Touch/keyboard inputs work in Reddit embeds.
+Build/deploy commands produce a playable .zip for itch.io fallback and Devpost upload.
+Reddit Leaderboards: Per difficulty (Easy, Medium, Hard, Expert, Zen) using Devvit/Reddit API to store/fetch high scores (e.g., top 10 per mode, user-authenticated via Reddit login).
+Score Sharing: Allow players to post scores to a dedicated subreddit (e.g., r/Dicetrix—handle creation via API if needed, or assume manual setup; include share button in GameOver scene posting formatted text like "My Dicetrix [Mode] Score: [Score]! #DicetrixJam").
+Timeline: Achieve Beta polish (bug-free core, basic assets, modes, social features) within 9 days for October 29, 2025, submission.
+
+User Story 3: Agentic Process Tracking and Reporting
+Designate a Secretary/Transcriptionist agent to maintain an AI-Diary and compile a workflow impact report, so that the entire Kiro-driven process is documented for analysis.
+Acceptance Criteria:
+
+AI-Diary.md: Logs all agent thoughts, methodologies, decisions, and iterations (e.g., spec refinements, code gen rationale).
+Report: Comprehensive PDF/MD on Kiro's impact (e.g., agents' roles in efficiency, spec-to-code speed, error reduction, workflow acceleration).
+Mandatory: Secretary agent runs as final phase, compiling from diary logs; auto-trigger on milestones (e.g., phase complete).
+Jam Tie-In: Include report in submission (e.g., as "Kiro Workflow Insights" section in README).
+
+Technical Design Document
+Overview: Dicetrix blends Tetris gravity, Candy Crush matching, and dice strategy on a 10x20 grid. Built in Phaser 3 with TypeScript for Reddit/itch.io. Focus: Spec-driven modularity for easy iteration (e.g., add boosters via config). Jam Goal: Polished Beta (core mechanics, assets, modes, no crashes) by October 28, 2025.
+Architecture:
+
+Scenes: Boot (preload assets), Menu (mode select/settings), Game (core loop), GameOver (results, with leaderboard view and share button).
+Key Classes:
+
+Die: Sprite with props (type: sides 4-20, number: 1-max, color: mode-scaled, isWild: bool, isBlack: bool). Methods: roll(), renderNumber().
+Piece: Group<Die> with methods: moveLeft/Right, rotate(degrees), lockToGrid().
+Grid: 2D array[10][20] of Die|null. Methods: detectMatches() (flood-fill for groups), applyGravity(), cascade().
+Booster: Generic {type: 'buff'|'debuff', duration: number, effect: Function}. Methods: activate(), update(), deactivate(). Events: onActivate (for HUD).
+
+
+Events Flow: Phaser events: 'pieceLocked' → detectMatches() → applySizeEffects() → checkColorsForBoosters() → applyGravity() → re-detect (up to 10 caps) → score().
+State Management: Global GameState (score, level, activeBoosters: Booster[], mode: 'Easy'|'Zen'|etc.).
+Integrations: MCP for Reddit API (e.g., high scores, embeds, leaderboard storage/fetch, subreddit post for scores); hooks for auto-logging to AI-Diary.md (e.g., on phase start/end, decision points). Devpost prep: Auto-generate submission form fields in README (e.g., video demo link placeholder). Explicit Template Reference: Clone and use the Phaser starter package from https://github.com/reddit/devvit-template-phaser for Reddit WebDev integration.
+
+Data Models:
+
+Die Types: {easy: [4,6], medium: [4,6,8,10], hard: [...12], expert: [...20]}.
+Colors: Modular array (3-7 by mode, e.g., ['red','blue','green','yellow','purple','orange','cyan']); debuff colors rare (10-15% prob in Medium+).
+Piece Shapes: Pool of Tetromino-like (I,O,T,L,J,S,Z + customs); max tiles: 5(Easy/Med),6(Hard),7(Expert).
+
+Non-Functional:
+
+Perf: <60ms per frame; batch renders.
+Accessibility: Colorblind patterns, speed sliders.
+Assets: Placeholder sprites (pyramid/cube/etc. + tints); SFX (clinks, pops).
+Diary/Report: Secretary agent compiles logs into structured report (sections: Thought Processes Overview, Methodologies Used, Agent Roles in Workflow, Quantitative Impact—e.g., iterations completed, time estimates saved via agents, qualitative gains in design-to-Beta speed).
+
+Implementation Tasks (Phased for Agentic Execution, with 9-Day Timeline)
+Phase 1: Scaffold and Core Loop (Days 1-2)
+
+Init template: Clone from https://github.com/reddit/devvit-template-phaser; run npm create devvit@latest --template=phaser; add TypeScript interfaces for Die/Piece/Grid/Booster.
+BootScene: Preload dice sprites, particles, audio (ambient tracks, SFX).
+GameScene: Generate Piece (random shape/type from mode pool); implement falling (timer, Arcade Physics); add controls (input handlers).
+On lock: Grid.add(Piece); detectMatches() → clear + sizeEffects().
+Secretary Hook: Log scaffold thoughts to AI-Diary.md (e.g., "Scaffold rationale: Modularity for jam iterations").
+
+Phase 2: Matching and Effects (Days 3-5)
+
+detectMatches(): Flood-fill for 3+ horizontal/vertical same-number groups (Wilds match any).
+Size Effects (instant):
+
+9: grid.clearAll() (wipe animation).
+7: clear7x7(center).
+5: spawnWild(random empty or next Piece).
+4: clearRow/Column (orientation-based).
+3: Standard clear.
+
+
+Color Boosters: If 3+ same color (most prevalent), activate Booster(s). Ties (≤3 colors): All tied (rainbow particles, +50% score). Generic Booster: Apply timed/quantified (e.g., slowDrop:10s, wildChance:10%/3 pieces).
+Ultimate Combo: If 3+ adjacent Wilds → upgrade all dice (max sides for mode + max value) → full cascade (unique anim: glow wave, morph, sparkles, shake; x5 multiplier). Expert: No Wild boosters (organic only).
+Black Die: On match (Hard/Expert, 1-2% rare), wipe non-piece boosters.
+Secretary Hook: Log methodologies (e.g., "Flood-fill chosen for efficiency in 10x20 grid") to AI-Diary.md.
+
+Phase 3: Scoring, Progression, Polish (Days 6-7)
+
+Base Score: (sum(die.sides for die in match) * match.size * matchedNumber).
+Chain Multiplier: +1x per floor(log2(chainIndex)) (e.g., 2nd:1x, 4th:2x). HUD: Breakdown display.
+Progression: Mode configs (dice, colors, piece max, speed); auto-advance on score thresholds. Zen: No over, buffs only.
+UI/Audio: HUD (score/level/next/booster icons); Menus; Neon theme (glows, tweens); SFX (thump/pop/whoosh/chime).
+Secretary Hook: Log polish decisions (e.g., "Animation tweaks for jam appeal") to AI-Diary.md.
+
+Phase 4: Testing, Deploy, Social Features, and Mandatory Report (Days 8-9)
+
+Edge Cases: Infinite cascades (cap 10), ties>3 (random 3), Black vs. Ultimate (Ultimate first), rotation collisions.
+Test: Desktop/mobile; optimize scans.
+Social Features: Implement leaderboards (Reddit API: store/fetch top 10 scores per mode, user-authenticated); score sharing (GameOver button posts to r/Dicetrix via API, formatted post with score/mode/hashtag).
+Build: npm run build/deploy; output zip with index.html for itch.io; prep Devpost submission (README with video placeholder, hackathon rules compliance).
+Secretary/Transcriptionist Agent: As mandatory final agent, compile AI-Diary.md into Impact_Report.md/PDF (sections: Thought Processes Overview, Methodologies Used, Agent Roles in Workflow, Quantitative Impact—e.g., iterations completed, time estimates saved via agents, qualitative gains in design-to-Beta speed). Reference jam context (e.g., "Kiro accelerated spec-to-deploy for October 29 deadline").
+Hooks: On save/milestone: Run tests (match accuracy, perf sim); lint TypeScript; append to AI-Diary.md; preview deploy.
+
+Steering Rules for Kiro Agents:
+
+Enforce modularity: No spaghetti; use events over callbacks.
+Prioritize relaxation: Slow defaults in Easy/Zen; forgiving debuffs (e.g., reroll mixed-effect).
+Flexibility: Config files for colors/boosters (easy swaps for jam polish).
+Quality: Add comments for future multipliers (e.g., level bonuses).
+Secretary Mandate: Log all agent actions/decisions to AI-Diary.md; compile report in Phase 4 as non-optional.
+Jam Focus: Optimize for Reddit embeds; ensure Beta polish (no crashes, basic assets, all modes playable, leaderboards/sharing) by Day 9.
+
+Generate full artifacts: User stories → TDD → Code files → Hooks config → AI-Diary.md (initial stub) → Impact_Report.md. Output as editable Kiro workspace (zip/repo), jam-submittable.
